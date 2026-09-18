@@ -8,6 +8,13 @@
       "when": 1789538430229,
       "tag": "0000_wild_vapor",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "6",
+      "when": 1789757374534,
+      "tag": "0001_quick_blizzard",
+      "breakpoints": true
     }
   ]
 }

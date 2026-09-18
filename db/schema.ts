@@ -44,3 +44,25 @@ export const hangers = sqliteTable(
     uniqueIndex("idx_hangers_track_listener").on(table.trackId, table.listenerId),
   ],
 );
+
+// Snapshot the song at Buy time so rotation or catalog edits cannot change delivery.
+// Checkout integration fills amount/session/account only after pricing and sale rights are approved.
+export const purchases = sqliteTable("purchases", {
+  id: text("id").primaryKey(),
+  buyerHash: text("buyer_hash").notNull(),
+  trackId: integer("track_id").notNull(),
+  title: text("title").notNull(),
+  artistName: text("artist_name").notNull(),
+  audioPath: text("audio_path").notNull(),
+  status: text("status").notNull().default("awaiting_checkout"),
+  amountCents: integer("amount_cents"),
+  currency: text("currency").notNull().default("usd"),
+  processorAccountId: text("processor_account_id"),
+  processorSessionId: text("processor_session_id"),
+  paymentIntentId: text("payment_intent_id"),
+  createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+  paidAt: text("paid_at"),
+}, (table) => [
+  uniqueIndex("idx_purchases_processor_session").on(table.processorSessionId),
+  index("idx_purchases_payment_intent").on(table.paymentIntentId),
+]);

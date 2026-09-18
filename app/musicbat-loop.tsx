@@ -60,6 +60,9 @@ export default function MusicBatLoop({ displayName }: { displayName: string }) {
   const [qualified, setQualified] = useState(false);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
+  const [purchaseBusy, setPurchaseBusy] = useState(false);
+  const [purchaseMessage, setPurchaseMessage] = useState("");
+  const purchaseStartingRef = useRef(false);
   const [message, setMessage] = useState("Loading rights-cleared Radio…");
   const [title, setTitle] = useState("");
   const [artistName, setArtistName] = useState("");
@@ -178,6 +181,26 @@ export default function MusicBatLoop({ displayName }: { displayName: string }) {
     }
   }
 
+  async function buyCurrentTrack() {
+    if (!current || purchaseStartingRef.current) return;
+    // Capture before awaiting: Radio can change without changing this purchase.
+    const selected = { id: current.id, title: current.title };
+    purchaseStartingRef.current = true;
+    setPurchaseBusy(true);
+    setPurchaseMessage(`Selecting “${selected.title}”…`);
+    try {
+      const result = await api<{ purchase: { id: string }; message: string; checkoutAvailable: false }>("/api/musicbat/purchase", {
+        method: "POST", body: JSON.stringify({ trackId: selected.id }),
+      });
+      setPurchaseMessage(result.message);
+    } catch (error) {
+      setPurchaseMessage(error instanceof Error ? error.message : "Could not prepare this purchase. Try again.");
+    } finally {
+      purchaseStartingRef.current = false;
+      setPurchaseBusy(false);
+    }
+  }
+
   async function addTrack(event: FormEvent) {
     event.preventDefault();
     if (!audioFile) { setUploadError("Choose your music file first."); return; }
@@ -257,8 +280,9 @@ export default function MusicBatLoop({ displayName }: { displayName: string }) {
                     <div className="mb-8 min-h-36"><div className="mb-3 text-sm uppercase tracking-[0.16em] text-white/38">Independent signal</div><h1 className="max-w-4xl text-4xl font-black leading-[0.98] tracking-[-0.045em] sm:text-6xl lg:text-7xl">{current.title}</h1><p className="mt-4 text-lg font-semibold text-white/58">{current.artist_name}</p></div>
                     <div className="flex flex-wrap items-center gap-3">
                       <audio key={current.id} className="musicbat-audio min-w-0 flex-1 basis-[240px]" controls preload="metadata" src={current.audio_url} onPlay={() => void startListen()} onTimeUpdate={(event) => void qualifyListen(event.currentTarget.currentTime)} onEnded={(event) => void qualifyListen(Math.max(12, event.currentTarget.currentTime))} onError={() => setMessage("This track could not play. Try again or choose another track.")} />
-                      <Button type="button" disabled title="Purchases are coming soon. Checkout is not connected yet." aria-label={`Buy ${current.title} — purchases coming soon`} data-track-id={current.id} className="h-12 shrink-0 rounded-full border border-[#ff3ea5]/50 bg-[#ff3ea5]/20 px-6 text-base font-black text-white disabled:opacity-60">Buy</Button>
+                      <Button type="button" disabled={purchaseBusy} aria-busy={purchaseBusy} onClick={() => void buyCurrentTrack()} aria-label={`Buy ${current.title}`} data-track-id={current.id} className="h-12 shrink-0 rounded-full border border-[#ff3ea5]/50 bg-[#ff3ea5]/20 px-6 text-base font-black text-white disabled:opacity-60">Buy</Button>
                     </div>
+                    {purchaseMessage && <p role="status" aria-live="polite" className="mt-3 text-sm leading-relaxed text-white/65">{purchaseMessage}</p>}
                     <div className="mt-6 flex flex-wrap gap-3">
                       {(Object.keys(hangerLabels) as Array<keyof typeof hangerLabels>).map((kind, index) => <Button key={kind} disabled={!qualified || busy} onClick={() => void placeHanger(kind)} className={index === 0 ? "h-11 rounded-full bg-[#ff3ea5] px-5 text-white hover:bg-[#ff69bd]" : "h-11 rounded-full border border-white/15 bg-white/[0.045] px-5 text-white hover:bg-white/10"}>{hangerLabels[kind]}</Button>)}
                       <Button variant="ghost" onClick={nextTrack} className="h-11 rounded-full px-4 text-white/55 hover:bg-white/10 hover:text-white"><SkipForward /> Next</Button>
