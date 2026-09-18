@@ -3,7 +3,7 @@
 import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Activity, Disc3, Gauge, Radio, ShieldCheck, Sparkles, Upload } from "lucide-react";
 import { MusicBatPlayer } from "@/components/musicbat-player";
-import { nextRadioTrack } from "@/lib/radio-rotation";
+import { selectNextTrack } from "./rotation";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
@@ -16,9 +16,13 @@ type Track = {
   audio_url: string;
   created_at: string;
   signal_count: number;
-  rotation_priority: number;
+  keep_in_rotation: number;
+  keep_count: number;
+  viewer_keep_in_rotation: number;
+  can_manage: number;
+  rotation_eligible: boolean;
   listener_hanger: keyof typeof hangerLabels | null;
-  listener_qualified: number;
+  viewer_qualified: number;
 };
 
 type WeightRow = {
@@ -63,7 +67,8 @@ export default function MusicBatLoop({ displayName }: { displayName: string }) {
   const [currentIndex, setCurrentIndex] = useState(0);
   const [replay, setReplay] = useState(0);
   const [autoPlay, setAutoPlay] = useState(false);
-  const playsRef = useRef(new Map<number, number>());
+  const creditsRef = useRef(new Map<number, number>());
+  const failedRef = useRef(new Set<number>());
   const currentTrackIdRef = useRef<number | null>(null);
   const activeSessionRef = useRef("");
   const hangerStartingRef = useRef(false);
@@ -88,14 +93,15 @@ export default function MusicBatLoop({ displayName }: { displayName: string }) {
   const current = tracks[currentIndex] ?? null;
   currentTrackIdRef.current = current?.id ?? null;
   activeSessionRef.current = `${current?.id}:${replay}`;
-  const canRespond = qualified || Boolean(current?.listener_qualified);
+  const canRespond = qualified || Boolean(current?.viewer_qualified);
+  const keepActive = Boolean(current?.can_manage ? current.keep_in_rotation : current?.viewer_keep_in_rotation);
 
   const refresh = useCallback(async () => {
     const [trackData, weightData] = await Promise.all([
       api<{ tracks: Track[] }>("/api/musicbat?view=tracks"),
       api<{ rows: WeightRow[] }>("/api/musicbat?view=weight-room"),
     ]);
-    const updated = trackData.tracks.map((track) => ({ ...track, id: Number(track.id), signal_count: Number(track.signal_count), rotation_priority: Number(track.rotation_priority), listener_qualified: Number(track.listener_qualified) }));
+    const updated = trackData.tracks.map((track) => ({ ...track, id: Number(track.id), signal_count: Number(track.signal_count), viewer_qualified: Number(track.viewer_qualified) }));
     const selectedIndex = updated.findIndex((track) => track.id === currentTrackIdRef.current);
     setTracks(updated);
     setCurrentIndex(Math.max(0, selectedIndex));
@@ -116,6 +122,7 @@ export default function MusicBatLoop({ displayName }: { displayName: string }) {
 
   useEffect(() => {
     setListenId(null);
+    setPurchaseMessage("");
     setQualified(false);
     startingRef.current = false;
     qualifyingRef.current = false;
@@ -187,20 +194,38 @@ export default function MusicBatLoop({ displayName }: { displayName: string }) {
     }
   }
 
+  async function toggleKeep(track: Track) {
+    if (hangerStartingRef.current) return;
+    const session = activeSessionRef.current;
+    const active = Boolean(track.can_manage ? track.keep_in_rotation : track.viewer_keep_in_rotation);
+    hangerStartingRef.current = true;
+    setBusy(true);
+    try {
+      await api("/api/musicbat", { method: "POST", body: JSON.stringify({
+        action: track.can_manage ? "set_rotation_priority" : "toggle_rotation_hanger",
+        trackId: track.id, enabled: !active,
+      }) });
+      await refresh();
+      if (activeSessionRef.current === session) setMessage(active ? "Keep in rotation is off. This song remains in normal Radio rotation." : "Keep in rotation is on. Rotation priority saved.");
+    } catch (error) {
+      if (activeSessionRef.current === session) setMessage(error instanceof Error ? error.message : "Rotation setting could not be saved.");
+    } finally { setBusy(false); hangerStartingRef.current = false; }
+  }
+
   async function placeHanger(kind: keyof typeof hangerLabels) {
+    if (kind === "keep_in_rotation") { if (current) await toggleKeep(current); return; }
     if (!current || !canRespond || hangerStartingRef.current) return;
     const selected = current;
     const session = activeSessionRef.current;
-    const enabled = kind === "keep_in_rotation" ? selected.listener_hanger !== kind : undefined;
     hangerStartingRef.current = true;
     setBusy(true);
     try {
       await api("/api/musicbat", {
         method: "POST",
-        body: JSON.stringify({ action: "hanger", trackId: selected.id, kind, enabled }),
+        body: JSON.stringify({ action: "hanger", trackId: selected.id, kind }),
       });
       await refresh();
-      if (activeSessionRef.current === session) setMessage(enabled === false ? "Keep in rotation is off. This song remains in normal Radio rotation." : `${hangerLabels[kind]} recorded. The Weight Room has been updated.`);
+      if (activeSessionRef.current === session) setMessage(`${hangerLabels[kind]} recorded. The Weight Room has been updated.`);
     } catch (error) {
       if (activeSessionRef.current === session) setMessage(error instanceof Error ? error.message : "Hanger could not be recorded.");
     } finally {
@@ -261,13 +286,11 @@ export default function MusicBatLoop({ displayName }: { displayName: string }) {
     }
   }
 
-  function nextTrack() {
-    if (!current) return;
-    playsRef.current.set(current.id, (playsRef.current.get(current.id) ?? 0) + 1);
-    const nextId = nextRadioTrack(tracks, current.id, playsRef.current);
-    if (nextId === null) return;
-    setAutoPlay(true);
-    setCurrentIndex(tracks.findIndex((track) => track.id === nextId));
+  function nextTrack(continuePlaying = true) {
+    const next = selectNextTrack(tracks, current?.id, creditsRef.current, failedRef.current);
+    if (!next) { setAutoPlay(false); setMessage("No playable eligible tracks are available. Choose a track to retry."); return; }
+    setAutoPlay(continuePlaying);
+    setCurrentIndex(tracks.findIndex((track) => track.id === next.id));
     setReplay((value) => value + 1);
     setMessage("Radio continues. Every song remains eligible for rotation.");
   }
@@ -312,12 +335,12 @@ export default function MusicBatLoop({ displayName }: { displayName: string }) {
                   {current ? <>
                     <div className="mb-8 min-h-36"><div className="mb-3 text-sm uppercase tracking-[0.16em] text-white/38">Independent signal</div><h1 className="max-w-4xl text-4xl font-black leading-[0.98] tracking-[-0.045em] sm:text-6xl lg:text-7xl">{current.title}</h1><p className="mt-4 text-lg font-semibold text-white/58">{current.artist_name}</p></div>
                     <div className="flex flex-wrap items-center gap-3">
-                      <MusicBatPlayer src={current.audio_url} title={current.title} replay={replay} autoPlay={autoPlay} onPlay={() => { setAutoPlay(true); void startListen(); }} onProgress={(seconds) => void qualifyListen(seconds)} onEnded={nextTrack} onError={setMessage} />
+                      <MusicBatPlayer src={current.audio_url} title={current.title} replay={replay} autoPlay={autoPlay} onPlay={() => { setAutoPlay(true); void startListen(); }} onProgress={(seconds) => void qualifyListen(seconds)} onEnded={() => nextTrack(true)} onError={setMessage} onUnavailable={() => { failedRef.current.add(current.id); nextTrack(autoPlay); }} />
                       <Button type="button" disabled={purchaseBusy} aria-busy={purchaseBusy} onClick={() => void buyCurrentTrack()} aria-label={`Buy ${current.title}`} data-track-id={current.id} className="h-12 shrink-0 rounded-full border border-[#ff3ea5]/50 bg-[#ff3ea5]/20 px-6 text-base font-black text-white disabled:opacity-60">Buy</Button>
                     </div>
                     {purchaseMessage && <p role="status" aria-live="polite" className="mt-3 text-sm leading-relaxed text-white/65">{purchaseMessage}</p>}
                     <div className="mt-6 flex flex-wrap gap-3">
-                      {(Object.keys(hangerLabels) as Array<keyof typeof hangerLabels>).map((kind) => <Button key={kind} aria-pressed={current.listener_hanger === kind} disabled={!canRespond || busy} onClick={() => void placeHanger(kind)} title={kind === "keep_in_rotation" ? "On gives extra rotation priority. Off keeps normal Radio eligibility." : kind === "standout" ? "Mark this song as exceptional." : "Tell the artist you want to hear more."} className={current.listener_hanger === kind ? "h-11 rounded-full border border-[#ff69bd] bg-[#ff3ea5] px-5 text-white shadow-[0_0_18px_rgba(255,62,165,.35)] hover:bg-[#ff69bd]" : kind === "keep_in_rotation" ? "h-11 rounded-full border border-[#ff3ea5]/60 bg-[#ff3ea5]/10 px-5 text-[#ff9dcc] hover:bg-[#ff3ea5]/20" : "h-11 rounded-full border border-white/15 bg-white/[0.045] px-5 text-white hover:bg-white/10"}>{hangerLabels[kind]}</Button>)}
+                      {(Object.keys(hangerLabels) as Array<keyof typeof hangerLabels>).map((kind) => <Button key={kind} aria-pressed={kind === "keep_in_rotation" ? keepActive : current.listener_hanger === kind} disabled={busy || (kind === "keep_in_rotation" ? !current.can_manage && !canRespond && !keepActive : !canRespond)} onClick={() => void placeHanger(kind)} title={kind === "keep_in_rotation" ? "On gives extra rotation priority. Off keeps normal Radio eligibility." : kind === "standout" ? "Mark this song as exceptional." : "Tell the artist you want to hear more."} className={(kind === "keep_in_rotation" ? keepActive : current.listener_hanger === kind) ? "h-11 rounded-full border border-[#ff69bd] bg-[#ff3ea5] px-5 text-white shadow-[0_0_18px_rgba(255,62,165,.35)] hover:bg-[#ff69bd]" : kind === "keep_in_rotation" ? "h-11 rounded-full border border-[#ff3ea5]/60 bg-[#ff3ea5]/10 px-5 text-[#ff9dcc] hover:bg-[#ff3ea5]/20" : "h-11 rounded-full border border-white/15 bg-white/[0.045] px-5 text-white hover:bg-white/10"}>{hangerLabels[kind]}</Button>)}
                     </div>
                   </> : <div className="grid min-h-[390px] place-items-center text-center"><div><Disc3 className="mx-auto mb-5 size-12 text-[#ff69bd]" /><h1 className="text-3xl font-black tracking-tight">Radio needs its first track.</h1><p className="mx-auto mt-3 max-w-md text-white/52">Upload your music file and confirm your rights to enter Radio.</p><Button onClick={() => setTab("catalog")} className="mt-6 rounded-full bg-[#ff3ea5] px-6 text-white hover:bg-[#ff69bd]">Add the first track</Button></div></div>}
                 </div>
@@ -356,7 +379,7 @@ export default function MusicBatLoop({ displayName }: { displayName: string }) {
               </form>
               <div className="rounded-[1.75rem] border border-white/10 bg-white/[0.025] p-6 sm:p-8">
                 <div className="mb-5 flex items-center justify-between"><div><div className="text-xs font-black uppercase tracking-[0.18em] text-white/42">Rights-cleared catalog</div><h2 className="mt-2 text-2xl font-black">{tracks.length} active track{tracks.length === 1 ? "" : "s"}</h2></div><ShieldCheck className="size-7 text-[#ff69bd]" /></div>
-                <div className="space-y-2">{tracks.map((track) => <button type="button" key={track.id} onClick={() => { setCurrentIndex(tracks.findIndex((item) => item.id === track.id)); setTab("radio"); }} className="flex w-full items-center justify-between gap-4 rounded-xl border border-white/8 bg-white/[0.035] p-4 text-left transition hover:border-[#ff3ea5]/40 hover:bg-[#ff3ea5]/5"><div className="min-w-0"><div className="truncate font-bold">{track.title}</div><div className="truncate text-sm text-white/42">{track.artist_name}</div></div><div className="shrink-0 text-xs font-black uppercase tracking-wider text-[#ff69bd]">Play</div></button>)}</div>
+                <div className="space-y-2">{tracks.map((track) => <div key={track.id} className="flex flex-wrap items-center gap-2"><button type="button" onClick={() => { failedRef.current.delete(track.id); setAutoPlay(false); setCurrentIndex(tracks.findIndex((item) => item.id === track.id)); setReplay((cycle) => cycle + 1); setTab("radio"); }} className="flex min-w-0 flex-1 basis-[220px] items-center justify-between gap-4 rounded-xl border border-white/8 bg-white/[0.035] p-4 text-left transition hover:border-[#ff3ea5]/40 hover:bg-[#ff3ea5]/5"><div className="min-w-0"><div className="truncate font-bold">{track.title}</div><div className="truncate text-sm text-white/42">{track.artist_name}</div></div><div className="shrink-0 text-xs font-black uppercase tracking-wider text-[#ff69bd]">Play</div></button>{Boolean(track.can_manage) && <Button type="button" aria-label={`Keep ${track.title} in rotation`} aria-pressed={Boolean(track.keep_in_rotation)} disabled={busy} onClick={() => void toggleKeep(track)} className={track.keep_in_rotation ? "h-11 rounded-full bg-[#ff3ea5] px-4 text-white hover:bg-[#ff69bd]" : "h-11 rounded-full border border-white/15 bg-white/[0.045] px-4 text-white hover:bg-white/10"}>Keep in rotation</Button>}</div>)}</div>
               </div>
             </section>
           </TabsContent>

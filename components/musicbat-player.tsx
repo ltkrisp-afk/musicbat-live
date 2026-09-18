@@ -9,10 +9,11 @@ function time(seconds: number) {
   return `${Math.floor(value / 60)}:${String(value % 60).padStart(2, "0")}`;
 }
 
-export function MusicBatPlayer({ src, title, replay, autoPlay, onPlay, onProgress, onEnded, onError }: {
+export function MusicBatPlayer({ src, title, replay, autoPlay, onPlay, onProgress, onEnded, onError, onUnavailable }: {
   src: string; title: string; replay: number; autoPlay: boolean;
   onPlay: () => void; onProgress: (seconds: number) => void;
   onEnded: () => void; onError: (message: string) => void;
+  onUnavailable: () => void;
 }) {
   const audioRef = useRef<HTMLAudioElement>(null);
   const advanceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -64,7 +65,7 @@ export function MusicBatPlayer({ src, title, replay, autoPlay, onPlay, onProgres
         if (advanceRef.current) clearTimeout(advanceRef.current);
         advanceRef.current = setTimeout(() => { advanceRef.current = null; onEnded(); }, 500);
       }}
-      onError={() => onError("This track could not play. Press Play to try again.")} />
+      onError={onUnavailable} />
     <Button type="button" variant="ghost" size="icon" onClick={() => void togglePlay()} aria-label={playing ? "Pause Radio" : "Play Radio"} className="rounded-full text-white hover:bg-white/10 hover:text-white">{playing ? <Pause /> : <Play />}</Button>
     <span className="text-xs tabular-nums text-white/70">{time(position)} / {time(duration)}</span>
     <input type="range" aria-label="Playback position" min="0" max={Number.isFinite(duration) ? duration : 0} step="0.1" value={Math.min(position, Number.isFinite(duration) ? duration : 0)} disabled={!duration || !Number.isFinite(duration)}
