@@ -1,7 +1,7 @@
 "use client";
 
 import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Activity, Disc3, Gauge, Radio, ShieldCheck, SkipForward, Sparkles } from "lucide-react";
+import { Activity, Disc3, Gauge, Radio, ShieldCheck, SkipForward, Sparkles, Upload } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
@@ -38,7 +38,7 @@ type ToolContext = {
 async function api<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(path, {
     ...init,
-    headers: { "content-type": "application/json", ...(init?.headers ?? {}) },
+    headers: { ...(init?.body instanceof FormData ? {} : { "content-type": "application/json" }), ...(init?.headers ?? {}) },
   });
   const data = (await response.json()) as T & { error?: string };
   if (!response.ok) throw new Error(data.error ?? "MusicBat request failed.");
@@ -63,7 +63,10 @@ export default function MusicBatLoop({ displayName }: { displayName: string }) {
   const [message, setMessage] = useState("Loading rights-cleared Radio…");
   const [title, setTitle] = useState("");
   const [artistName, setArtistName] = useState("");
-  const [audioUrl, setAudioUrl] = useState("");
+  const [audioFile, setAudioFile] = useState<File | null>(null);
+  const [uploadError, setUploadError] = useState("");
+  const [signInRequired, setSignInRequired] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const [rightsAttested, setRightsAttested] = useState(false);
   const startingRef = useRef(false);
   const qualifyingRef = useRef(false);
@@ -177,22 +180,31 @@ export default function MusicBatLoop({ displayName }: { displayName: string }) {
 
   async function addTrack(event: FormEvent) {
     event.preventDefault();
+    if (!audioFile) { setUploadError("Choose your music file first."); return; }
     setBusy(true);
+    setUploadError("");
+    setSignInRequired(false);
     try {
-      await api("/api/musicbat", {
-        method: "POST",
-        body: JSON.stringify({ action: "add_track", title, artistName, audioUrl, rightsAttested }),
-      });
+      const form = new FormData();
+      form.set("title", title);
+      form.set("artistName", artistName);
+      form.set("audio", audioFile);
+      form.set("rightsAttested", String(rightsAttested));
+      await api("/api/musicbat", { method: "POST", body: form });
       setTitle("");
       setArtistName("");
-      setAudioUrl("");
+      setAudioFile(null);
+      if (fileInputRef.current) fileInputRef.current.value = "";
       setRightsAttested(false);
       await refresh();
       setCurrentIndex(0);
       setTab("radio");
       setMessage("Track accepted. It is now live in MusicBat Radio.");
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Track could not be added.");
+      const detail = error instanceof Error ? error.message : "Track could not be added.";
+      setUploadError(detail);
+      setSignInRequired(detail === "Sign in to use MusicBat.");
+      setMessage(detail);
     } finally {
       setBusy(false);
     }
@@ -243,12 +255,12 @@ export default function MusicBatLoop({ displayName }: { displayName: string }) {
                   <div className="mb-10 flex items-center justify-between gap-4"><div className="flex items-center gap-2 text-xs font-black uppercase tracking-[0.18em] text-[#ff69bd]"><span className="size-2 rounded-full bg-[#ff3ea5] shadow-[0_0_14px_#ff3ea5]" /> Now in the cave</div><div className="rounded-full border border-white/10 px-3 py-1 text-xs text-white/45">{tracks.length ? `${currentIndex + 1} / ${tracks.length}` : "0 / 0"}</div></div>
                   {current ? <>
                     <div className="mb-8 min-h-36"><div className="mb-3 text-sm uppercase tracking-[0.16em] text-white/38">Independent signal</div><h1 className="max-w-4xl text-4xl font-black leading-[0.98] tracking-[-0.045em] sm:text-6xl lg:text-7xl">{current.title}</h1><p className="mt-4 text-lg font-semibold text-white/58">{current.artist_name}</p></div>
-                    <audio key={current.id} className="musicbat-audio w-full" controls preload="metadata" src={current.audio_url} onPlay={() => void startListen()} onTimeUpdate={(event) => void qualifyListen(event.currentTarget.currentTime)} onEnded={(event) => void qualifyListen(Math.max(12, event.currentTarget.currentTime))} />
+                    <audio key={current.id} className="musicbat-audio w-full" controls preload="metadata" src={current.audio_url} onPlay={() => void startListen()} onTimeUpdate={(event) => void qualifyListen(event.currentTarget.currentTime)} onEnded={(event) => void qualifyListen(Math.max(12, event.currentTarget.currentTime))} onError={() => setMessage("This track could not play. Try again or choose another track.")} />
                     <div className="mt-6 flex flex-wrap gap-3">
                       {(Object.keys(hangerLabels) as Array<keyof typeof hangerLabels>).map((kind, index) => <Button key={kind} disabled={!qualified || busy} onClick={() => void placeHanger(kind)} className={index === 0 ? "h-11 rounded-full bg-[#ff3ea5] px-5 text-white hover:bg-[#ff69bd]" : "h-11 rounded-full border border-white/15 bg-white/[0.045] px-5 text-white hover:bg-white/10"}>{hangerLabels[kind]}</Button>)}
                       <Button variant="ghost" onClick={nextTrack} className="h-11 rounded-full px-4 text-white/55 hover:bg-white/10 hover:text-white"><SkipForward /> Next</Button>
                     </div>
-                  </> : <div className="grid min-h-[390px] place-items-center text-center"><div><Disc3 className="mx-auto mb-5 size-12 text-[#ff69bd]" /><h1 className="text-3xl font-black tracking-tight">Radio needs its first track.</h1><p className="mx-auto mt-3 max-w-md text-white/52">Add one direct audio link with a rights attestation. It enters Radio immediately.</p><Button onClick={() => setTab("catalog")} className="mt-6 rounded-full bg-[#ff3ea5] px-6 text-white hover:bg-[#ff69bd]">Add the first track</Button></div></div>}
+                  </> : <div className="grid min-h-[390px] place-items-center text-center"><div><Disc3 className="mx-auto mb-5 size-12 text-[#ff69bd]" /><h1 className="text-3xl font-black tracking-tight">Radio needs its first track.</h1><p className="mx-auto mt-3 max-w-md text-white/52">Upload your music file and confirm your rights to enter Radio.</p><Button onClick={() => setTab("catalog")} className="mt-6 rounded-full bg-[#ff3ea5] px-6 text-white hover:bg-[#ff69bd]">Add the first track</Button></div></div>}
                 </div>
               </div>
               <aside className="flex flex-col gap-5">
@@ -260,14 +272,27 @@ export default function MusicBatLoop({ displayName }: { displayName: string }) {
 
           <TabsContent value="catalog">
             <section className="grid gap-5 lg:grid-cols-[minmax(0,.8fr)_minmax(0,1.2fr)]">
-              <form onSubmit={addTrack} className="rounded-[1.75rem] border border-white/10 bg-[#111018] p-6 sm:p-8">
+              <form onSubmit={addTrack} aria-busy={busy} className="rounded-[1.75rem] border border-white/10 bg-[#111018] p-6 sm:p-8">
                 <div className="mb-7"><div className="text-xs font-black uppercase tracking-[0.18em] text-[#ff69bd]">Artist catalog</div><h1 className="mt-3 text-4xl font-black tracking-[-0.04em]">Put one track into motion.</h1></div>
                 <div className="space-y-4">
                   <label className="block"><span className="mb-2 block text-sm font-semibold text-white/65">Track title</span><Input value={title} onChange={(event) => setTitle(event.target.value)} required maxLength={120} className="h-12 rounded-xl border-white/12 bg-white/[0.045] px-4 text-white placeholder:text-white/25" placeholder="Track title" /></label>
-                  <label className="block"><span className="mb-2 block text-sm font-semibold text-white/65">Artist name</span><Input value={artistName} onChange={(event) => setArtistName(event.target.value)} maxLength={80} className="h-12 rounded-xl border-white/12 bg-white/[0.045] px-4 text-white placeholder:text-white/25" placeholder="Defaults to your signed-in name" /></label>
-                  <label className="block"><span className="mb-2 block text-sm font-semibold text-white/65">Direct audio URL</span><Input value={audioUrl} onChange={(event) => setAudioUrl(event.target.value)} required type="url" className="h-12 rounded-xl border-white/12 bg-white/[0.045] px-4 text-white placeholder:text-white/25" placeholder="https://…/track.mp3" /></label>
+                  <label className="block"><span className="mb-2 block text-sm font-semibold text-white/65">Artist or band name</span><Input value={artistName} onChange={(event) => setArtistName(event.target.value)} required maxLength={80} className="h-12 rounded-xl border-white/12 bg-white/[0.045] px-4 text-white placeholder:text-white/25" placeholder="Artist or band name" /></label>
+                  <div className="rounded-xl border border-dashed border-[#ff3ea5]/35 bg-[#ff3ea5]/5 p-4">
+                    <input ref={fileInputRef} type="file" aria-label="Choose your music file" accept=".mp3,.wav,.flac,audio/mpeg,audio/wav,audio/flac" className="sr-only" disabled={busy} onChange={(event) => {
+                      const file = event.target.files?.[0] ?? null;
+                      setAudioFile(null);
+                      setUploadError("");
+                      if (file && file.size > 25 * 1024 * 1024) { setUploadError("Choose an audio file under 25 MB."); event.target.value = ""; return; }
+                      if (file && (!file.size || !/\.(mp3|wav|flac)$/i.test(file.name))) { setUploadError("Choose an MP3, WAV, or FLAC audio file."); event.target.value = ""; return; }
+                      setAudioFile(file);
+                    }} />
+                    <Button type="button" disabled={busy} onClick={() => fileInputRef.current?.click()} className="h-12 w-full rounded-full border border-[#ff3ea5]/40 bg-[#ff3ea5]/15 px-4 text-base text-white hover:bg-[#ff3ea5]/25"><Upload /> {audioFile ? "Change music file" : "Upload your music"}</Button>
+                    <p className="mt-3 break-all text-sm text-white/65">{audioFile ? `${audioFile.name} · ${(audioFile.size / 1024 / 1024).toFixed(1)} MB` : "Choose a file from your device."}</p>
+                    <p className="mt-1 text-sm text-white/45">MP3, WAV, or FLAC · up to 25 MB. MP3 works best for Radio.</p>
+                  </div>
                   <label className="flex cursor-pointer items-start gap-3 rounded-xl border border-white/10 bg-white/[0.03] p-4"><Checkbox checked={rightsAttested} onCheckedChange={(value) => setRightsAttested(value === true)} className="mt-0.5 border-white/25 data-[state=checked]:border-[#ff3ea5] data-[state=checked]:bg-[#ff3ea5]" /><span className="text-sm leading-relaxed text-white/62">I own this recording or am authorized to present it, and I permit MusicBat to stream it in this test loop.</span></label>
-                  <Button disabled={busy || !rightsAttested} type="submit" className="h-12 w-full rounded-xl bg-[#ff3ea5] text-base font-black text-white hover:bg-[#ff69bd]">Add to Radio</Button>
+                  <Button disabled={busy || !rightsAttested || !audioFile} type="submit" className="h-12 w-full rounded-xl bg-[#ff3ea5] text-base font-black text-white hover:bg-[#ff69bd]">{busy ? "Uploading your track…" : "Add to Radio"}</Button>
+                  {uploadError && <p role="alert" className="text-sm text-[#ff9dcc]">{uploadError}{signInRequired && <> <a className="font-bold underline" href="/signin-with-chatgpt?return_to=%2F">Sign in to upload</a></>}</p>}
                 </div>
               </form>
               <div className="rounded-[1.75rem] border border-white/10 bg-white/[0.025] p-6 sm:p-8">

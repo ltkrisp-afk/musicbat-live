@@ -79,24 +79,70 @@ export async function POST(request: Request) {
   try {
     const user = await requireUser();
     const db = database();
+    if (request.headers.get("content-type")?.startsWith("multipart/form-data")) {
+      if (!env.BUCKET) return fail("Audio uploads are temporarily unavailable. Try again shortly.", 503);
+      const maximumBytes = 25 * 1024 * 1024;
+      if (Number(request.headers.get("content-length")) > maximumBytes + 65536) return fail("Choose an audio file under 25 MB.", 413);
+      // Bound the multipart body before parsing, including clients without Content-Length.
+      const reader = request.body?.getReader();
+      if (!reader) return fail("Choose an audio file.");
+      const chunks: Uint8Array[] = [];
+      let received = 0;
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        received += value.byteLength;
+        if (received > maximumBytes + 65536) {
+          await reader.cancel();
+          return fail("Choose an audio file under 25 MB.", 413);
+        }
+        chunks.push(value);
+      }
+      let form: FormData;
+      try {
+        form = await new Response(new Blob(chunks as BlobPart[]), { headers: { "content-type": request.headers.get("content-type")! } }).formData();
+      } catch { return fail("The upload could not be read. Choose your file again."); }
+      const title = String(form.get("title") ?? "").trim();
+      const artistName = String(form.get("artistName") ?? "").trim();
+      const file = form.get("audio");
+      if (!title || !artistName) return fail("Track title and artist or band name are required.");
+      if (title.length > 120 || artistName.length > 80) return fail("Track title or artist name is too long.");
+      if (form.get("rightsAttested") !== "true") return fail("Rights attestation is required.");
+      if (!(file instanceof File) || !file.size) return fail("Choose an audio file.");
+      if (file.size > maximumBytes) return fail("Choose an audio file under 25 MB.", 413);
+      const extension = file.name.split(".").pop()?.toLowerCase();
+      const signature = new Uint8Array(await file.slice(0, 12).arrayBuffer());
+      const prefix = new TextDecoder().decode(signature);
+      const audioTypes: Record<string, string> = { mp3: "audio/mpeg", wav: "audio/wav", flac: "audio/flac" };
+      const valid = (extension === "mp3" && (prefix.startsWith("ID3") || (signature[0] === 255 && (signature[1] & 224) === 224)))
+        || (extension === "wav" && prefix.startsWith("RIFF") && prefix.slice(8, 12) === "WAVE")
+        || (extension === "flac" && prefix.startsWith("fLaC"));
+      if (!extension || !valid) return fail("Choose an MP3, WAV, or FLAC audio file. MP3 is recommended for Radio.");
+      const assetId = `${crypto.randomUUID()}.${extension}`;
+      const key = `tracks/${assetId}`;
+      const audioUrl = `/api/musicbat/audio/${assetId}`;
+      await env.BUCKET.put(key, file, {
+        httpMetadata: { contentType: audioTypes[extension] },
+        customMetadata: { artistId: user.userId, originalFilename: file.name.slice(0, 200) },
+      });
+      let track;
+      try {
+        track = await db.prepare(`
+          INSERT INTO tracks (artist_id, artist_name, title, audio_url, rights_attested, status)
+          VALUES (?, ?, ?, ?, 1, 'active')
+          RETURNING id, title, artist_name, audio_url, created_at
+        `).bind(user.userId, artistName, title, audioUrl).first();
+        if (!track) throw new Error("Track registration failed");
+      } catch (error) {
+        await env.BUCKET.delete(key);
+        throw error;
+      }
+      return Response.json({ track }, { status: 201 });
+    }
     const body = (await request.json()) as ActionBody;
 
     if (body.action === "add_track") {
-      const title = body.title?.trim() ?? "";
-      const artistName = body.artistName?.trim() || user.displayName;
-      const audioUrl = body.audioUrl?.trim() ?? "";
-      if (!title || !audioUrl) return fail("Track title and direct audio URL are required.");
-      if (!body.rightsAttested) return fail("Rights attestation is required.");
-      let parsed: URL;
-      try { parsed = new URL(audioUrl); } catch { return fail("Enter a valid direct audio URL."); }
-      if (!["https:", "http:"].includes(parsed.protocol)) return fail("Audio URL must use HTTP or HTTPS.");
-
-      const result = await db.prepare(`
-        INSERT INTO tracks (artist_id, artist_name, title, audio_url, rights_attested, status)
-        VALUES (?, ?, ?, ?, 1, 'active')
-        RETURNING id, title, artist_name, audio_url, created_at
-      `).bind(user.userId, artistName.slice(0, 80), title.slice(0, 120), audioUrl).first();
-      return Response.json({ track: result }, { status: 201 });
+      return fail("Upload your music file with its track title and artist or band name.");
     }
 
     if (body.action === "start_listen") {
