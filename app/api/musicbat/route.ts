@@ -10,6 +10,7 @@ type ActionBody = {
   trackId?: number;
   listenId?: string;
   kind?: string;
+  enabled?: boolean;
 };
 
 const hangerKinds = new Set(["keep_in_rotation", "standout", "want_more"]);
@@ -59,17 +60,21 @@ export async function GET(request: Request) {
       return Response.json({ rows: rows.results });
     }
 
+    const viewer = await getChatGPTUser();
     const rows = await db.prepare(`
-      SELECT t.id, t.title, t.artist_name, t.audio_url, t.created_at,
+      SELECT t.id, t.title, t.artist_name, t.audio_url, t.created_at, t.keep_in_rotation,
+        (t.artist_id = ?) AS can_manage,
+        EXISTS(SELECT 1 FROM listens l WHERE l.track_id = t.id AND l.listener_id = ? AND l.qualified = 1) AS viewer_qualified,
+        MAX(CASE WHEN h.listener_id = ? AND h.kind = 'keep_in_rotation' THEN 1 ELSE 0 END) AS viewer_keep_in_rotation,
+        SUM(CASE WHEN h.kind = 'keep_in_rotation' THEN 1 ELSE 0 END) AS keep_count,
         COUNT(h.id) AS signal_count
       FROM tracks t
       LEFT JOIN hangers h ON h.track_id = t.id
       WHERE t.status = 'active' AND t.rights_attested = 1
       GROUP BY t.id, t.title, t.artist_name, t.audio_url, t.created_at
       ORDER BY t.created_at DESC, t.id DESC
-      LIMIT 50
-    `).all();
-    return Response.json({ tracks: rows.results });
+    `).bind(viewer?.userId ?? "", viewer?.userId ?? "", viewer?.userId ?? "").all();
+    return Response.json({ tracks: rows.results.map((track) => ({ ...track, rotation_eligible: true })) }, { headers: { "cache-control": "private, no-store" } });
   } catch (error) {
     return publicError(error);
   }
@@ -143,6 +148,39 @@ export async function POST(request: Request) {
 
     if (body.action === "add_track") {
       return fail("Upload your music file with its track title and artist or band name.");
+    }
+
+    if (body.action === "set_rotation_priority") {
+      const trackId = Number(body.trackId);
+      if (!Number.isInteger(trackId) || trackId < 1 || typeof body.enabled !== "boolean") return fail("A valid track and ON/OFF state are required.");
+      // Eligibility is controlled by status/rights, never by this priority flag.
+      const track = await db.prepare(`
+        UPDATE tracks SET keep_in_rotation = ?
+        WHERE id = ? AND artist_id = ?
+        RETURNING id, keep_in_rotation, status, rights_attested
+      `).bind(body.enabled ? 1 : 0, trackId, user.userId).first();
+      if (!track) return fail("Only the uploading artist can edit this track's priority.", 403);
+      if (!body.enabled) {
+        // Clear this artist's legacy Keep Hanger too; other listeners' signals remain.
+        await db.prepare("DELETE FROM hangers WHERE track_id = ? AND listener_id = ? AND kind = 'keep_in_rotation'").bind(trackId, user.userId).run();
+      }
+      return Response.json({ track });
+    }
+
+    if (body.action === "toggle_rotation_hanger") {
+      const trackId = Number(body.trackId);
+      if (!Number.isInteger(trackId) || trackId < 1 || typeof body.enabled !== "boolean") return fail("A valid track and ON/OFF state are required.");
+      const track = await db.prepare("SELECT id FROM tracks WHERE id = ? AND status = 'active' AND rights_attested = 1").bind(trackId).first();
+      if (!track) return fail("That track is unavailable.", 404);
+      const qualified = await db.prepare("SELECT id FROM listens WHERE track_id = ? AND listener_id = ? AND qualified = 1 LIMIT 1").bind(trackId, user.userId).first();
+      if (!qualified) return fail("A qualified listen is required before placing a Hanger.", 409);
+      if (body.enabled) {
+        await db.prepare(`INSERT INTO hangers (track_id, listener_id, kind) VALUES (?, ?, 'keep_in_rotation')
+          ON CONFLICT(track_id, listener_id) DO UPDATE SET kind = excluded.kind, created_at = CURRENT_TIMESTAMP`).bind(trackId, user.userId).run();
+      } else {
+        await db.prepare("DELETE FROM hangers WHERE track_id = ? AND listener_id = ? AND kind = 'keep_in_rotation'").bind(trackId, user.userId).run();
+      }
+      return Response.json({ recorded: body.enabled });
     }
 
     if (body.action === "start_listen") {

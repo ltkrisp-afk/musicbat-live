@@ -8,6 +8,7 @@ export const tracks = sqliteTable("tracks", {
   title: text("title").notNull(),
   audioUrl: text("audio_url").notNull(),
   rightsAttested: integer("rights_attested", { mode: "boolean" }).notNull().default(true),
+  keepInRotation: integer("keep_in_rotation", { mode: "boolean" }).notNull().default(false),
   status: text("status").notNull().default("active"),
   createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
 });

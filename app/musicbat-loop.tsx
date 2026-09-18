@@ -2,6 +2,7 @@
 
 import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Activity, Disc3, Gauge, Radio, ShieldCheck, SkipForward, Sparkles, Upload } from "lucide-react";
+import { selectNextTrack } from "./rotation";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
@@ -14,6 +15,12 @@ type Track = {
   audio_url: string;
   created_at: string;
   signal_count: number;
+  keep_in_rotation: number;
+  keep_count: number;
+  viewer_keep_in_rotation: number;
+  can_manage: number;
+  viewer_qualified: number;
+  rotation_eligible: boolean;
 };
 
 type WeightRow = {
@@ -74,14 +81,25 @@ export default function MusicBatLoop({ displayName }: { displayName: string }) {
   const startingRef = useRef(false);
   const qualifyingRef = useRef(false);
 
+  const audioRef = useRef<HTMLAudioElement>(null);
+  const creditsRef = useRef(new Map<number, number>());
+  const failedRef = useRef(new Set<number>());
+  const continuingRef = useRef(false);
+  const [playbackCycle, setPlaybackCycle] = useState(0);
   const current = tracks[currentIndex] ?? null;
+  const currentIdRef = useRef(current?.id);
+  currentIdRef.current = current?.id;
+  const keepActive = Boolean(current?.can_manage ? current.keep_in_rotation : current?.viewer_keep_in_rotation);
 
   const refresh = useCallback(async () => {
     const [trackData, weightData] = await Promise.all([
       api<{ tracks: Track[] }>("/api/musicbat?view=tracks"),
       api<{ rows: WeightRow[] }>("/api/musicbat?view=weight-room"),
     ]);
-    setTracks(trackData.tracks.map((track) => ({ ...track, id: Number(track.id), signal_count: Number(track.signal_count) })));
+    const nextTracks = trackData.tracks.map((track) => ({ ...track, id: Number(track.id), signal_count: Number(track.signal_count) }));
+    const selectedIndex = nextTracks.findIndex((track) => track.id === currentIdRef.current);
+    setTracks(nextTracks);
+    setCurrentIndex(selectedIndex >= 0 ? selectedIndex : 0);
     setWeightRows(weightData.rows.map((row) => ({
       ...row,
       track_id: Number(row.track_id),
@@ -99,10 +117,11 @@ export default function MusicBatLoop({ displayName }: { displayName: string }) {
 
   useEffect(() => {
     setListenId(null);
+    setPurchaseMessage("");
     setQualified(false);
     startingRef.current = false;
     qualifyingRef.current = false;
-  }, [current?.id]);
+  }, [current?.id, playbackCycle]);
 
   useEffect(() => {
     const context = (document as Document & { modelContext?: ToolContext }).modelContext;
@@ -130,14 +149,39 @@ export default function MusicBatLoop({ displayName }: { displayName: string }) {
     return () => lifecycle.abort();
   }, []);
 
+  useEffect(() => {
+    if (!continuingRef.current || !audioRef.current) return;
+    void audioRef.current.play().catch(() => {
+      continuingRef.current = false;
+      setMessage("Next track is ready. Press play to continue.");
+    });
+  }, [current?.id, playbackCycle, tab]);
+
+  async function toggleKeep(track: Track) {
+    setBusy(true);
+    const active = Boolean(track.can_manage ? track.keep_in_rotation : track.viewer_keep_in_rotation);
+    try {
+      await api("/api/musicbat", { method: "POST", body: JSON.stringify({
+        action: track.can_manage ? "set_rotation_priority" : "toggle_rotation_hanger",
+        trackId: track.id, enabled: !active,
+      }) });
+      await refresh();
+      setMessage(active ? "Rotation priority off. This track remains in normal Radio rotation." : "Keep in rotation is on. Rotation priority saved.");
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Rotation setting could not be saved.");
+    } finally { setBusy(false); }
+  }
+
   async function startListen() {
     if (!current || listenId || startingRef.current) return;
     startingRef.current = true;
+    const startedTrackId = current.id;
     try {
       const result = await api<{ listenId: string; minimumSeconds: number }>("/api/musicbat", {
         method: "POST",
         body: JSON.stringify({ action: "start_listen", trackId: current.id }),
       });
+      if (currentIdRef.current !== startedTrackId) return;
       setListenId(result.listenId);
       setMessage(`Listen for ${result.minimumSeconds} seconds to unlock your Hanger.`);
     } catch (error) {
@@ -150,11 +194,13 @@ export default function MusicBatLoop({ displayName }: { displayName: string }) {
   async function qualifyListen(currentTime: number) {
     if (!current || !listenId || qualified || qualifyingRef.current || currentTime < 12) return;
     qualifyingRef.current = true;
+    const qualifyingTrackId = current.id;
     try {
       await api("/api/musicbat", {
         method: "POST",
         body: JSON.stringify({ action: "qualify_listen", trackId: current.id, listenId }),
       });
+      if (currentIdRef.current !== qualifyingTrackId) return;
       setQualified(true);
       setMessage("Qualified listen. Choose the response that carries weight.");
     } catch (error) {
@@ -233,10 +279,17 @@ export default function MusicBatLoop({ displayName }: { displayName: string }) {
     }
   }
 
-  function nextTrack() {
-    if (!tracks.length) return;
-    setCurrentIndex((index) => (index + 1) % tracks.length);
-    setMessage("New track selected. Press play to begin a qualified listen.");
+  function nextTrack(continuePlaying = !audioRef.current?.paused) {
+    const next = selectNextTrack(tracks, current?.id, creditsRef.current, failedRef.current);
+    if (!next) {
+      continuingRef.current = false;
+      setMessage("No playable eligible tracks are available. Choose a track to retry.");
+      return;
+    }
+    continuingRef.current = continuePlaying;
+    setCurrentIndex(tracks.findIndex((track) => track.id === next.id));
+    setPlaybackCycle((cycle) => cycle + 1);
+    setMessage(continuePlaying ? "Radio continues with the next track." : "New track selected. Press play to begin a qualified listen.");
   }
 
   const loopStatus = useMemo(() => {
@@ -279,13 +332,14 @@ export default function MusicBatLoop({ displayName }: { displayName: string }) {
                   {current ? <>
                     <div className="mb-8 min-h-36"><div className="mb-3 text-sm uppercase tracking-[0.16em] text-white/38">Independent signal</div><h1 className="max-w-4xl text-4xl font-black leading-[0.98] tracking-[-0.045em] sm:text-6xl lg:text-7xl">{current.title}</h1><p className="mt-4 text-lg font-semibold text-white/58">{current.artist_name}</p></div>
                     <div className="flex flex-wrap items-center gap-3">
-                      <audio key={current.id} className="musicbat-audio min-w-0 flex-1 basis-[240px]" controls preload="metadata" src={current.audio_url} onPlay={() => void startListen()} onTimeUpdate={(event) => void qualifyListen(event.currentTarget.currentTime)} onEnded={(event) => void qualifyListen(Math.max(12, event.currentTarget.currentTime))} onError={() => setMessage("This track could not play. Try again or choose another track.")} />
+                      <audio ref={audioRef} key={`${current.id}:${playbackCycle}`} className="musicbat-audio min-w-0 flex-1 basis-[240px]" controls controlsList="nodownload noplaybackrate noremoteplayback" preload="metadata" src={current.audio_url} onPlay={() => { continuingRef.current = true; void startListen(); }} onPause={() => { continuingRef.current = false; }} onTimeUpdate={(event) => void qualifyListen(event.currentTarget.currentTime)} onEnded={() => nextTrack(true)} onError={() => { failedRef.current.add(current.id); nextTrack(continuingRef.current); }} />
                       <Button type="button" disabled={purchaseBusy} aria-busy={purchaseBusy} onClick={() => void buyCurrentTrack()} aria-label={`Buy ${current.title}`} data-track-id={current.id} className="h-12 shrink-0 rounded-full border border-[#ff3ea5]/50 bg-[#ff3ea5]/20 px-6 text-base font-black text-white disabled:opacity-60">Buy</Button>
                     </div>
                     {purchaseMessage && <p role="status" aria-live="polite" className="mt-3 text-sm leading-relaxed text-white/65">{purchaseMessage}</p>}
                     <div className="mt-6 flex flex-wrap gap-3">
-                      {(Object.keys(hangerLabels) as Array<keyof typeof hangerLabels>).map((kind, index) => <Button key={kind} disabled={!qualified || busy} onClick={() => void placeHanger(kind)} className={index === 0 ? "h-11 rounded-full bg-[#ff3ea5] px-5 text-white hover:bg-[#ff69bd]" : "h-11 rounded-full border border-white/15 bg-white/[0.045] px-5 text-white hover:bg-white/10"}>{hangerLabels[kind]}</Button>)}
-                      <Button variant="ghost" onClick={nextTrack} className="h-11 rounded-full px-4 text-white/55 hover:bg-white/10 hover:text-white"><SkipForward /> Next</Button>
+                      <Button type="button" aria-pressed={keepActive} disabled={busy || (!current.can_manage && !qualified && !current.viewer_qualified && !keepActive)} onClick={() => void toggleKeep(current)} className={keepActive ? "h-11 rounded-full bg-[#ff3ea5] px-5 text-white hover:bg-[#ff69bd]" : "h-11 rounded-full border border-white/15 bg-white/[0.045] px-5 text-white hover:bg-white/10"}>Keep in rotation</Button>
+                      {(["standout", "want_more"] as const).map((kind) => <Button key={kind} disabled={!qualified || busy} onClick={() => void placeHanger(kind)} className="h-11 rounded-full border border-white/15 bg-white/[0.045] px-5 text-white hover:bg-white/10">{hangerLabels[kind]}</Button>)}
+                      <Button variant="ghost" onClick={() => nextTrack()} className="h-11 rounded-full px-4 text-white/55 hover:bg-white/10 hover:text-white"><SkipForward /> Next</Button>
                     </div>
                   </> : <div className="grid min-h-[390px] place-items-center text-center"><div><Disc3 className="mx-auto mb-5 size-12 text-[#ff69bd]" /><h1 className="text-3xl font-black tracking-tight">Radio needs its first track.</h1><p className="mx-auto mt-3 max-w-md text-white/52">Upload your music file and confirm your rights to enter Radio.</p><Button onClick={() => setTab("catalog")} className="mt-6 rounded-full bg-[#ff3ea5] px-6 text-white hover:bg-[#ff69bd]">Add the first track</Button></div></div>}
                 </div>
@@ -324,7 +378,7 @@ export default function MusicBatLoop({ displayName }: { displayName: string }) {
               </form>
               <div className="rounded-[1.75rem] border border-white/10 bg-white/[0.025] p-6 sm:p-8">
                 <div className="mb-5 flex items-center justify-between"><div><div className="text-xs font-black uppercase tracking-[0.18em] text-white/42">Rights-cleared catalog</div><h2 className="mt-2 text-2xl font-black">{tracks.length} active track{tracks.length === 1 ? "" : "s"}</h2></div><ShieldCheck className="size-7 text-[#ff69bd]" /></div>
-                <div className="space-y-2">{tracks.map((track) => <button type="button" key={track.id} onClick={() => { setCurrentIndex(tracks.findIndex((item) => item.id === track.id)); setTab("radio"); }} className="flex w-full items-center justify-between gap-4 rounded-xl border border-white/8 bg-white/[0.035] p-4 text-left transition hover:border-[#ff3ea5]/40 hover:bg-[#ff3ea5]/5"><div className="min-w-0"><div className="truncate font-bold">{track.title}</div><div className="truncate text-sm text-white/42">{track.artist_name}</div></div><div className="shrink-0 text-xs font-black uppercase tracking-wider text-[#ff69bd]">Play</div></button>)}</div>
+                <div className="space-y-2">{tracks.map((track) => <div key={track.id} className="flex flex-wrap items-center gap-2"><button type="button" onClick={() => { failedRef.current.delete(track.id); continuingRef.current = false; setCurrentIndex(tracks.findIndex((item) => item.id === track.id)); setPlaybackCycle((cycle) => cycle + 1); setTab("radio"); }} className="flex min-w-0 flex-1 basis-[220px] items-center justify-between gap-4 rounded-xl border border-white/8 bg-white/[0.035] p-4 text-left transition hover:border-[#ff3ea5]/40 hover:bg-[#ff3ea5]/5"><div className="min-w-0"><div className="truncate font-bold">{track.title}</div><div className="truncate text-sm text-white/42">{track.artist_name}</div></div><div className="shrink-0 text-xs font-black uppercase tracking-wider text-[#ff69bd]">Play</div></button>{Boolean(track.can_manage) && <Button type="button" aria-label={`Keep ${track.title} in rotation`} aria-pressed={Boolean(track.keep_in_rotation)} disabled={busy} onClick={() => void toggleKeep(track)} className={track.keep_in_rotation ? "h-11 rounded-full bg-[#ff3ea5] px-4 text-white hover:bg-[#ff69bd]" : "h-11 rounded-full border border-white/15 bg-white/[0.045] px-4 text-white hover:bg-white/10"}>Keep in rotation</Button>}</div>)}</div>
               </div>
             </section>
           </TabsContent>

@@ -15,6 +15,13 @@
       "when": 1789757374534,
       "tag": "0001_quick_blizzard",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1789774166911,
+      "tag": "0002_third_elektra",
+      "breakpoints": true
     }
   ]
 }

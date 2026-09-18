@@ -110,3 +110,10 @@ body {
   border-radius: 999px;
   filter: invert(1) hue-rotate(160deg) saturate(1.35);
 }
+
+/* Remove the native overflow menu while retaining play, seek and volume. */
+.musicbat-audio::-webkit-media-controls-overflow-button,
+.musicbat-audio::-internal-media-controls-overflow-button,
+.musicbat-audio::-webkit-media-controls-download-button {
+  display: none;
+}
