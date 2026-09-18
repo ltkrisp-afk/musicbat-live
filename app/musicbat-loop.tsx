@@ -277,7 +277,8 @@ export default function MusicBatLoop({ displayName }: { displayName: string }) {
                 <div className="space-y-4">
                   <label className="block"><span className="mb-2 block text-sm font-semibold text-white/65">Track title</span><Input value={title} onChange={(event) => setTitle(event.target.value)} required maxLength={120} className="h-12 rounded-xl border-white/12 bg-white/[0.045] px-4 text-white placeholder:text-white/25" placeholder="Track title" /></label>
                   <label className="block"><span className="mb-2 block text-sm font-semibold text-white/65">Artist or band name</span><Input value={artistName} onChange={(event) => setArtistName(event.target.value)} required maxLength={80} className="h-12 rounded-xl border-white/12 bg-white/[0.045] px-4 text-white placeholder:text-white/25" placeholder="Artist or band name" /></label>
-                  <div className="rounded-xl border border-dashed border-[#ff3ea5]/35 bg-[#ff3ea5]/5 p-4">
+                  <div className="block">
+                    <span className="mb-2 block text-sm font-semibold text-white/65">Upload your music here</span>
                     <input ref={fileInputRef} type="file" aria-label="Choose your music file" accept=".mp3,.wav,.flac,audio/mpeg,audio/wav,audio/flac" className="sr-only" disabled={busy} onChange={(event) => {
                       const file = event.target.files?.[0] ?? null;
                       setAudioFile(null);
@@ -286,9 +287,8 @@ export default function MusicBatLoop({ displayName }: { displayName: string }) {
                       if (file && (!file.size || !/\.(mp3|wav|flac)$/i.test(file.name))) { setUploadError("Choose an MP3, WAV, or FLAC audio file."); event.target.value = ""; return; }
                       setAudioFile(file);
                     }} />
-                    <Button type="button" disabled={busy} onClick={() => fileInputRef.current?.click()} className="h-12 w-full rounded-full border border-[#ff3ea5]/40 bg-[#ff3ea5]/15 px-4 text-base text-white hover:bg-[#ff3ea5]/25"><Upload /> {audioFile ? "Change music file" : "Upload your music"}</Button>
-                    <p className="mt-3 break-all text-sm text-white/65">{audioFile ? `${audioFile.name} · ${(audioFile.size / 1024 / 1024).toFixed(1)} MB` : "Choose a file from your device."}</p>
-                    <p className="mt-1 text-sm text-white/45">MP3, WAV, or FLAC · up to 25 MB. MP3 works best for Radio.</p>
+                    <Button type="button" disabled={busy} onClick={() => fileInputRef.current?.click()} className="h-12 w-full justify-start rounded-xl border border-white/12 bg-white/[0.045] px-4 text-sm font-normal text-white/65 hover:bg-white/10"><Upload /> <span className="truncate">{audioFile ? audioFile.name : "Choose music file"}</span></Button>
+                    <p className="mt-2 text-sm text-white/45">MP3, WAV, or FLAC · up to 25 MB.</p>
                   </div>
                   <label className="flex cursor-pointer items-start gap-3 rounded-xl border border-white/10 bg-white/[0.03] p-4"><Checkbox checked={rightsAttested} onCheckedChange={(value) => setRightsAttested(value === true)} className="mt-0.5 border-white/25 data-[state=checked]:border-[#ff3ea5] data-[state=checked]:bg-[#ff3ea5]" /><span className="text-sm leading-relaxed text-white/62">I own this recording or am authorized to present it, and I permit MusicBat to stream it in this test loop.</span></label>
                   <Button disabled={busy || !rightsAttested || !audioFile} type="submit" className="h-12 w-full rounded-xl bg-[#ff3ea5] text-base font-black text-white hover:bg-[#ff69bd]">{busy ? "Uploading your track…" : "Add to Radio"}</Button>
