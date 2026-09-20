@@ -11,6 +11,9 @@ type ActionBody = {
   listenId?: string;
   kind?: string;
   enabled?: boolean;
+  saleEnabled?: boolean;
+  salePriceCents?: number;
+  saleRightsAttested?: boolean;
 };
 
 const hangerKinds = new Set(["keep_in_rotation", "standout", "want_more"]);
@@ -63,7 +66,9 @@ export async function GET(request: Request) {
     const viewer = await getChatGPTUser();
     const rows = await db.prepare(`
       SELECT t.id, t.title, t.artist_name, t.audio_url, t.created_at, t.keep_in_rotation,
+        t.sale_enabled, t.sale_price_cents, t.sale_currency,
         (t.artist_id = ?) AS can_manage,
+        EXISTS(SELECT 1 FROM artist_accounts a WHERE a.artist_id = t.artist_id AND a.charges_enabled = 1 AND a.payouts_enabled = 1 AND a.details_submitted = 1) AS seller_ready,
         EXISTS(SELECT 1 FROM listens l WHERE l.track_id = t.id AND l.listener_id = ? AND l.qualified = 1) AS viewer_qualified,
         MAX(CASE WHEN h.listener_id = ? THEN h.kind END) AS listener_hanger,
         MAX(CASE WHEN h.listener_id = ? AND h.kind = 'keep_in_rotation' THEN 1 ELSE 0 END) AS viewer_keep_in_rotation,
@@ -110,10 +115,15 @@ export async function POST(request: Request) {
       } catch { return fail("The upload could not be read. Choose your file again."); }
       const title = String(form.get("title") ?? "").trim();
       const artistName = String(form.get("artistName") ?? "").trim();
+      const saleEnabled = form.get("saleEnabled") === "true";
+      const saleRightsAttested = form.get("saleRightsAttested") === "true";
+      const salePriceCents = Number(form.get("salePriceCents"));
       const file = form.get("audio");
       if (!title || !artistName) return fail("Track title and artist or band name are required.");
       if (title.length > 120 || artistName.length > 80) return fail("Track title or artist name is too long.");
       if (form.get("rightsAttested") !== "true") return fail("Rights attestation is required.");
+      if (saleEnabled && !saleRightsAttested) return fail("Sale authorization is required to sell this track.");
+      if (saleEnabled && (!Number.isInteger(salePriceCents) || salePriceCents < 50 || salePriceCents > 100000)) return fail("Set a sale price from $0.50 to $1,000.00.");
       if (!(file instanceof File) || !file.size) return fail("Choose an audio file.");
       if (file.size > maximumBytes) return fail("Choose an audio file under 25 MB.", 413);
       const extension = file.name.split(".").pop()?.toLowerCase();
@@ -134,10 +144,10 @@ export async function POST(request: Request) {
       let track;
       try {
         track = await db.prepare(`
-          INSERT INTO tracks (artist_id, artist_name, title, audio_url, rights_attested, status)
-          VALUES (?, ?, ?, ?, 1, 'active')
-          RETURNING id, title, artist_name, audio_url, created_at
-        `).bind(user.userId, artistName, title, audioUrl).first();
+          INSERT INTO tracks (artist_id, artist_name, title, audio_url, rights_attested, sale_enabled, sale_rights_attested, sale_price_cents, sale_currency, status)
+          VALUES (?, ?, ?, ?, 1, ?, ?, ?, 'usd', 'active')
+          RETURNING id, title, artist_name, audio_url, created_at, sale_enabled, sale_price_cents, sale_currency
+        `).bind(user.userId, artistName, title, audioUrl, saleEnabled ? 1 : 0, saleEnabled ? 1 : 0, saleEnabled ? salePriceCents : null).first();
         if (!track) throw new Error("Track registration failed");
       } catch (error) {
         await env.BUCKET.delete(key);
@@ -165,6 +175,22 @@ export async function POST(request: Request) {
         // Clear this artist's legacy Keep Hanger too; other listeners' signals remain.
         await db.prepare("DELETE FROM hangers WHERE track_id = ? AND listener_id = ? AND kind = 'keep_in_rotation'").bind(trackId, user.userId).run();
       }
+      return Response.json({ track });
+    }
+
+    if (body.action === "set_sale_settings") {
+      const trackId = Number(body.trackId);
+      const enabled = body.saleEnabled === true;
+      const price = Number(body.salePriceCents);
+      if (!Number.isInteger(trackId) || trackId < 1) return fail("A valid track is required.");
+      if (enabled && body.saleRightsAttested !== true) return fail("Confirm that MusicBat may sell and deliver this recording.");
+      if (enabled && (!Number.isInteger(price) || price < 50 || price > 100000)) return fail("Set a sale price from $0.50 to $1,000.00.");
+      const track = await db.prepare(`
+        UPDATE tracks SET sale_enabled = ?, sale_rights_attested = ?, sale_price_cents = ?, sale_currency = 'usd'
+        WHERE id = ? AND artist_id = ?
+        RETURNING id, sale_enabled, sale_price_cents, sale_currency
+      `).bind(enabled ? 1 : 0, enabled ? 1 : 0, enabled ? price : null, trackId, user.userId).first();
+      if (!track) return fail("Only the uploading artist can edit this track's sale settings.", 403);
       return Response.json({ track });
     }
 

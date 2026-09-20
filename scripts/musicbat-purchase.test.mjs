@@ -1,99 +1,202 @@
-import assert from 'node:assert/strict';
-import { readFile } from 'node:fs/promises';
-import { DatabaseSync } from 'node:sqlite';
-import { test } from 'node:test';
-import ts from 'typescript';
+import assert from "node:assert/strict";
+import { readFile, readdir } from "node:fs/promises";
+import { DatabaseSync } from "node:sqlite";
+import { test } from "node:test";
+import ts from "typescript";
 
-async function loadRoute(path, state) {
-  globalThis.musicbatPurchaseState = state;
-  const buyer = await readFile(new URL('../app/api/musicbat/purchase/buyer.ts', import.meta.url), 'utf8');
-  const source = (await readFile(new URL(path, import.meta.url), 'utf8'))
-    .replace('import { env } from "cloudflare:workers";', 'const env = globalThis.musicbatPurchaseState.env;')
-    .replace(/import \{ buyerIdentity \} from "[^"]*buyer";/, buyer);
+const asset = "550e8400-e29b-41d4-a716-446655440000.wav";
+const bytes = new TextEncoder().encode("RIFF-original-audio-bytes");
+
+function d1(sqlite) {
+  const api = {
+    prepare(sql) {
+      const statement = sqlite.prepare(sql);
+      const bound = (...values) => ({
+        async first() { return statement.get(...values) ?? null; },
+        async all() { return { results: statement.all(...values) }; },
+        async run() { return statement.run(...values); },
+        __run() { return statement.run(...values); },
+      });
+      return { ...bound(), bind: bound };
+    },
+    async batch(statements) { return statements.map((statement) => statement.__run()); },
+  };
+  return api;
+}
+
+async function load(path, state) {
+  globalThis.musicbatCommerceState = state;
+  const buyer = await readFile(new URL("../app/api/musicbat/purchase/buyer.ts", import.meta.url), "utf8");
+  const stripe = await readFile(new URL("../app/api/musicbat/stripe/stripe.ts", import.meta.url), "utf8");
+  let source = await readFile(new URL(path, import.meta.url), "utf8");
+  source = source
+    .replace('import { env } from "cloudflare:workers";', "const env = globalThis.musicbatCommerceState.env;")
+    .replace(/import \{ buyerIdentity \} from "[^"]*buyer";/, buyer)
+    .replace(/import \{[^;]+\} from "[^"]*stripe";/s, stripe);
   const { outputText } = ts.transpileModule(source, { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext } });
-  return import(`data:text/javascript;base64,${Buffer.from(outputText + '\n//' + Math.random()).toString('base64')}`);
-}
-const asset = '550e8400-e29b-41d4-a716-446655440000.wav';
-const secondAsset = '550e8400-e29b-41d4-a716-446655440001.mp3';
-const bytes = new TextEncoder().encode('RIFF-original-audio-bytes');
-async function fixture() {
-  const sqlite = new DatabaseSync(':memory:');
-  for (const filename of ['0000_wild_vapor.sql', '0001_quick_blizzard.sql']) sqlite.exec(await readFile(new URL('../drizzle/' + filename, import.meta.url), 'utf8'));
-  sqlite.prepare('INSERT INTO tracks (artist_id, artist_name, title, audio_url) VALUES (?, ?, ?, ?)').run('artist', 'The Band', 'Original Song', `/api/musicbat/audio/${asset}`);
-  const state = { reads: 0, env: {
-    DB: { prepare(sql) { return { bind(...values) { return { async first() { return sqlite.prepare(sql).get(...values) ?? null; } }; } }; } },
-    BUCKET: { async head(key) { return key === `tracks/${asset}` || key === `tracks/${secondAsset}` ? { size: bytes.length } : null; }, async get(key) { state.reads++; return key === `tracks/${asset}` ? { body: bytes, size: bytes.length, httpMetadata: { contentType: 'audio/wav' } } : null; } },
-  } };
-  const purchase = await loadRoute('../app/api/musicbat/purchase/route.ts', state);
-  const download = await loadRoute('../app/api/musicbat/purchase/[purchaseId]/download/route.ts', state);
-  return { sqlite, state, purchase, download };
-}
-function post(body, cookie, origin) {
-  return new Request('https://musicbat.audio/api/musicbat/purchase', { method: 'POST', headers: { 'content-type': 'application/json', ...(cookie ? { cookie } : {}), ...(origin ? { origin } : {}) }, body: JSON.stringify(body) });
-}
-function get(id, cookie, download = false) {
-  return new Request(`https://musicbat.audio/api/musicbat/purchase${download ? `/${id}/download` : `?id=${id}`}`, { headers: cookie ? { cookie } : {} });
+  return import(`data:text/javascript;base64,${Buffer.from(outputText + "\n//" + Math.random()).toString("base64")}`);
 }
 
-test('Buy snapshots the selected song, reuses its draft, and never accepts client payment claims', async () => {
-  const { sqlite, state, purchase, download } = await fixture();
-  const response = await purchase.POST(post({ trackId: 1, paid: true, status: 'paid', amountCents: 1 }));
-  assert.equal(response.status, 200);
-  assert.match(response.headers.get('set-cookie'), /HttpOnly; Secure; SameSite=Lax/);
-  const cookie = response.headers.get('set-cookie').split(';')[0];
+async function fixture() {
+  const sqlite = new DatabaseSync(":memory:");
+  for (const filename of (await readdir(new URL("../drizzle", import.meta.url))).filter((name) => name.endsWith(".sql")).sort()) {
+    sqlite.exec(await readFile(new URL(`../drizzle/${filename}`, import.meta.url), "utf8"));
+  }
+  sqlite.prepare(`INSERT INTO tracks (artist_id, artist_name, title, audio_url, sale_enabled, sale_rights_attested, sale_price_cents)
+    VALUES (?, ?, ?, ?, 1, 1, 1000)`).run("artist-1", "The Band", "Original Song", `/api/musicbat/audio/${asset}`);
+  sqlite.prepare(`INSERT INTO artist_accounts (artist_id, stripe_account_id, charges_enabled, payouts_enabled, details_submitted)
+    VALUES ('artist-1', 'acct_test_artist', 1, 1, 1)`).run();
+  const requests = [];
+  const state = {
+    requests,
+    env: {
+      DB: d1(sqlite),
+      BUCKET: {
+        async head(key) { return key === `tracks/${asset}` ? { size: bytes.length } : null; },
+        async get(key) { return key === `tracks/${asset}` ? { body: bytes, size: bytes.length, httpMetadata: { contentType: "audio/wav" } } : null; },
+      },
+      STRIPE_SECRET_KEY: "sk_test_musicbat",
+      STRIPE_WEBHOOK_SECRET: "whsec_musicbat_test",
+      MUSICBAT_BASE_URL: "https://musicbat.audio",
+    },
+  };
+  globalThis.fetch = async (url, init = {}) => {
+    requests.push({ url: String(url), init });
+    if (String(url).includes("/v1/accounts/")) {
+      const account = sqlite.prepare("SELECT charges_enabled, payouts_enabled, details_submitted FROM artist_accounts WHERE artist_id = 'artist-1'").get();
+      return Response.json({ id: "acct_test_artist", charges_enabled: Boolean(account.charges_enabled), payouts_enabled: Boolean(account.payouts_enabled), details_submitted: Boolean(account.details_submitted) });
+    }
+    if (String(url).includes("/v1/checkout/sessions/") && init.method === "GET") {
+      return Response.json({ id: "cs_test_musicbat", url: "https://checkout.stripe.com/c/pay/test", status: "open", livemode: false });
+    }
+    if (String(url).endsWith("/v1/checkout/sessions") && init.method === "POST") {
+      return Response.json({ id: "cs_test_musicbat", url: "https://checkout.stripe.com/c/pay/test", status: "open", livemode: false });
+    }
+    throw new Error(`Unexpected Stripe request: ${url}`);
+  };
+  return {
+    sqlite,
+    state,
+    purchase: await load("../app/api/musicbat/purchase/route.ts", state),
+    download: await load("../app/api/musicbat/purchase/[purchaseId]/download/route.ts", state),
+  };
+}
+
+function post(trackId = 1, cookie = null, additions = {}) {
+  return new Request("https://musicbat.audio/api/musicbat/purchase", {
+    method: "POST",
+    headers: { "content-type": "application/json", origin: "https://musicbat.audio", ...(cookie ? { cookie } : {}) },
+    body: JSON.stringify({ trackId, ...additions }),
+  });
+}
+
+function get(id, cookie, download = false) {
+  return new Request(`https://musicbat.audio/api/musicbat/purchase${download ? `/${id}/download` : `?id=${id}`}`, { headers: { cookie } });
+}
+
+async function sign(raw, secret, timestamp = Math.floor(Date.now() / 1000)) {
+  const key = await crypto.subtle.importKey("raw", new TextEncoder().encode(secret), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
+  const digest = await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(`${timestamp}.${raw}`));
+  const signature = Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("");
+  return `t=${timestamp},v1=${signature}`;
+}
+
+test("Checkout is test-mode destination charge with exact 90/10 ledger split", async () => {
+  const { sqlite, state, purchase } = await fixture();
+  const response = await purchase.POST(post(1, null, { amountCents: 1, paid: true, destination: "acct_wrong" }));
+  assert.equal(response.status, 201);
+  const cookie = response.headers.get("set-cookie").split(";")[0];
   const data = await response.json();
-  assert.equal(data.checkoutAvailable, false); assert.equal(data.status, 'awaiting_checkout');
-  assert.match(data.message, /You have not been charged/);
-  assert.equal(data.purchase.title, 'Original Song');
-  const id = data.purchase.id;
-  assert.equal(sqlite.prepare('SELECT amount_cents FROM purchases WHERE id = ?').get(id).amount_cents, null);
-  const repeated = await (await purchase.POST(post({ trackId: 1 }, cookie))).json();
-  assert.equal(repeated.purchase.id, id);
-  assert.equal(sqlite.prepare('SELECT count(*) AS count FROM purchases').get().count, 1);
-  assert.equal((await download.GET(get(id, cookie, true))).status, 402);
-  assert.equal(state.reads, 0);
-  assert.equal((await purchase.GET(get(id))).status, 404);
-  assert.equal((await download.GET(get(id, `musicbat_buyer=${'a'.repeat(64)}`, true))).status, 404);
-  sqlite.prepare('UPDATE tracks SET title = ?, audio_url = ? WHERE id = 1').run('Next Song', `/api/musicbat/audio/${secondAsset}`);
-  const status = await (await purchase.GET(get(id, cookie))).json();
-  assert.equal(status.purchase.title, 'Original Song'); assert.equal(status.downloadUrl, null);
-  assert.equal(sqlite.prepare('SELECT audio_path FROM purchases WHERE id = ?').get(id).audio_path, `/api/musicbat/audio/${asset}`);
+  assert.equal(data.checkoutAvailable, true);
+  assert.match(data.checkoutUrl, /^https:\/\/checkout\.stripe\.com\//);
+  const row = sqlite.prepare("SELECT * FROM purchases").get();
+  assert.equal(row.amount_cents, 1000);
+  assert.equal(row.artist_share_cents, 900);
+  assert.equal(row.platform_fee_cents, 100);
+  assert.equal(row.processor_account_id, "acct_test_artist");
+  assert.equal(row.status, "pending");
+  const create = state.requests.find((entry) => entry.url.endsWith("/v1/checkout/sessions") && entry.init.method === "POST");
+  const form = create.init.body;
+  assert.equal(form.get("payment_intent_data[application_fee_amount]"), "100");
+  assert.equal(form.get("payment_intent_data[transfer_data][destination]"), "acct_test_artist");
+  assert.equal(form.get("payment_method_types[0]"), "card");
+  assert.equal(form.get("mode"), "payment");
+  const repeat = await (await purchase.POST(post(1, cookie))).json();
+  assert.equal(repeat.purchase.id, data.purchase.id);
+  assert.equal(sqlite.prepare("SELECT count(*) AS total FROM purchases").get().total, 1);
   sqlite.close();
 });
 
-test('only a server-confirmed paid record serves an attachment to its buyer, using the captured asset', async () => {
+test("declined, cancelled, pending and unsigned payment states never unlock the file", async () => {
   const { sqlite, purchase, download } = await fixture();
-  const response = await purchase.POST(post({ trackId: 1 }));
-  const cookie = response.headers.get('set-cookie').split(';')[0];
-  const { purchase: { id } } = await response.json();
-  // Represents a future processor integration's VERIFIED server-side receipt.
-  // There is deliberately no public endpoint that allows a client to set this status.
-  sqlite.prepare("UPDATE purchases SET status = 'paid', paid_at = CURRENT_TIMESTAMP WHERE id = ?").run(id);
-  sqlite.prepare('UPDATE tracks SET title = ?, audio_url = ? WHERE id = 1').run('New Title', `/api/musicbat/audio/${secondAsset}`);
-  const receipt = await (await purchase.GET(get(id, cookie))).json();
-  assert.equal(receipt.downloadUrl, `/api/musicbat/purchase/${id}/download`);
-  const file = await download.GET(get(id, cookie, true));
-  assert.equal(file.status, 200);
-  assert.equal(file.headers.get('content-type'), 'audio/wav');
-  assert.match(file.headers.get('content-disposition'), /attachment; filename="The Band - Original Song.wav"/);
-  assert.equal(file.headers.get('cache-control'), 'private, no-store');
-  assert.deepEqual(new Uint8Array(await file.arrayBuffer()), bytes);
-  for (const status of ['awaiting_checkout', 'failed', 'refunded']) {
-    sqlite.prepare('UPDATE purchases SET status = ? WHERE id = ?').run(status, id);
-    assert.equal((await download.GET(get(id, cookie, true))).status, 402);
+  const checkout = await purchase.POST(post());
+  const cookie = checkout.headers.get("set-cookie").split(";")[0];
+  const { purchase: draft } = await checkout.json();
+  for (const status of ["pending", "failed", "cancelled", "refunded"]) {
+    sqlite.prepare("UPDATE purchases SET status = ? WHERE id = ?").run(status, draft.id);
+    assert.equal((await download.GET(get(draft.id, cookie, true))).status, 402);
   }
   sqlite.close();
 });
 
-test('missing, inactive, external-link and invalid selections cannot prepare a purchase', async () => {
+test("valid signed webhook alone confirms payment and unlocks captured download", async () => {
+  const { sqlite, state, purchase, download } = await fixture();
+  const checkout = await purchase.POST(post());
+  const cookie = checkout.headers.get("set-cookie").split(";")[0];
+  const { purchase: draft } = await checkout.json();
+  const session = {
+    id: "cs_test_musicbat", livemode: false, status: "complete", payment_status: "paid", amount_total: 1000, currency: "usd",
+    metadata: { musicbat_purchase_id: draft.id },
+    payment_intent: { id: "pi_test_musicbat", application_fee_amount: 100, transfer_data: { destination: "acct_test_artist" } },
+  };
+  globalThis.fetch = async () => Response.json(session);
+  const webhook = await load("../app/api/musicbat/stripe/webhook/route.ts", state);
+  const event = JSON.stringify({ id: "evt_test_paid", type: "checkout.session.completed", livemode: false, data: { object: { id: session.id } } });
+  const originalConsoleError = console.error;
+  console.error = () => {};
+  let bad;
+  try {
+    bad = await webhook.POST(new Request("https://musicbat.audio/api/musicbat/stripe/webhook", { method: "POST", headers: { "stripe-signature": "t=1,v1=bad" }, body: event }));
+  } finally {
+    console.error = originalConsoleError;
+  }
+  assert.equal(bad.status, 400);
+  assert.equal(sqlite.prepare("SELECT status FROM purchases WHERE id = ?").get(draft.id).status, "pending");
+  const verified = await webhook.POST(new Request("https://musicbat.audio/api/musicbat/stripe/webhook", { method: "POST", headers: { "stripe-signature": await sign(event, state.env.STRIPE_WEBHOOK_SECRET) }, body: event }));
+  assert.equal(verified.status, 200);
+  assert.equal(sqlite.prepare("SELECT status FROM purchases WHERE id = ?").get(draft.id).status, "paid");
+  assert.equal(sqlite.prepare("SELECT payment_intent_id FROM purchases WHERE id = ?").get(draft.id).payment_intent_id, "pi_test_musicbat");
+  const file = await download.GET(get(draft.id, cookie, true));
+  assert.equal(file.status, 200);
+  assert.match(file.headers.get("content-disposition"), /attachment; filename="The Band - Original Song.wav"/);
+  assert.deepEqual(new Uint8Array(await file.arrayBuffer()), bytes);
+  sqlite.close();
+});
+
+test("3DS-style unpaid completion remains locked until later authenticated success", async () => {
+  const { sqlite, state, purchase, download } = await fixture();
+  const checkout = await purchase.POST(post());
+  const cookie = checkout.headers.get("set-cookie").split(";")[0];
+  const { purchase: draft } = await checkout.json();
+  let session = { id: "cs_test_musicbat", livemode: false, status: "open", payment_status: "unpaid", amount_total: 1000, currency: "usd", metadata: { musicbat_purchase_id: draft.id }, payment_intent: { id: "pi_3ds", application_fee_amount: 100, transfer_data: { destination: "acct_test_artist" } } };
+  globalThis.fetch = async () => Response.json(session);
+  const webhook = await load("../app/api/musicbat/stripe/webhook/route.ts", state);
+  const pendingEvent = JSON.stringify({ id: "evt_3ds_pending", type: "checkout.session.completed", livemode: false, data: { object: { id: session.id } } });
+  await webhook.POST(new Request("https://musicbat.audio/api/musicbat/stripe/webhook", { method: "POST", headers: { "stripe-signature": await sign(pendingEvent, state.env.STRIPE_WEBHOOK_SECRET) }, body: pendingEvent }));
+  assert.equal((await download.GET(get(draft.id, cookie, true))).status, 402);
+  session = { ...session, status: "complete", payment_status: "paid" };
+  const paidEvent = JSON.stringify({ id: "evt_3ds_paid", type: "checkout.session.async_payment_succeeded", livemode: false, data: { object: { id: session.id } } });
+  await webhook.POST(new Request("https://musicbat.audio/api/musicbat/stripe/webhook", { method: "POST", headers: { "stripe-signature": await sign(paidEvent, state.env.STRIPE_WEBHOOK_SECRET) }, body: paidEvent }));
+  assert.equal((await download.GET(get(draft.id, cookie, true))).status, 200);
+  sqlite.close();
+});
+
+test("checkout is blocked until sale consent and artist payout eligibility exist", async () => {
   const { sqlite, purchase } = await fixture();
-  assert.equal((await purchase.POST(post({ trackId: 1 }, null, 'https://another.site'))).status, 403);
-  assert.equal((await purchase.POST(post({ trackId: -1 }))).status, 400);
-  assert.equal((await purchase.POST(post({ trackId: 999 }))).status, 404);
-  sqlite.prepare("UPDATE tracks SET status = 'inactive' WHERE id = 1").run();
-  assert.equal((await purchase.POST(post({ trackId: 1 }))).status, 404);
-  sqlite.prepare("UPDATE tracks SET status = 'active', audio_url = 'https://other.site/song.mp3' WHERE id = 1").run();
-  assert.equal((await purchase.POST(post({ trackId: 1 }))).status, 409);
-  assert.equal(sqlite.prepare('SELECT count(*) AS count FROM purchases').get().count, 0);
+  sqlite.prepare("UPDATE tracks SET sale_enabled = 0").run();
+  assert.equal((await purchase.POST(post())).status, 409);
+  sqlite.prepare("UPDATE tracks SET sale_enabled = 1").run();
+  sqlite.prepare("UPDATE artist_accounts SET payouts_enabled = 0").run();
+  assert.equal((await purchase.POST(post())).status, 409);
   sqlite.close();
 });

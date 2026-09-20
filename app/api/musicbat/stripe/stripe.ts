@@ -1,0 +1,120 @@
+export type StripeRuntime = {
+  STRIPE_SECRET_KEY?: string;
+  STRIPE_WEBHOOK_SECRET?: string;
+  MUSICBAT_BASE_URL?: string;
+};
+
+export type StripeAccount = {
+  id: string;
+  charges_enabled?: boolean;
+  payouts_enabled?: boolean;
+  details_submitted?: boolean;
+};
+
+export type StripeCheckoutSession = {
+  id: string;
+  url?: string | null;
+  livemode?: boolean;
+  status?: string | null;
+  payment_status?: string;
+  amount_total?: number | null;
+  currency?: string | null;
+  payment_intent?: string | {
+    id: string;
+    application_fee_amount?: number | null;
+    transfer_data?: { destination?: string | { id?: string } } | null;
+  } | null;
+  metadata?: Record<string, string>;
+};
+
+export type StripeEvent = {
+  id: string;
+  type: string;
+  livemode: boolean;
+  data: { object: StripeCheckoutSession };
+};
+
+export class StripeConfigurationError extends Error {}
+export class StripeRequestError extends Error {}
+
+function secret(runtime: StripeRuntime) {
+  const value = runtime.STRIPE_SECRET_KEY?.trim();
+  if (!value) throw new StripeConfigurationError("Stripe test checkout is not configured yet.");
+  if (!value.startsWith("sk_test_")) throw new StripeConfigurationError("MusicBat is locked to Stripe test mode.");
+  return value;
+}
+
+export function musicBatOrigin(runtime: StripeRuntime, request: Request) {
+  const configured = runtime.MUSICBAT_BASE_URL?.trim();
+  const origin = configured || new URL(request.url).origin;
+  let url: URL;
+  try { url = new URL(origin); } catch { throw new StripeConfigurationError("MUSICBAT_BASE_URL is invalid."); }
+  if (url.protocol !== "https:" && url.hostname !== "localhost" && url.hostname !== "127.0.0.1") {
+    throw new StripeConfigurationError("MUSICBAT_BASE_URL must use HTTPS.");
+  }
+  return url.origin;
+}
+
+async function stripeRequest<T>(runtime: StripeRuntime, method: "GET" | "POST", path: string, params?: URLSearchParams, idempotencyKey?: string): Promise<T> {
+  const response = await fetch(`https://api.stripe.com${path}`, {
+    method,
+    headers: {
+      authorization: `Bearer ${secret(runtime)}`,
+      ...(params ? { "content-type": "application/x-www-form-urlencoded" } : {}),
+      ...(idempotencyKey ? { "idempotency-key": idempotencyKey } : {}),
+    },
+    body: params,
+  });
+  const data = await response.json() as T & { error?: { message?: string } };
+  if (!response.ok) {
+    console.error("Stripe API request failed", response.status, data.error?.message ?? "Unknown Stripe error");
+    throw new StripeRequestError(data.error?.message ?? "Stripe could not complete that request.");
+  }
+  return data;
+}
+
+export function stripePost<T>(runtime: StripeRuntime, path: string, fields: Record<string, string>, idempotencyKey?: string) {
+  return stripeRequest<T>(runtime, "POST", path, new URLSearchParams(fields), idempotencyKey);
+}
+
+export function stripeGet<T>(runtime: StripeRuntime, path: string, fields?: Record<string, string>) {
+  const query = fields ? `?${new URLSearchParams(fields)}` : "";
+  return stripeRequest<T>(runtime, "GET", `${path}${query}`);
+}
+
+export function connectReady(account: StripeAccount) {
+  return Boolean(account.charges_enabled && account.payouts_enabled && account.details_submitted);
+}
+
+function hex(bytes: ArrayBuffer) {
+  return Array.from(new Uint8Array(bytes), (byte) => byte.toString(16).padStart(2, "0")).join("");
+}
+
+function sameSignature(left: string, right: string) {
+  if (left.length !== right.length) return false;
+  let difference = 0;
+  for (let index = 0; index < left.length; index += 1) difference |= left.charCodeAt(index) ^ right.charCodeAt(index);
+  return difference === 0;
+}
+
+export async function verifyStripeWebhook(rawBody: string, signatureHeader: string | null, webhookSecret: string | undefined, nowSeconds = Math.floor(Date.now() / 1000)) {
+  const signingSecret = webhookSecret?.trim();
+  if (!signingSecret?.startsWith("whsec_")) throw new StripeConfigurationError("Stripe webhook verification is not configured yet.");
+  if (!signatureHeader) throw new Error("Missing Stripe-Signature header.");
+  const parts = signatureHeader.split(",").map((part) => part.trim().split("=", 2));
+  const timestamp = Number(parts.find(([key]) => key === "t")?.[1]);
+  const signatures = parts.filter(([key]) => key === "v1").map(([, value]) => value);
+  if (!Number.isInteger(timestamp) || Math.abs(nowSeconds - timestamp) > 300 || !signatures.length) throw new Error("Stripe webhook signature is invalid or expired.");
+  const key = await crypto.subtle.importKey("raw", new TextEncoder().encode(signingSecret), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
+  const expected = hex(await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(`${timestamp}.${rawBody}`)));
+  if (!signatures.some((candidate) => sameSignature(candidate, expected))) throw new Error("Stripe webhook signature does not match.");
+  const event = JSON.parse(rawBody) as StripeEvent;
+  if (!event.id || !event.type || !event.data?.object) throw new Error("Stripe webhook payload is invalid.");
+  if (event.livemode) throw new Error("Live Stripe events are disabled while MusicBat is in test mode.");
+  return event;
+}
+
+export async function stableKey(value: string) {
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(value));
+  return hex(digest).slice(0, 48);
+}

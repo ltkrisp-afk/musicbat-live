@@ -23,6 +23,18 @@ type Track = {
   rotation_eligible: boolean;
   listener_hanger: keyof typeof hangerLabels | null;
   viewer_qualified: number;
+  sale_enabled: number;
+  sale_price_cents: number | null;
+  sale_currency: string;
+  seller_ready: number;
+};
+
+type ConnectStatus = {
+  connected: boolean;
+  ready: boolean;
+  chargesEnabled: boolean;
+  payoutsEnabled: boolean;
+  detailsSubmitted: boolean;
 };
 
 type WeightRow = {
@@ -78,6 +90,7 @@ export default function MusicBatLoop({ displayName }: { displayName: string }) {
   const [busy, setBusy] = useState(false);
   const [purchaseBusy, setPurchaseBusy] = useState(false);
   const [purchaseMessage, setPurchaseMessage] = useState("");
+  const [purchaseDownloadUrl, setPurchaseDownloadUrl] = useState("");
   const purchaseStartingRef = useRef(false);
   const [message, setMessage] = useState("Loading rights-cleared Radio…");
   const [title, setTitle] = useState("");
@@ -87,6 +100,13 @@ export default function MusicBatLoop({ displayName }: { displayName: string }) {
   const [signInRequired, setSignInRequired] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [rightsAttested, setRightsAttested] = useState(false);
+  const [sellTrack, setSellTrack] = useState(false);
+  const [salePrice, setSalePrice] = useState("1.00");
+  const [saleRightsAttested, setSaleRightsAttested] = useState(false);
+  const [saleDrafts, setSaleDrafts] = useState<Record<number, string>>({});
+  const [saleConsents, setSaleConsents] = useState<Record<number, boolean>>({});
+  const [connectStatus, setConnectStatus] = useState<ConnectStatus | null>(null);
+  const [connectBusy, setConnectBusy] = useState(false);
   const startingRef = useRef(false);
   const qualifyingRef = useRef(false);
 
@@ -101,7 +121,20 @@ export default function MusicBatLoop({ displayName }: { displayName: string }) {
       api<{ tracks: Track[] }>("/api/musicbat?view=tracks"),
       api<{ rows: WeightRow[] }>("/api/musicbat?view=weight-room"),
     ]);
-    const updated = trackData.tracks.map((track) => ({ ...track, id: Number(track.id), signal_count: Number(track.signal_count), viewer_qualified: Number(track.viewer_qualified) }));
+    const updated = trackData.tracks.map((track) => ({
+      ...track,
+      id: Number(track.id),
+      signal_count: Number(track.signal_count),
+      viewer_qualified: Number(track.viewer_qualified),
+      sale_enabled: Number(track.sale_enabled),
+      sale_price_cents: track.sale_price_cents == null ? null : Number(track.sale_price_cents),
+      seller_ready: Number(track.seller_ready),
+    }));
+    setSaleDrafts((drafts) => {
+      const next = { ...drafts };
+      for (const track of updated) if (!(track.id in next)) next[track.id] = ((track.sale_price_cents ?? 100) / 100).toFixed(2);
+      return next;
+    });
     const selectedIndex = updated.findIndex((track) => track.id === currentTrackIdRef.current);
     setTracks(updated);
     setCurrentIndex(Math.max(0, selectedIndex));
@@ -119,6 +152,44 @@ export default function MusicBatLoop({ displayName }: { displayName: string }) {
       .catch((error) => setMessage(error instanceof Error ? error.message : "Radio unavailable."))
       .finally(() => setLoading(false));
   }, [refresh]);
+
+  const refreshConnectStatus = useCallback(async () => {
+    try {
+      setConnectStatus(await api<ConnectStatus>("/api/musicbat/stripe/connect"));
+    } catch { setConnectStatus(null); }
+  }, []);
+
+  useEffect(() => { void refreshConnectStatus(); }, [refreshConnectStatus]);
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const state = params.get("purchase");
+    const order = params.get("order");
+    const stripeReturn = params.get("stripe");
+    if (stripeReturn) {
+      void refreshConnectStatus().then(() => setMessage(stripeReturn === "return" ? "Stripe setup returned to MusicBat. Payout status refreshed." : "Restart Stripe onboarding to finish payout setup."));
+    }
+    if (state === "cancelled") setPurchaseMessage("Checkout cancelled. The track remains locked and you were not charged.");
+    if (state === "success" && order) {
+      setPurchaseMessage("Payment received by Stripe. Confirming it securely…");
+      void (async () => {
+        for (let attempt = 0; attempt < 6; attempt += 1) {
+          try {
+            const result = await api<{ purchase: { status: string }; downloadUrl: string | null }>(`/api/musicbat/purchase?id=${encodeURIComponent(order)}`);
+            if (result.purchase.status === "paid" && result.downloadUrl) {
+              setPurchaseDownloadUrl(result.downloadUrl);
+              setPurchaseMessage("Payment confirmed. Your track is ready to download.");
+              window.history.replaceState({}, "", window.location.pathname);
+              return;
+            }
+          } catch { /* The buyer cookie or webhook may not be ready yet. */ }
+          await new Promise((resolve) => setTimeout(resolve, 1000));
+        }
+        setPurchaseMessage("Stripe is still confirming the payment. Refresh this page in a moment; the track stays locked until confirmation arrives.");
+      })();
+    }
+    if (state === "cancelled" || stripeReturn) window.history.replaceState({}, "", window.location.pathname);
+  }, [refreshConnectStatus]);
 
   useEffect(() => {
     setListenId(null);
@@ -242,10 +313,10 @@ export default function MusicBatLoop({ displayName }: { displayName: string }) {
     setPurchaseBusy(true);
     setPurchaseMessage(`Selecting “${selected.title}”…`);
     try {
-      const result = await api<{ purchase: { id: string }; message: string; checkoutAvailable: false }>("/api/musicbat/purchase", {
+      const result = await api<{ purchase: { id: string }; checkoutAvailable: true; checkoutUrl: string }>("/api/musicbat/purchase", {
         method: "POST", body: JSON.stringify({ trackId: selected.id }),
       });
-      setPurchaseMessage(result.message);
+      window.location.assign(result.checkoutUrl);
     } catch (error) {
       setPurchaseMessage(error instanceof Error ? error.message : "Could not prepare this purchase. Try again.");
     } finally {
@@ -266,12 +337,18 @@ export default function MusicBatLoop({ displayName }: { displayName: string }) {
       form.set("artistName", artistName);
       form.set("audio", audioFile);
       form.set("rightsAttested", String(rightsAttested));
+      form.set("saleEnabled", String(sellTrack));
+      form.set("saleRightsAttested", String(saleRightsAttested));
+      form.set("salePriceCents", String(Math.round(Number(salePrice) * 100)));
       await api("/api/musicbat", { method: "POST", body: form });
       setTitle("");
       setArtistName("");
       setAudioFile(null);
       if (fileInputRef.current) fileInputRef.current.value = "";
       setRightsAttested(false);
+      setSellTrack(false);
+      setSalePrice("1.00");
+      setSaleRightsAttested(false);
       await refresh();
       setCurrentIndex(0);
       setTab("radio");
@@ -284,6 +361,37 @@ export default function MusicBatLoop({ displayName }: { displayName: string }) {
     } finally {
       setBusy(false);
     }
+  }
+
+  async function connectStripe() {
+    if (connectBusy) return;
+    setConnectBusy(true);
+    try {
+      const result = await api<ConnectStatus & { onboardingUrl: string | null }>("/api/musicbat/stripe/connect", { method: "POST", body: "{}" });
+      setConnectStatus(result);
+      if (result.onboardingUrl) window.location.assign(result.onboardingUrl);
+      else setMessage("Stripe payouts are ready for your MusicBat track sales.");
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Stripe payout setup could not start.");
+    } finally { setConnectBusy(false); }
+  }
+
+  async function saveSale(track: Track, enabled: boolean) {
+    const price = Math.round(Number(saleDrafts[track.id]) * 100);
+    setBusy(true);
+    try {
+      await api("/api/musicbat", { method: "POST", body: JSON.stringify({
+        action: "set_sale_settings",
+        trackId: track.id,
+        saleEnabled: enabled,
+        salePriceCents: price,
+        saleRightsAttested: enabled ? Boolean(saleConsents[track.id]) : false,
+      }) });
+      await refresh();
+      setMessage(enabled ? `“${track.title}” is offered for sale. Checkout opens after Stripe payouts are ready.` : `Sales are off for “${track.title}”. Radio playback is unchanged.`);
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Sale settings could not be saved.");
+    } finally { setBusy(false); }
   }
 
   function nextTrack(continuePlaying = true) {
@@ -336,9 +444,9 @@ export default function MusicBatLoop({ displayName }: { displayName: string }) {
                     <div className="mb-8 min-h-36"><div className="mb-3 text-sm uppercase tracking-[0.16em] text-white/38">Independent signal</div><h1 className="max-w-4xl text-4xl font-black leading-[0.98] tracking-[-0.045em] sm:text-6xl lg:text-7xl">{current.title}</h1><p className="mt-4 text-lg font-semibold text-white/58">{current.artist_name}</p></div>
                     <div className="flex flex-wrap items-center gap-3">
                       <MusicBatPlayer src={current.audio_url} title={current.title} replay={replay} autoPlay={autoPlay} onPlay={() => { setAutoPlay(true); void startListen(); }} onProgress={(seconds) => void qualifyListen(seconds)} onEnded={() => nextTrack(true)} onError={setMessage} onUnavailable={() => { failedRef.current.add(current.id); nextTrack(autoPlay); }} />
-                      <Button type="button" disabled={purchaseBusy} aria-busy={purchaseBusy} onClick={() => void buyCurrentTrack()} aria-label={`Buy ${current.title}`} data-track-id={current.id} className="h-12 shrink-0 rounded-full border border-[#ff3ea5]/50 bg-[#ff3ea5]/20 px-6 text-base font-black text-white disabled:opacity-60">Buy</Button>
+                      <Button type="button" disabled={purchaseBusy} aria-busy={purchaseBusy} onClick={() => void buyCurrentTrack()} aria-label={`Buy ${current.title}`} data-track-id={current.id} className="h-12 shrink-0 rounded-full border border-[#ff3ea5]/50 bg-[#ff3ea5]/20 px-6 text-base font-black text-white disabled:opacity-60">{current.sale_enabled && current.sale_price_cents ? `Buy $${(current.sale_price_cents / 100).toFixed(2)}` : "Buy"}</Button>
                     </div>
-                    {purchaseMessage && <p role="status" aria-live="polite" className="mt-3 text-sm leading-relaxed text-white/65">{purchaseMessage}</p>}
+                    {purchaseMessage && <p role="status" aria-live="polite" className="mt-3 text-sm leading-relaxed text-white/65">{purchaseMessage}{purchaseDownloadUrl && <> <a className="font-black text-[#ff69bd] underline" href={purchaseDownloadUrl}>Download track</a></>}</p>}
                     <div className="mt-6 flex flex-wrap gap-3">
                       {(Object.keys(hangerLabels) as Array<keyof typeof hangerLabels>).map((kind) => <Button key={kind} aria-pressed={kind === "keep_in_rotation" ? keepActive : current.listener_hanger === kind} disabled={busy || (kind === "keep_in_rotation" ? !current.can_manage && !canRespond && !keepActive : !canRespond)} onClick={() => void placeHanger(kind)} title={kind === "keep_in_rotation" ? "On gives extra rotation priority. Off keeps normal Radio eligibility." : kind === "standout" ? "Mark this song as exceptional." : "Tell the artist you want to hear more."} className={(kind === "keep_in_rotation" ? keepActive : current.listener_hanger === kind) ? "h-11 rounded-full border border-[#ff69bd] bg-[#ff3ea5] px-5 text-white shadow-[0_0_18px_rgba(255,62,165,.35)] hover:bg-[#ff69bd]" : kind === "keep_in_rotation" ? "h-11 rounded-full border border-[#ff3ea5]/60 bg-[#ff3ea5]/10 px-5 text-[#ff9dcc] hover:bg-[#ff3ea5]/20" : "h-11 rounded-full border border-white/15 bg-white/[0.045] px-5 text-white hover:bg-white/10"}>{hangerLabels[kind]}</Button>)}
                     </div>
@@ -357,6 +465,11 @@ export default function MusicBatLoop({ displayName }: { displayName: string }) {
               <form onSubmit={addTrack} aria-busy={busy} className="rounded-[1.75rem] border border-white/10 bg-[#111018] p-6 sm:p-8">
                 <div className="mb-7"><div className="text-xs font-black uppercase tracking-[0.18em] text-[#ff69bd]">Artist catalog</div><h1 className="mt-3 text-4xl font-black tracking-[-0.04em]">Put one track into motion.</h1></div>
                 <div className="space-y-4">
+                  <div className="rounded-xl border border-white/10 bg-white/[0.03] p-4">
+                    <div className="text-sm font-black text-white">Artist payouts</div>
+                    <p className="mt-1 text-sm text-white/50">{connectStatus?.ready ? "Stripe test payouts are ready." : connectStatus?.connected ? "Finish Stripe onboarding before buyers can check out." : "Connect a separate MusicBat Stripe Express account to receive 90% of each sale."}</p>
+                    <Button type="button" disabled={connectBusy || Boolean(connectStatus?.ready)} onClick={() => void connectStripe()} className="mt-3 h-10 rounded-full border border-[#ff3ea5]/50 bg-[#ff3ea5]/15 px-4 text-white hover:bg-[#ff3ea5]/25">{connectBusy ? "Opening Stripe…" : connectStatus?.ready ? "Stripe connected" : connectStatus?.connected ? "Finish Stripe setup" : "Connect Stripe payouts"}</Button>
+                  </div>
                   <label className="block"><span className="mb-2 block text-sm font-semibold text-white/65">Track title</span><Input value={title} onChange={(event) => setTitle(event.target.value)} required maxLength={120} className="h-12 rounded-xl border-white/12 bg-white/[0.045] px-4 text-white placeholder:text-white/25" placeholder="Track title" /></label>
                   <label className="block"><span className="mb-2 block text-sm font-semibold text-white/65">Artist or band name</span><Input value={artistName} onChange={(event) => setArtistName(event.target.value)} required maxLength={80} className="h-12 rounded-xl border-white/12 bg-white/[0.045] px-4 text-white placeholder:text-white/25" placeholder="Artist or band name" /></label>
                   <div className="block">
@@ -373,13 +486,32 @@ export default function MusicBatLoop({ displayName }: { displayName: string }) {
                     <p className="mt-2 text-sm text-white/45">MP3, WAV, or FLAC · up to 25 MB.</p>
                   </div>
                   <label className="flex cursor-pointer items-start gap-3 rounded-xl border border-white/10 bg-white/[0.03] p-4"><Checkbox checked={rightsAttested} onCheckedChange={(value) => setRightsAttested(value === true)} className="mt-0.5 border-white/25 data-[state=checked]:border-[#ff3ea5] data-[state=checked]:bg-[#ff3ea5]" /><span className="text-sm leading-relaxed text-white/62">I own this recording or am authorized to present it, and I permit MusicBat to stream it in this test loop.</span></label>
-                  <Button disabled={busy || !rightsAttested || !audioFile} type="submit" className="h-12 w-full rounded-xl bg-[#ff3ea5] text-base font-black text-white hover:bg-[#ff69bd]">{busy ? "Uploading your track…" : "Add to Radio"}</Button>
+                  <label className="flex cursor-pointer items-start gap-3 rounded-xl border border-white/10 bg-white/[0.03] p-4"><Checkbox checked={sellTrack} onCheckedChange={(value) => { setSellTrack(value === true); if (value !== true) setSaleRightsAttested(false); }} className="mt-0.5 border-white/25 data-[state=checked]:border-[#ff3ea5] data-[state=checked]:bg-[#ff3ea5]" /><span className="text-sm leading-relaxed text-white/62">Offer this track for sale as a downloadable music file.</span></label>
+                  {sellTrack && <div className="space-y-3 rounded-xl border border-[#ff3ea5]/25 bg-[#ff3ea5]/5 p-4">
+                    <label className="block"><span className="mb-2 block text-sm font-semibold text-white/65">Price in USD</span><Input value={salePrice} onChange={(event) => setSalePrice(event.target.value)} required min="0.50" max="1000" step="0.01" type="number" inputMode="decimal" className="h-11 rounded-xl border-white/12 bg-black/20 px-4 text-white" /></label>
+                    <label className="flex cursor-pointer items-start gap-3"><Checkbox checked={saleRightsAttested} onCheckedChange={(value) => setSaleRightsAttested(value === true)} className="mt-0.5 border-white/25 data-[state=checked]:border-[#ff3ea5] data-[state=checked]:bg-[#ff3ea5]" /><span className="text-sm leading-relaxed text-white/62">I authorize MusicBat to sell and deliver this recording to buyers.</span></label>
+                  </div>}
+                  <Button disabled={busy || !rightsAttested || !audioFile || (sellTrack && !saleRightsAttested)} type="submit" className="h-12 w-full rounded-xl bg-[#ff3ea5] text-base font-black text-white hover:bg-[#ff69bd]">{busy ? "Uploading your track…" : "Add to Radio"}</Button>
                   {uploadError && <p role="alert" className="text-sm text-[#ff9dcc]">{uploadError}{signInRequired && <> <a className="font-bold underline" href="/signin-with-chatgpt?return_to=%2F">Sign in to upload</a></>}</p>}
                 </div>
               </form>
               <div className="rounded-[1.75rem] border border-white/10 bg-white/[0.025] p-6 sm:p-8">
                 <div className="mb-5 flex items-center justify-between"><div><div className="text-xs font-black uppercase tracking-[0.18em] text-white/42">Rights-cleared catalog</div><h2 className="mt-2 text-2xl font-black">{tracks.length} active track{tracks.length === 1 ? "" : "s"}</h2></div><ShieldCheck className="size-7 text-[#ff69bd]" /></div>
-                <div className="space-y-2">{tracks.map((track) => <div key={track.id} className="flex flex-wrap items-center gap-2"><button type="button" onClick={() => { failedRef.current.delete(track.id); setAutoPlay(false); setCurrentIndex(tracks.findIndex((item) => item.id === track.id)); setReplay((cycle) => cycle + 1); setTab("radio"); }} className="flex min-w-0 flex-1 basis-[220px] items-center justify-between gap-4 rounded-xl border border-white/8 bg-white/[0.035] p-4 text-left transition hover:border-[#ff3ea5]/40 hover:bg-[#ff3ea5]/5"><div className="min-w-0"><div className="truncate font-bold">{track.title}</div><div className="truncate text-sm text-white/42">{track.artist_name}</div></div><div className="shrink-0 text-xs font-black uppercase tracking-wider text-[#ff69bd]">Play</div></button>{Boolean(track.can_manage) && <Button type="button" aria-label={`Keep ${track.title} in rotation`} aria-pressed={Boolean(track.keep_in_rotation)} disabled={busy} onClick={() => void toggleKeep(track)} className={track.keep_in_rotation ? "h-11 rounded-full bg-[#ff3ea5] px-4 text-white hover:bg-[#ff69bd]" : "h-11 rounded-full border border-white/15 bg-white/[0.045] px-4 text-white hover:bg-white/10"}>Keep in rotation</Button>}</div>)}</div>
+                <div className="space-y-3">{tracks.map((track) => <div key={track.id} className="rounded-xl border border-white/8 bg-white/[0.025] p-2">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <button type="button" onClick={() => { failedRef.current.delete(track.id); setAutoPlay(false); setCurrentIndex(tracks.findIndex((item) => item.id === track.id)); setReplay((cycle) => cycle + 1); setTab("radio"); }} className="flex min-w-0 flex-1 basis-[220px] items-center justify-between gap-4 rounded-xl bg-white/[0.025] p-3 text-left transition hover:bg-[#ff3ea5]/5"><div className="min-w-0"><div className="truncate font-bold">{track.title}</div><div className="truncate text-sm text-white/42">{track.artist_name}{track.sale_enabled && track.sale_price_cents ? ` · $${(track.sale_price_cents / 100).toFixed(2)}` : ""}</div></div><div className="shrink-0 text-xs font-black uppercase tracking-wider text-[#ff69bd]">Play</div></button>
+                    {Boolean(track.can_manage) && <Button type="button" aria-label={`Keep ${track.title} in rotation`} aria-pressed={Boolean(track.keep_in_rotation)} disabled={busy} onClick={() => void toggleKeep(track)} className={track.keep_in_rotation ? "h-10 rounded-full bg-[#ff3ea5] px-4 text-white hover:bg-[#ff69bd]" : "h-10 rounded-full border border-white/15 bg-white/[0.045] px-4 text-white hover:bg-white/10"}>Keep in rotation</Button>}
+                  </div>
+                  {Boolean(track.can_manage) && <div className="mt-2 rounded-lg border border-white/8 bg-black/15 p-3">
+                    <div className="flex flex-wrap items-end gap-2">
+                      <label className="min-w-28 flex-1"><span className="mb-1 block text-xs font-bold text-white/50">Sale price USD</span><Input type="number" inputMode="decimal" min="0.50" max="1000" step="0.01" value={saleDrafts[track.id] ?? "1.00"} onChange={(event) => setSaleDrafts((drafts) => ({ ...drafts, [track.id]: event.target.value }))} className="h-10 rounded-lg border-white/12 bg-white/[0.045] text-white" /></label>
+                      <Button type="button" disabled={busy || !saleConsents[track.id]} onClick={() => void saveSale(track, true)} className="h-10 rounded-full bg-[#ff3ea5] px-4 text-white hover:bg-[#ff69bd]">{track.sale_enabled ? "Update sale" : "Enable sale"}</Button>
+                      {Boolean(track.sale_enabled) && <Button type="button" disabled={busy} onClick={() => void saveSale(track, false)} className="h-10 rounded-full border border-white/15 bg-white/[0.045] px-4 text-white hover:bg-white/10">Stop sales</Button>}
+                    </div>
+                    <label className="mt-3 flex cursor-pointer items-start gap-2"><Checkbox checked={Boolean(saleConsents[track.id])} onCheckedChange={(value) => setSaleConsents((consents) => ({ ...consents, [track.id]: value === true }))} className="mt-0.5 border-white/25 data-[state=checked]:border-[#ff3ea5] data-[state=checked]:bg-[#ff3ea5]" /><span className="text-xs leading-relaxed text-white/50">I authorize MusicBat to sell and deliver this recording. Artist receives 90%; MusicBat retains 10% before Stripe processing costs.</span></label>
+                    <div className="mt-2 text-xs text-white/40">{track.sale_enabled ? (track.seller_ready ? "Checkout ready in Stripe test mode." : "Sale saved; finish Stripe payout setup before checkout can open.") : "Not currently for sale."}</div>
+                  </div>}
+                </div>)}</div>
               </div>
             </section>
           </TabsContent>

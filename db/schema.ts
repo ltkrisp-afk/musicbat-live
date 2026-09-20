@@ -9,6 +9,10 @@ export const tracks = sqliteTable("tracks", {
   audioUrl: text("audio_url").notNull(),
   rightsAttested: integer("rights_attested", { mode: "boolean" }).notNull().default(true),
   keepInRotation: integer("keep_in_rotation", { mode: "boolean" }).notNull().default(false),
+  saleEnabled: integer("sale_enabled", { mode: "boolean" }).notNull().default(false),
+  saleRightsAttested: integer("sale_rights_attested", { mode: "boolean" }).notNull().default(false),
+  salePriceCents: integer("sale_price_cents"),
+  saleCurrency: text("sale_currency").notNull().default("usd"),
   status: text("status").notNull().default("active"),
   createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
 });
@@ -54,9 +58,12 @@ export const purchases = sqliteTable("purchases", {
   trackId: integer("track_id").notNull(),
   title: text("title").notNull(),
   artistName: text("artist_name").notNull(),
+  artistId: text("artist_id"),
   audioPath: text("audio_path").notNull(),
   status: text("status").notNull().default("awaiting_checkout"),
   amountCents: integer("amount_cents"),
+  artistShareCents: integer("artist_share_cents"),
+  platformFeeCents: integer("platform_fee_cents"),
   currency: text("currency").notNull().default("usd"),
   processorAccountId: text("processor_account_id"),
   processorSessionId: text("processor_session_id"),
@@ -67,3 +74,21 @@ export const purchases = sqliteTable("purchases", {
   uniqueIndex("idx_purchases_processor_session").on(table.processorSessionId),
   index("idx_purchases_payment_intent").on(table.paymentIntentId),
 ]);
+
+export const artistAccounts = sqliteTable("artist_accounts", {
+  artistId: text("artist_id").primaryKey(),
+  stripeAccountId: text("stripe_account_id").notNull(),
+  chargesEnabled: integer("charges_enabled", { mode: "boolean" }).notNull().default(false),
+  payoutsEnabled: integer("payouts_enabled", { mode: "boolean" }).notNull().default(false),
+  detailsSubmitted: integer("details_submitted", { mode: "boolean" }).notNull().default(false),
+  createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+  updatedAt: text("updated_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+}, (table) => [
+  uniqueIndex("idx_artist_accounts_stripe_account").on(table.stripeAccountId),
+]);
+
+export const stripeEvents = sqliteTable("stripe_events", {
+  eventId: text("event_id").primaryKey(),
+  eventType: text("event_type").notNull(),
+  processedAt: text("processed_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+});
