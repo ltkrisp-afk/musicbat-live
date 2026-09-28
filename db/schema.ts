@@ -9,6 +9,10 @@ export const tracks = sqliteTable("tracks", {
   audioUrl: text("audio_url").notNull(),
   rightsAttested: integer("rights_attested", { mode: "boolean" }).notNull().default(true),
   keepInRotation: integer("keep_in_rotation", { mode: "boolean" }).notNull().default(false),
+  energyLane: text("energy_lane").notNull().default("medium"),
+  primaryGenre: text("primary_genre").notNull().default("Other"),
+  subgenre: text("subgenre"),
+  moodTags: text("mood_tags").notNull().default("[]"),
   saleEnabled: integer("sale_enabled", { mode: "boolean" }).notNull().default(false),
   saleRightsAttested: integer("sale_rights_attested", { mode: "boolean" }).notNull().default(false),
   salePriceCents: integer("sale_price_cents"),
@@ -16,6 +20,21 @@ export const tracks = sqliteTable("tracks", {
   status: text("status").notNull().default("active"),
   createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
 });
+
+export const radioFeedback = sqliteTable("radio_feedback", {
+  id: text("id").primaryKey(),
+  trackId: integer("track_id").notNull(),
+  artistId: text("artist_id").notNull(),
+  listenerId: text("listener_id").notNull(),
+  listenId: text("listen_id").notNull(),
+  energyLane: text("energy_lane").notNull(),
+  signal: text("signal").notNull(),
+  createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+}, (table) => [
+  index("idx_radio_feedback_lane_track").on(table.energyLane, table.trackId),
+  index("idx_radio_feedback_listener_lane").on(table.listenerId, table.energyLane),
+  index("idx_radio_feedback_listen").on(table.listenId),
+]);
 
 export const listens = sqliteTable(
   "listens",
@@ -26,6 +45,7 @@ export const listens = sqliteTable(
     qualified: integer("qualified", { mode: "boolean" }).notNull().default(false),
     startedAt: text("started_at").notNull().default(sql`CURRENT_TIMESTAMP`),
     qualifiedAt: text("qualified_at"),
+    completedAt: text("completed_at"),
   },
   (table) => [
     index("idx_listens_track_listener_qualified").on(
@@ -36,17 +56,15 @@ export const listens = sqliteTable(
   ],
 );
 
-export const hangers = sqliteTable(
-  "hangers",
+export const trackKeeps = sqliteTable(
+  "track_keeps",
   {
-    id: integer("id").primaryKey({ autoIncrement: true }),
     trackId: integer("track_id").notNull(),
     listenerId: text("listener_id").notNull(),
-    kind: text("kind").notNull(),
     createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
   },
   (table) => [
-    uniqueIndex("idx_hangers_track_listener").on(table.trackId, table.listenerId),
+    uniqueIndex("idx_track_keeps_track_listener").on(table.trackId, table.listenerId),
   ],
 );
 

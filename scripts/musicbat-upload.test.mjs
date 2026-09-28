@@ -19,7 +19,7 @@ function fixture() {
     DB: { prepare(sql) { return { bind(...values) { return { async first() {
       if (sql.includes('INSERT INTO tracks')) {
         if (state.failInsert) throw new Error('simulated catalog failure');
-        const track = { id: tracks.length + 1, artist_name: values[1], title: values[2], audio_url: values[3] };
+        const track = { id: tracks.length + 1, artist_name: values[1], title: values[2], audio_url: values[3], energy_lane: values[4], primary_genre: values[5], subgenre: values[6], mood_tags: values[7] };
         tracks.push(track); return track;
       }
       return tracks.find(track => track.audio_url === values[0]) ?? null;
@@ -41,6 +41,10 @@ function upload(overrides = {}) {
   const form = new FormData();
   form.set('title', overrides.title ?? 'Test song');
   form.set('artistName', overrides.artistName ?? 'Test band');
+  form.set('primaryGenre', overrides.primaryGenre ?? 'Alternative');
+  form.set('energyLane', overrides.energyLane ?? 'medium');
+  form.set('subgenre', overrides.subgenre ?? '');
+  form.set('moodTags', overrides.moodTags ?? '');
   form.set('rightsAttested', overrides.rightsAttested ?? 'true');
   form.set('audio', new File([overrides.bytes ?? wav], overrides.filename ?? 'track.wav', { type: 'audio/wav' }));
   return new Request('https://musicbat.audio/api/musicbat', { method: 'POST', body: form });
@@ -73,12 +77,24 @@ test('uploaded bytes play intact and support mobile seeking, suffix ranges, and 
   assert.equal((await audio.GET(new Request(url.replace(/[^/]+$/, 'unknown.wav')))).status, 404);
 });
 
+test('uploads store required genre and energy plus optional subgenre and mood tags', async () => {
+  const { state } = fixture();
+  const api = await loadRoute('../app/api/musicbat/route.ts', state);
+  const response = await api.POST(upload({ primaryGenre: 'Punk', energyLane: 'hard', subgenre: 'post-punk', moodTags: 'urgent, hazy' }));
+  assert.equal(response.status, 201);
+  const { track } = await response.json();
+  assert.equal(track.primary_genre, 'Punk');
+  assert.equal(track.energy_lane, 'hard');
+  assert.equal(track.subgenre, 'post-punk');
+  assert.equal(track.mood_tags, '["urgent","hazy"]');
+});
+
 test('uploads require identity, artist name, rights, supported bytes, and bounded size', async () => {
   const { state, objects } = fixture();
   const api = await loadRoute('../app/api/musicbat/route.ts', state);
   state.user = null; assert.equal((await api.POST(upload())).status, 401);
   state.user = { userId: 'artist-1', displayName: 'Account name' };
-  for (const values of [{ artistName: '' }, { title: '' }, { rightsAttested: 'false' }, { bytes: '<html>bad file</html>' }, { filename: 'song.exe' }, { filename: 'song.mp3' }]) {
+  for (const values of [{ artistName: '' }, { title: '' }, { rightsAttested: 'false' }, { primaryGenre: 'Not a genre' }, { bytes: '<html>bad file</html>' }, { filename: 'song.exe' }, { filename: 'song.mp3' }]) {
     assert.equal((await api.POST(upload(values))).status, 400);
   }
   const large = upload(); large.headers.set('content-length', String(26 * 1024 * 1024));

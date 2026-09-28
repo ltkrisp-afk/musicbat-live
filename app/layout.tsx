@@ -3,7 +3,7 @@ import "./globals.css";
 
 export const metadata: Metadata = {
   title: "MusicBat — Minimum Working Loop",
-  description: "Independent artists enter Radio. Qualified listeners move the Weight Room.",
+  description: "Independent artists enter Radio. Listener choices shape the Shock Room.",
   icons: {
     icon: "/favicon.svg",
     shortcut: "/favicon.svg",
