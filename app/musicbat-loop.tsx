@@ -418,7 +418,7 @@ export default function MusicBatLoop({ displayName }: { displayName: string }) {
             <div className="grid size-11 place-items-center rounded-full border border-[#ff3ea5]/40 bg-[#ff3ea5]/10 text-[#ff69bd] shadow-[0_0_34px_rgba(255,62,165,.18)]">
               <Activity className="size-5" />
             </div>
-            <div><div className="text-[0.72rem] font-black uppercase tracking-[0.24em] text-[#ff69bd]">MusicBat</div><div className="text-lg font-black tracking-tight">Minimum Working Loop</div></div>
+            <div><div className="text-[0.72rem] font-black uppercase tracking-[0.24em] text-[#ff69bd]">MusicBat</div></div>
           </div>
           <div className="text-right"><div className="text-sm font-semibold text-white/90">{displayName}</div><div className="text-xs text-white/45">{loopStatus}</div></div>
         </header>
