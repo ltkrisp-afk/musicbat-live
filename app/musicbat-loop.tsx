@@ -420,7 +420,7 @@ export default function MusicBatLoop({ displayName }: { displayName: string }) {
             </div>
             <div><div className="text-[0.72rem] font-black uppercase tracking-[0.24em] text-[#ff69bd]">MusicBat</div></div>
           </div>
-          <div className="text-right text-xl font-black tracking-[0.08em] text-[#ff69bd] sm:text-2xl" style={{ textShadow: "0 0 2px #fffde7, 0 0 7px rgba(255,253,231,0.65), 0 0 18px rgba(255,62,165,0.8), 0 0 34px rgba(255,62,165,0.35)" }}>Bat Radio</div>
+          <div className="text-right text-xl font-light tracking-[0.14em] text-[#ff69bd] sm:text-2xl" style={{ textShadow: "0 0 6px rgba(255,62,165,0.22)" }}>Bat Radio</div>
         </header>
 
         <div className="mb-5 grid grid-cols-4 overflow-hidden rounded-xl border border-white/10 bg-white/[0.025] text-center text-[0.68rem] font-black uppercase tracking-[0.12em] text-white/45">
