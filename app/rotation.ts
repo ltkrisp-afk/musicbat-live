@@ -1,11 +1,8 @@
-// Session-local smooth weighted rotation. Every eligible track has a positive
-// baseline; priority and existing Hanger signals increase frequency, not eligibility.
+// Session-local smooth fair rotation. Only catalog eligibility determines the pool;
+// listener responses are reported separately as category-position signals.
 export type RotationTrack = {
   id: number;
   rotation_eligible: boolean;
-  keep_in_rotation: number;
-  keep_count: number;
-  signal_count: number;
 };
 export function selectNextTrack<T extends RotationTrack>(
   tracks: T[], currentId: number | undefined, credits: Map<number, number>, failed: Set<number>,
@@ -15,7 +12,7 @@ export function selectNextTrack<T extends RotationTrack>(
   if (!eligible.length) return null;
   let total = 0;
   for (const track of eligible) {
-    const weight = 1 + Math.max(0, track.signal_count) + 2 * (Number(Boolean(track.keep_in_rotation)) + Math.max(0, track.keep_count));
+    const weight = 1;
     total += weight;
     credits.set(track.id, (credits.get(track.id) ?? 0) + weight);
   }

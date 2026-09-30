@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { index, integer, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
+import { check, index, integer, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
 
 export const tracks = sqliteTable("tracks", {
   id: integer("id").primaryKey({ autoIncrement: true }),
@@ -92,3 +92,26 @@ export const stripeEvents = sqliteTable("stripe_events", {
   eventType: text("event_type").notNull(),
   processedAt: text("processed_at").notNull().default(sql`CURRENT_TIMESTAMP`),
 });
+
+// Current listener choices; legacy hangers remain immutable and are read as fallback.
+export const radioFeedback = sqliteTable("radio_feedback", {
+  trackId: integer("track_id").notNull(),
+  listenerId: text("listener_id").notNull(),
+  signal: text("signal", { enum: ["up", "down"] }).notNull(),
+  createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+  updatedAt: text("updated_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+}, (table) => [
+  uniqueIndex("idx_radio_feedback_track_listener").on(table.trackId, table.listenerId),
+  check("radio_feedback_signal", sql`${table.signal} IN ('up', 'down')`),
+]);
+
+export const trackKeeps = sqliteTable("track_keeps", {
+  trackId: integer("track_id").notNull(),
+  listenerId: text("listener_id").notNull(),
+  enabled: integer("enabled", { mode: "boolean" }).notNull().default(true),
+  createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+  updatedAt: text("updated_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+}, (table) => [
+  uniqueIndex("idx_track_keeps_track_listener").on(table.trackId, table.listenerId),
+  check("track_keeps_enabled", sql`${table.enabled} IN (0, 1)`),
+]);

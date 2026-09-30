@@ -10,13 +10,29 @@ type ActionBody = {
   trackId?: number;
   listenId?: string;
   kind?: string;
+  signal?: "up" | "down";
   enabled?: boolean;
   saleEnabled?: boolean;
   salePriceCents?: number;
   saleRightsAttested?: boolean;
 };
 
-const hangerKinds = new Set(["keep_in_rotation", "standout", "want_more"]);
+// New choices override, never mutate or double-count, the matching legacy choice.
+const feedbackCte = `WITH votes AS (
+  SELECT track_id, listener_id, signal FROM radio_feedback
+  UNION ALL
+  SELECT h.track_id, h.listener_id, 'up' FROM hangers h
+  WHERE h.kind IN ('standout', 'want_more') AND NOT EXISTS (
+    SELECT 1 FROM radio_feedback f WHERE f.track_id = h.track_id AND f.listener_id = h.listener_id)
+), keeps AS (
+  SELECT track_id, listener_id FROM track_keeps WHERE enabled = 1
+  UNION ALL
+  SELECT h.track_id, h.listener_id FROM hangers h
+  WHERE h.kind = 'keep_in_rotation' AND NOT EXISTS (
+    SELECT 1 FROM track_keeps k WHERE k.track_id = h.track_id AND k.listener_id = h.listener_id)
+)`;
+const rankingSql = `(SELECT COALESCE(SUM(CASE WHEN signal = 'up' THEN 1 ELSE -1 END), 0) FROM votes v WHERE v.track_id = t.id)
+  + 2 * (SELECT COUNT(*) FROM keeps k WHERE k.track_id = t.id)`;
 
 function database() {
   if (!env.DB) throw new Error("MusicBat storage is unavailable.");
@@ -48,36 +64,34 @@ export async function GET(request: Request) {
     const view = url.searchParams.get("view") ?? "tracks";
 
     if (view === "weight-room") {
-      const rows = await db.prepare(`
+      const rows = await db.prepare(`${feedbackCte}
         SELECT t.id AS track_id, t.title, t.artist_name,
-          COUNT(h.id) AS signal_count,
-          COUNT(DISTINCT h.listener_id) AS citizen_count
+          ${rankingSql} AS signal_count,
+          (SELECT COUNT(*) FROM (SELECT listener_id FROM votes WHERE track_id = t.id
+            UNION SELECT listener_id FROM keeps WHERE track_id = t.id)) AS citizen_count
         FROM tracks t
-        LEFT JOIN hangers h ON h.track_id = t.id
         WHERE t.status = 'active' AND t.rights_attested = 1
-        GROUP BY t.id, t.title, t.artist_name
-        HAVING COUNT(h.id) > 0
-        ORDER BY signal_count DESC, citizen_count DESC, t.id ASC
-        LIMIT 25
+          AND (EXISTS(SELECT 1 FROM votes WHERE track_id = t.id) OR EXISTS(SELECT 1 FROM keeps WHERE track_id = t.id))
+        ORDER BY signal_count DESC, citizen_count DESC, t.id ASC LIMIT 25
       `).all();
       return Response.json({ rows: rows.results });
     }
 
     const viewer = await getChatGPTUser();
-    const rows = await db.prepare(`
+    const rows = await db.prepare(`${feedbackCte}
       SELECT t.id, t.title, t.artist_name, t.audio_url, t.created_at, t.keep_in_rotation,
         t.sale_enabled, t.sale_price_cents, t.sale_currency,
         (t.artist_id = ?) AS can_manage,
         EXISTS(SELECT 1 FROM artist_accounts a WHERE a.artist_id = t.artist_id AND a.charges_enabled = 1 AND a.payouts_enabled = 1 AND a.details_submitted = 1) AS seller_ready,
         EXISTS(SELECT 1 FROM listens l WHERE l.track_id = t.id AND l.listener_id = ? AND l.qualified = 1) AS viewer_qualified,
-        MAX(CASE WHEN h.listener_id = ? THEN h.kind END) AS listener_hanger,
-        MAX(CASE WHEN h.listener_id = ? AND h.kind = 'keep_in_rotation' THEN 1 ELSE 0 END) AS viewer_keep_in_rotation,
-        SUM(CASE WHEN h.kind = 'keep_in_rotation' THEN 1 ELSE 0 END) AS keep_count,
-        COUNT(h.id) AS signal_count
+        (SELECT signal FROM votes WHERE track_id = t.id AND listener_id = ?) AS viewer_signal,
+        EXISTS(SELECT 1 FROM keeps WHERE track_id = t.id AND listener_id = ?) AS viewer_keep_in_rotation,
+        (SELECT COUNT(*) FROM keeps WHERE track_id = t.id) AS keep_count,
+        (SELECT COUNT(*) FROM votes WHERE track_id = t.id AND signal = 'up') AS up_count,
+        (SELECT COUNT(*) FROM votes WHERE track_id = t.id AND signal = 'down') AS down_count,
+        ${rankingSql} AS signal_count
       FROM tracks t
-      LEFT JOIN hangers h ON h.track_id = t.id
       WHERE t.status = 'active' AND t.rights_attested = 1
-      GROUP BY t.id, t.title, t.artist_name, t.audio_url, t.created_at
       ORDER BY t.created_at DESC, t.id DESC
     `).bind(viewer?.userId ?? "", viewer?.userId ?? "", viewer?.userId ?? "", viewer?.userId ?? "").all();
     return Response.json({ tracks: rows.results.map((track) => ({ ...track, rotation_eligible: true })) }, { headers: { "cache-control": "private, no-store", "vary": "Cookie" } });
@@ -171,10 +185,6 @@ export async function POST(request: Request) {
         RETURNING id, keep_in_rotation, status, rights_attested
       `).bind(body.enabled ? 1 : 0, trackId, user.userId).first();
       if (!track) return fail("Only the uploading artist can edit this track's priority.", 403);
-      if (!body.enabled) {
-        // Clear this artist's legacy Keep Hanger too; other listeners' signals remain.
-        await db.prepare("DELETE FROM hangers WHERE track_id = ? AND listener_id = ? AND kind = 'keep_in_rotation'").bind(trackId, user.userId).run();
-      }
       return Response.json({ track });
     }
 
@@ -194,20 +204,28 @@ export async function POST(request: Request) {
       return Response.json({ track });
     }
 
-    if (body.action === "toggle_rotation_hanger") {
+    if (body.action === "radio_feedback" || body.action === "toggle_keep" || body.action === "toggle_rotation_hanger") {
       const trackId = Number(body.trackId);
-      if (!Number.isInteger(trackId) || trackId < 1 || typeof body.enabled !== "boolean") return fail("A valid track and ON/OFF state are required.");
+      const voting = body.action === "radio_feedback";
+      if (!Number.isInteger(trackId) || trackId < 1) return fail("A valid track is required.");
+      if (voting ? !["up", "down"].includes(body.signal ?? "") : typeof body.enabled !== "boolean") {
+        return fail("Choose a valid track response.");
+      }
       const track = await db.prepare("SELECT id FROM tracks WHERE id = ? AND status = 'active' AND rights_attested = 1").bind(trackId).first();
       if (!track) return fail("That track is unavailable.", 404);
       const qualified = await db.prepare("SELECT id FROM listens WHERE track_id = ? AND listener_id = ? AND qualified = 1 LIMIT 1").bind(trackId, user.userId).first();
-      if (!qualified) return fail("A qualified listen is required before placing a Hanger.", 409);
-      if (body.enabled) {
-        await db.prepare(`INSERT INTO hangers (track_id, listener_id, kind) VALUES (?, ?, 'keep_in_rotation')
-          ON CONFLICT(track_id, listener_id) DO UPDATE SET kind = excluded.kind, created_at = CURRENT_TIMESTAMP`).bind(trackId, user.userId).run();
+      if (!qualified) return fail("Listen for at least 12 seconds before responding.", 409);
+      if (voting) {
+        await db.prepare(`INSERT INTO radio_feedback (track_id, listener_id, signal) VALUES (?, ?, ?)
+          ON CONFLICT(track_id, listener_id) DO UPDATE SET signal = excluded.signal, updated_at = CURRENT_TIMESTAMP
+          WHERE radio_feedback.signal != excluded.signal`).bind(trackId, user.userId, body.signal).run();
       } else {
-        await db.prepare("DELETE FROM hangers WHERE track_id = ? AND listener_id = ? AND kind = 'keep_in_rotation'").bind(trackId, user.userId).run();
+        // Retain an explicit OFF row so legacy keeps do not reappear.
+        await db.prepare(`INSERT INTO track_keeps (track_id, listener_id, enabled) VALUES (?, ?, ?)
+          ON CONFLICT(track_id, listener_id) DO UPDATE SET enabled = excluded.enabled, updated_at = CURRENT_TIMESTAMP
+          WHERE track_keeps.enabled != excluded.enabled`).bind(trackId, user.userId, body.enabled ? 1 : 0).run();
       }
-      return Response.json({ recorded: body.enabled });
+      return Response.json(voting ? { recorded: true, signal: body.signal } : { recorded: body.enabled });
     }
 
     if (body.action === "start_listen") {
@@ -234,22 +252,7 @@ export async function POST(request: Request) {
     }
 
     if (body.action === "hanger") {
-      const trackId = Number(body.trackId);
-      const kind = body.kind ?? "";
-      if (!hangerKinds.has(kind)) return fail("Choose a valid Hanger response.");
-      const qualified = await db.prepare(`
-        SELECT id FROM listens
-        WHERE track_id = ? AND listener_id = ? AND qualified = 1
-        ORDER BY qualified_at DESC LIMIT 1
-      `).bind(trackId, user.userId).first();
-      if (!qualified) return fail("A qualified listen is required before placing a Hanger.", 409);
-      await db.prepare(`
-        INSERT INTO hangers (track_id, listener_id, kind)
-        VALUES (?, ?, ?)
-        ON CONFLICT(track_id, listener_id)
-        DO UPDATE SET kind = excluded.kind, created_at = CURRENT_TIMESTAMP
-      `).bind(trackId, user.userId, kind).run();
-      return Response.json({ recorded: true, kind });
+      return fail("These legacy controls have been replaced. Refresh to use Like this, Not for me, and Keep in Rotation.", 409);
     }
 
     return fail("Unknown MusicBat action.");

@@ -49,25 +49,53 @@ test('existing uploads toggle ON/OFF persistently without changing eligibility, 
   assert.equal((await route.POST(post({ action: 'set_rotation_priority', trackId: 3, enabled: true }))).status, 401);
 });
 
-test('qualified listener priority is reversible and preserves unrelated Hangers', async () => {
+test('votes replace direction, duplicates are idempotent, keeps are independent and legacy rows survive', async () => {
   const sqlite = database(), route = await handlers(sqlite);
   globalThis.musicbatRotationState.user = { userId: 'listener-1' };
-  const toggle = (enabled) => route.POST(post({ action: 'toggle_rotation_hanger', trackId: 1, enabled }));
-  assert.equal((await toggle(true)).status, 409);
-  sqlite.prepare("INSERT INTO listens(id, track_id, listener_id, qualified) VALUES ('listen-1', 1, 'listener-1', 1)").run();
-  for (const enabled of [true, true, false, false, true]) {
-    assert.equal((await toggle(enabled)).status, 200);
-    const { tracks } = await (await route.GET(get())).json();
-    const track = tracks.find((t) => t.id === 1);
-    assert.equal(track.viewer_keep_in_rotation, Number(enabled));
-    assert.equal(track.keep_count, Number(enabled));
-    assert.equal(track.viewer_qualified, 1);
-    assert.equal(sqlite.prepare('SELECT count(*) AS n FROM hangers').get().n, Number(enabled));
+  const vote = (signal) => route.POST(post({ action: 'radio_feedback', trackId: 1, signal }));
+  const keep = (enabled) => route.POST(post({ action: 'toggle_keep', trackId: 1, enabled }));
+  assert.equal((await vote('up')).status, 409);
+  assert.equal((await keep(true)).status, 409);
+  sqlite.exec("INSERT INTO listens(id,track_id,listener_id,qualified) VALUES ('listen-1',1,'listener-1',1); INSERT INTO hangers(track_id,listener_id,kind) VALUES (1,'listener-1','standout'),(1,'listener-2','keep_in_rotation')");
+  const legacy = sqlite.prepare('SELECT * FROM hangers ORDER BY id').all();
+  const track = async () => (await (await route.GET(get())).json()).tracks.find(t => t.id === 1);
+  assert.equal((await track()).up_count, 1);
+  for (const signal of ['up','up','down','down','up','down']) {
+    assert.equal((await vote(signal)).status, 200);
+    assert.equal(sqlite.prepare('SELECT count(*) n FROM radio_feedback').get().n, 1);
+    const t = await track();
+    assert.equal(t.viewer_signal, signal);
+    assert.equal(t.up_count, Number(signal === 'up'));
+    assert.equal(t.down_count, Number(signal === 'down'));
+    assert.equal(t.keep_count, 1);
   }
-  await route.POST(post({ action: 'hanger', trackId: 1, kind: 'standout' }));
-  await toggle(false);
-  assert.equal(sqlite.prepare('SELECT kind FROM hangers').get().kind, 'standout');
-  assert.equal(sqlite.prepare('SELECT count(*) AS n FROM tracks').get().n, 5);
+  for (const enabled of [true,true,false,false,true]) {
+    assert.equal((await keep(enabled)).status, 200);
+    const t = await track();
+    assert.equal(t.viewer_keep_in_rotation, Number(enabled));
+    assert.equal(t.keep_count, 1 + Number(enabled));
+    assert.equal(t.viewer_signal, 'down');
+    assert.equal(t.signal_count, -1 + 2 * (1 + Number(enabled)));
+    assert.equal(sqlite.prepare('SELECT count(*) n FROM track_keeps').get().n, 1);
+  }
+  const before = sqlite.prepare('SELECT * FROM radio_feedback').get();
+  await vote('down');
+  assert.deepEqual(sqlite.prepare('SELECT * FROM radio_feedback').get(), before);
+  const rankings = await (await route.GET(new Request('https://musicbat.audio/api/musicbat?view=weight-room'))).json();
+  assert.equal(rankings.rows[0].signal_count, 3);
+  assert.equal(rankings.rows[0].citizen_count, 2);
+  assert.equal((await vote('invalid')).status, 400);
+  assert.equal((await keep('yes')).status, 400);
+  assert.equal((await route.POST(post({action:'hanger',trackId:1,kind:'want_more'}))).status,409);
+  globalThis.musicbatRotationState.user = { userId: 'listener-2' };
+  sqlite.exec("INSERT INTO listens(id,track_id,listener_id,qualified) VALUES ('listen-2',1,'listener-2',1)");
+  await keep(false);
+  assert.equal((await track()).keep_count,1);
+  assert.deepEqual(sqlite.prepare('SELECT * FROM hangers ORDER BY id').all(),legacy);
+  assert.throws(() => sqlite.exec("INSERT INTO radio_feedback(track_id,listener_id,signal) VALUES (1,'listener-1','up')"), /UNIQUE/);
+  assert.throws(() => sqlite.exec("INSERT INTO radio_feedback(track_id,listener_id,signal) VALUES (2,'listener-1','invalid')"), /CHECK/);
+  globalThis.musicbatRotationState.user = null;
+  assert.equal((await vote('up')).status,401);
 });
 
 const pool = () => songs.map((title, i) => ({ id: i + 1, title, rotation_eligible: true, keep_in_rotation: 0, keep_count: 0, signal_count: 0 }));
@@ -81,13 +109,13 @@ function spins(tracks, n = 1000, failed = new Set()) {
   }
   return counts;
 }
-test('all-OFF catalog continues cycling; owner and listener ON signals increase frequency', () => {
+test('fair rotation is unchanged by likes, dislikes, keeps or owner priority', () => {
   const tracks = pool();
-  const baseline = spins(tracks); assert.equal(baseline.size, 5); assert.equal([...baseline.values()].reduce((a,b) => a+b), 1000);
-  tracks[0].keep_in_rotation = 1;
-  const priority = spins(tracks); assert.ok(priority.get(1) > priority.get(2)); assert.equal(priority.size, 5);
-  tracks[1].keep_count = 1; tracks[1].signal_count = 1;
-  const listeners = spins(tracks); assert.ok(listeners.get(2) > listeners.get(3));
+  const baseline = spins(tracks);
+  assert.deepEqual([...baseline.values()], [200,200,200,200,200]);
+  tracks[0].keep_in_rotation = 1; tracks[0].signal_count = 1000;
+  tracks[1].keep_count = 1000; tracks[2].signal_count = -1000;
+  assert.deepEqual(spins(tracks), baseline);
 });
 test('insufficient/broken preferred tracks fall back; ineligible tracks never play; one track repeats', () => {
   const tracks = pool(); tracks[0].keep_in_rotation = 1; tracks[1].rotation_eligible = false;
@@ -107,13 +135,16 @@ test('MusicBat player omits native controls and Next; Buy and essential playback
   assert.match(controls, /aria-label="Volume"/);
   assert.match(controls, /onEnded\(\); \}, 500\)/);
   assert.match(player, /aria-label=\{`Buy \$\{current.title\}`\}/);
-  assert.match(player, /aria-pressed=\{kind === "keep_in_rotation" \? keepActive/);
+  assert.match(player, /aria-pressed=\{keepActive\}/);
+  assert.match(player, /▲ Like this/);
+  assert.match(player, /▼ Not for me/);
+  assert.doesNotMatch(player, /Standout|Want more/);
   assert.match(player, /onEnded=\{\(\) => nextTrack\(true\)\}/);
   assert.doesNotMatch(player, /downloadMedia|href=.*audio_url|SkipForward|> Next</);
 });
 
 
-test('migration preserves prior artist ON choices and OFF clears only their legacy keep signal', async () => {
+test('migration preserves prior artist ON choices and OFF preserves all legacy responses', async () => {
   const sqlite = new DatabaseSync(':memory:');
   for (const name of readdirSync('drizzle').filter((name) => name.endsWith('.sql') && !name.startsWith('0002')).sort()) sqlite.exec(readFileSync(`drizzle/${name}`, 'utf8'));
   sqlite.exec("INSERT INTO tracks(artist_id,artist_name,title,audio_url) VALUES ('artist-1','The Enucleators','Unity','/api/musicbat/audio/existing.mp3')");
@@ -123,8 +154,8 @@ test('migration preserves prior artist ON choices and OFF clears only their lega
   const route = await handlers(sqlite);
   assert.equal((await route.POST(post({action:'set_rotation_priority',trackId:1,enabled:false}))).status,200);
   assert.equal(sqlite.prepare('SELECT keep_in_rotation FROM tracks').get().keep_in_rotation,0);
-  assert.equal(sqlite.prepare('SELECT count(*) AS n FROM hangers').get().n,1);
-  assert.equal(sqlite.prepare('SELECT listener_id FROM hangers').get().listener_id,'listener-2');
+  assert.equal(sqlite.prepare('SELECT count(*) AS n FROM hangers').get().n,2);
+
 });
 test('eligibility queries exclude moderated, removed, unpublished and unattested songs', async () => {
   const sqlite = database(), route = await handlers(sqlite);
