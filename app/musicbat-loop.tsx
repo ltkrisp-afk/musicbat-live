@@ -457,6 +457,7 @@ export default function MusicBatLoop({ displayName }: { displayName: string }) {
                         <p id="keep-help" className="mt-2 text-xs leading-relaxed text-white/55">A separate vote to retain this exact track in Bat Radio.</p>
                       </div>
                       <p className="text-xs leading-relaxed text-white/45">Your choices contribute to track rankings. Playback stays fair for every track.{!canRespond && " Listen for 12 seconds while signed in to respond."}</p>
+                      <Button type="button" onClick={() => setTab("weight")} className="h-11 rounded-full border border-[#ff3ea5]/40 bg-[#ff3ea5]/5 px-5 text-[#ff9dcc] hover:bg-[#ff3ea5]/15">View results in Shock Room</Button>
                     </div>
                   </> : <div className="grid min-h-[390px] place-items-center text-center"><div><Disc3 className="mx-auto mb-5 size-12 text-[#ff69bd]" /><h1 className="text-3xl font-black tracking-tight">Radio needs its first track.</h1><p className="mx-auto mt-3 max-w-md text-white/52">Upload your music file and confirm your rights to enter Radio.</p><Button onClick={() => setTab("catalog")} className="mt-6 rounded-full bg-[#ff3ea5] px-6 text-white hover:bg-[#ff69bd]">Add the first track</Button></div></div>}
                 </div>
