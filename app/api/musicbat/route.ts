@@ -66,6 +66,9 @@ export async function GET(request: Request) {
     if (view === "weight-room") {
       const rows = await db.prepare(`${feedbackCte}
         SELECT t.id AS track_id, t.title, t.artist_name,
+          (SELECT COUNT(*) FROM votes WHERE track_id = t.id AND signal = 'up') AS up_count,
+          (SELECT COUNT(*) FROM votes WHERE track_id = t.id AND signal = 'down') AS down_count,
+          (SELECT COUNT(*) FROM keeps WHERE track_id = t.id) AS keep_count,
           ${rankingSql} AS signal_count,
           (SELECT COUNT(*) FROM (SELECT listener_id FROM votes WHERE track_id = t.id
             UNION SELECT listener_id FROM keeps WHERE track_id = t.id)) AS citizen_count

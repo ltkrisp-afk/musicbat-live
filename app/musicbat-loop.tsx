@@ -1,7 +1,7 @@
 "use client";
 
 import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Activity, Disc3, Gauge, Radio, ShieldCheck, Sparkles, Upload } from "lucide-react";
+import { Activity, Disc3, Gauge, Radio, ShieldCheck, Upload } from "lucide-react";
 import { MusicBatPlayer } from "@/components/musicbat-player";
 import { selectNextTrack } from "./rotation";
 import { Button } from "@/components/ui/button";
@@ -45,6 +45,9 @@ type WeightRow = {
   artist_name: string;
   signal_count: number;
   citizen_count: number;
+  up_count: number;
+  down_count: number;
+  keep_count: number;
 };
 
 type ToolContext = {
@@ -144,7 +147,7 @@ export default function MusicBatLoop({ displayName }: { displayName: string }) {
 
   useEffect(() => {
     refresh()
-      .then(() => setMessage("Choose a track and press play."))
+      .then(() => setMessage(""))
       .catch((error) => setMessage(error instanceof Error ? error.message : "Radio unavailable."))
       .finally(() => setLoading(false));
   }, [refresh]);
@@ -210,7 +213,7 @@ export default function MusicBatLoop({ displayName }: { displayName: string }) {
       }, { signal: lifecycle.signal });
       await context.registerTool({
         name: "get_musicbat_weight_room",
-        title: "Read the Weight Room",
+        title: "Read the Shock Room",
         description: "Read the current MusicBat ranking created by qualified listener choices.",
         inputSchema: { type: "object", properties: {}, additionalProperties: false },
         annotations: { readOnlyHint: true, untrustedContentHint: true },
@@ -419,18 +422,18 @@ export default function MusicBatLoop({ displayName }: { displayName: string }) {
         </header>
 
         <div className="mb-5 grid grid-cols-4 overflow-hidden rounded-xl border border-white/10 bg-white/[0.025] text-center text-[0.68rem] font-black uppercase tracking-[0.12em] text-white/45">
-          {["Catalog", "Radio", "Response", "Weight Room"].map((step, index) => <div key={step} className="border-r border-white/10 px-2 py-3 last:border-0"><span className="mr-1 text-[#ff69bd]">0{index + 1}</span> {step}</div>)}
+          {["Catalog", "Radio", "Response", "Shock Room"].map((step, index) => <div key={step} className="border-r border-white/10 px-2 py-3 last:border-0"><span className="mr-1 text-[#ff69bd]">0{index + 1}</span> {step}</div>)}
         </div>
 
         <Tabs value={tab} onValueChange={setTab} className="gap-5">
           <TabsList className="h-auto w-full justify-start gap-1 rounded-xl border border-white/10 bg-white/[0.035] p-1.5 sm:w-fit">
             <TabsTrigger value="radio" className="h-10 rounded-lg px-4 text-white/55 data-[state=active]:bg-[#ff3ea5] data-[state=active]:text-white"><Radio /> Radio</TabsTrigger>
             <TabsTrigger value="catalog" className="h-10 rounded-lg px-4 text-white/55 data-[state=active]:bg-[#ff3ea5] data-[state=active]:text-white"><Disc3 /> Add Track</TabsTrigger>
-            <TabsTrigger value="weight" className="h-10 rounded-lg px-4 text-white/55 data-[state=active]:bg-[#ff3ea5] data-[state=active]:text-white"><Gauge /> Weight Room</TabsTrigger>
+            <TabsTrigger value="weight" className="h-10 rounded-lg px-4 text-white/55 data-[state=active]:bg-[#ff3ea5] data-[state=active]:text-white"><Gauge /> Shock Room</TabsTrigger>
           </TabsList>
 
           <TabsContent value="radio">
-            <section className="grid gap-5 lg:grid-cols-[minmax(0,1.55fr)_minmax(310px,.65fr)]">
+            <section className="block">
               <div className="relative overflow-hidden rounded-[1.75rem] border border-white/10 bg-[#111018] p-6 shadow-[0_28px_90px_rgba(0,0,0,.45)] sm:p-9">
                 <div className="pointer-events-none absolute -right-24 -top-24 size-72 rounded-full bg-[#ff3ea5]/10 blur-3xl" />
                 <div className="relative">
@@ -442,6 +445,8 @@ export default function MusicBatLoop({ displayName }: { displayName: string }) {
                       <Button type="button" disabled={purchaseBusy} aria-busy={purchaseBusy} onClick={() => void buyCurrentTrack()} aria-label={`Buy ${current.title}`} data-track-id={current.id} className="h-12 shrink-0 rounded-full border border-[#ff3ea5]/50 bg-[#ff3ea5]/20 px-6 text-base font-black text-white disabled:opacity-60">{current.sale_enabled && current.sale_price_cents ? `Buy $${(current.sale_price_cents / 100).toFixed(2)}` : "Buy"}</Button>
                     </div>
                     {purchaseMessage && <p role="status" aria-live="polite" className="mt-3 text-sm leading-relaxed text-white/65">{purchaseMessage}{purchaseDownloadUrl && <> <a className="font-black text-[#ff69bd] underline" href={purchaseDownloadUrl}>Download track</a></>}</p>}
+                    {message && <p role="status" aria-live="polite" className="sr-only">{message}</p>}
+                    {message === "Sign in to use MusicBat." && <a href="/signin-with-chatgpt?return_to=%2F" className="mt-3 inline-block text-sm text-[#ff69bd] underline">Sign in to respond</a>}
                     <div className="mt-6 space-y-4">
                       <div role="group" aria-label="Track feedback" aria-describedby="feedback-help" className="flex flex-wrap gap-3">
                         {([['up', '▲ Like this'], ['down', '▼ Not for me']] as const).map(([signal, label]) => <Button key={signal} type="button" aria-pressed={current.viewer_signal === signal} disabled={busy || !canRespond} onClick={() => void sendRadioFeedback(signal)} className={current.viewer_signal === signal ? "h-11 rounded-full border border-[#ff69bd] bg-[#ff3ea5] px-5 text-white" : "h-11 rounded-full border border-white/15 bg-white/[0.045] px-5 text-white hover:bg-white/10"}>{label}</Button>)}
@@ -456,10 +461,7 @@ export default function MusicBatLoop({ displayName }: { displayName: string }) {
                   </> : <div className="grid min-h-[390px] place-items-center text-center"><div><Disc3 className="mx-auto mb-5 size-12 text-[#ff69bd]" /><h1 className="text-3xl font-black tracking-tight">Radio needs its first track.</h1><p className="mx-auto mt-3 max-w-md text-white/52">Upload your music file and confirm your rights to enter Radio.</p><Button onClick={() => setTab("catalog")} className="mt-6 rounded-full bg-[#ff3ea5] px-6 text-white hover:bg-[#ff69bd]">Add the first track</Button></div></div>}
                 </div>
               </div>
-              <aside className="flex flex-col gap-5">
-                <div className="rounded-[1.5rem] border border-white/10 bg-white/[0.035] p-6"><div className="mb-5 flex items-center gap-2 text-xs font-black uppercase tracking-[0.16em] text-white/45"><Sparkles className="size-4 text-[#ff69bd]" /> Signal status</div><p className="text-lg font-semibold leading-snug">{loading ? "Loading the loop…" : message}</p>{message === "Sign in to use MusicBat." && <a href="/signin-with-chatgpt?return_to=%2F" className="mt-3 inline-block font-bold text-[#ff69bd] underline">Sign in to keep songs in rotation</a>}<div className="mt-6 h-1.5 overflow-hidden rounded-full bg-white/10"><div className={`h-full rounded-full bg-[#ff3ea5] transition-all ${canRespond ? "w-full" : listenId ? "w-2/3" : tracks.length ? "w-1/3" : "w-0"}`} /></div></div>
-                <div className="rounded-[1.5rem] border border-white/10 bg-[#15121b] p-6"><div className="text-xs font-black uppercase tracking-[0.16em] text-[#ff69bd]">Current consequence</div><div className="mt-5 flex items-end justify-between gap-4"><div><div className="text-5xl font-black tracking-[-0.06em]">{current?.signal_count ?? 0}</div><div className="mt-1 text-sm text-white/45">ranking points</div></div><Gauge className="size-9 text-white/18" /></div></div>
-              </aside>
+
             </section>
           </TabsContent>
 
@@ -521,8 +523,8 @@ export default function MusicBatLoop({ displayName }: { displayName: string }) {
 
           <TabsContent value="weight">
             <section className="overflow-hidden rounded-[1.75rem] border border-white/10 bg-[#111018]">
-              <div className="flex flex-wrap items-end justify-between gap-4 border-b border-white/10 p-6 sm:p-8"><div><div className="text-xs font-black uppercase tracking-[0.18em] text-[#ff69bd]">The Weight Room</div><h1 className="mt-3 text-4xl font-black tracking-[-0.04em]">Where listening becomes leverage.</h1></div><div className="text-sm text-white/42">Likes − dislikes + 2 × keeps</div></div>
-              {weightRows.length ? <div>{weightRows.map((row, index) => <div key={row.track_id} className="grid grid-cols-[56px_minmax(0,1fr)_auto] items-center gap-4 border-b border-white/8 px-6 py-5 last:border-0 sm:px-8"><div className="text-3xl font-black text-[#ff69bd]">{String(index + 1).padStart(2, "0")}</div><div className="min-w-0"><div className="truncate text-lg font-black">{row.title}</div><div className="truncate text-sm text-white/42">{row.artist_name} · {row.citizen_count} listener{row.citizen_count === 1 ? "" : "s"}</div></div><div className="text-right"><div className="text-3xl font-black">{row.signal_count}</div><div className="text-xs uppercase tracking-wider text-white/35">Points</div></div></div>)}</div> : <div className="grid min-h-72 place-items-center p-8 text-center"><div><Gauge className="mx-auto mb-4 size-11 text-white/20" /><div className="text-xl font-black">No signal has weight yet.</div><p className="mt-2 text-white/45">Listen in Radio and leave your first track response.</p></div></div>}
+              <div className="flex flex-wrap items-end justify-between gap-4 border-b border-white/10 p-6 sm:p-8"><div><div className="text-xs font-black uppercase tracking-[0.18em] text-[#ff69bd]">The Shock Room</div><h1 className="mt-3 text-4xl font-black tracking-[-0.04em]">Where listening becomes leverage.</h1></div><div className="text-sm text-white/42">Likes − dislikes + 2 × keeps<br /><span className="text-xs">Overall ranking · up to 25 tracks with responses</span></div></div>
+              {weightRows.length ? <div>{weightRows.map((row, index) => <div key={row.track_id} className="grid grid-cols-[56px_minmax(0,1fr)_auto] items-center gap-4 border-b border-white/8 px-6 py-5 last:border-0 sm:px-8"><div className="text-3xl font-black text-[#ff69bd]">{String(index + 1).padStart(2, "0")}</div><div className="min-w-0"><div className="truncate text-lg font-black">{row.title}</div><div className="truncate text-sm text-white/42">{row.artist_name} · {row.citizen_count} listener{row.citizen_count === 1 ? "" : "s"}</div><div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-sm text-white/65"><span>▲ {row.up_count} likes</span><span>▼ {row.down_count} dislikes</span><span>{row.keep_count} Keeps</span></div><p className="mt-2 text-xs text-white/40">Category position unavailable — tracks have no category data.</p></div><div className="text-right"><div className="text-3xl font-black">{row.signal_count}</div><div className="text-xs uppercase tracking-wider text-white/35">Score</div></div></div>)}</div> : <div className="grid min-h-72 place-items-center p-8 text-center"><div><Gauge className="mx-auto mb-4 size-11 text-white/20" /><div className="text-xl font-black">No signal has weight yet.</div><p className="mt-2 text-white/45">Listen in Radio and leave your first track response.</p></div></div>}
             </section>
           </TabsContent>
         </Tabs>
