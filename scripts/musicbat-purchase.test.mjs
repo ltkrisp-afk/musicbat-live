@@ -101,7 +101,7 @@ async function sign(raw, secret, timestamp = Math.floor(Date.now() / 1000)) {
   return `t=${timestamp},v1=${signature}`;
 }
 
-test("Checkout is test-mode destination charge with exact 90/10 ledger split", async () => {
+test("Checkout is test-mode destination charge with exact 85/15 ledger split", async () => {
   const { sqlite, state, purchase } = await fixture();
   const response = await purchase.POST(post(1, null, { amountCents: 1, paid: true, destination: "acct_wrong" }));
   assert.equal(response.status, 201);
@@ -111,13 +111,13 @@ test("Checkout is test-mode destination charge with exact 90/10 ledger split", a
   assert.match(data.checkoutUrl, /^https:\/\/checkout\.stripe\.com\//);
   const row = sqlite.prepare("SELECT * FROM purchases").get();
   assert.equal(row.amount_cents, 1000);
-  assert.equal(row.artist_share_cents, 900);
-  assert.equal(row.platform_fee_cents, 100);
+  assert.equal(row.artist_share_cents, 850);
+  assert.equal(row.platform_fee_cents, 150);
   assert.equal(row.processor_account_id, "acct_test_artist");
   assert.equal(row.status, "pending");
   const create = state.requests.find((entry) => entry.url.endsWith("/v1/checkout/sessions") && entry.init.method === "POST");
   const form = create.init.body;
-  assert.equal(form.get("payment_intent_data[application_fee_amount]"), "100");
+  assert.equal(form.get("payment_intent_data[application_fee_amount]"), "150");
   assert.equal(form.get("payment_intent_data[transfer_data][destination]"), "acct_test_artist");
   assert.equal(form.get("payment_method_types[0]"), "card");
   assert.equal(form.get("mode"), "payment");
@@ -147,7 +147,7 @@ test("valid signed webhook alone confirms payment and unlocks captured download"
   const session = {
     id: "cs_test_musicbat", livemode: false, status: "complete", payment_status: "paid", amount_total: 1000, currency: "usd",
     metadata: { musicbat_purchase_id: draft.id },
-    payment_intent: { id: "pi_test_musicbat", application_fee_amount: 100, transfer_data: { destination: "acct_test_artist" } },
+    payment_intent: { id: "pi_test_musicbat", application_fee_amount: 150, transfer_data: { destination: "acct_test_artist" } },
   };
   globalThis.fetch = async () => Response.json(session);
   const webhook = await load("../app/api/musicbat/stripe/webhook/route.ts", state);
@@ -178,7 +178,7 @@ test("3DS-style unpaid completion remains locked until later authenticated succe
   const checkout = await purchase.POST(post());
   const cookie = checkout.headers.get("set-cookie").split(";")[0];
   const { purchase: draft } = await checkout.json();
-  let session = { id: "cs_test_musicbat", livemode: false, status: "open", payment_status: "unpaid", amount_total: 1000, currency: "usd", metadata: { musicbat_purchase_id: draft.id }, payment_intent: { id: "pi_3ds", application_fee_amount: 100, transfer_data: { destination: "acct_test_artist" } } };
+  let session = { id: "cs_test_musicbat", livemode: false, status: "open", payment_status: "unpaid", amount_total: 1000, currency: "usd", metadata: { musicbat_purchase_id: draft.id }, payment_intent: { id: "pi_3ds", application_fee_amount: 150, transfer_data: { destination: "acct_test_artist" } } };
   globalThis.fetch = async () => Response.json(session);
   const webhook = await load("../app/api/musicbat/stripe/webhook/route.ts", state);
   const pendingEvent = JSON.stringify({ id: "evt_3ds_pending", type: "checkout.session.completed", livemode: false, data: { object: { id: session.id } } });

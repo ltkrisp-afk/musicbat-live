@@ -30,7 +30,7 @@ function response(data: unknown, status = 200, cookie?: string | null) {
 }
 
 function split(amount: number) {
-  const artistShare = Math.round(amount * 0.9);
+  const artistShare = Math.round(amount * 0.85);
   return { artistShare, platformFee: amount - artistShare };
 }
 

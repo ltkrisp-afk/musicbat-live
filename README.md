@@ -22,13 +22,13 @@ MusicBat now includes a sandbox-only Stripe Connect marketplace flow:
 - artists connect an Express account and complete Stripe-hosted onboarding;
 - tracks require separate sale authorization and a server-stored USD price;
 - the Buy button creates a Stripe-hosted Checkout Session using a destination charge;
-- the artist share is 90% and the platform application fee is 10%, rounded to whole cents;
+- the artist share is 85% and the platform application fee is 15%, rounded to whole cents;
 - signed Stripe webhooks verify the amount, fee, destination, test mode, and purchase metadata before a download is unlocked; and
 - pending, failed, cancelled, refunded, unsigned, or mismatched payments remain locked.
 
 The server refuses live Stripe secret keys and live-mode webhook events. Configure only `STRIPE_SECRET_KEY=sk_test_…`, `STRIPE_WEBHOOK_SECRET=whsec_…`, and `MUSICBAT_BASE_URL=https://musicbat.audio` in the hosted environment. Register `https://musicbat.audio/api/musicbat/stripe/webhook` for Checkout Session completed, asynchronous success/failure, and expired events from the MusicBat platform account.
 
-The Radio Buy button snapshots the exact track, price, seller, and stored file into a durable guest purchase. A secure HttpOnly device cookie authorizes status and download access on that device. The browser redirect is never accepted as proof of payment.
+The Radio Buy button snapshots the exact track, price, seller, and stored file into a durable guest purchase. A secure HttpOnly device cookie authorizes status and download access on that device. The browser redirect is never accepted as proof of payment. Buyer-paid processing charges are not implemented in this test flow.
 
 Stripe-hosted Checkout can present eligible wallets alongside card entry. Wallet availability remains controlled by Stripe, the device/browser, domain registration, and the MusicBat Stripe account's payment-method settings.
 
