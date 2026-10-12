@@ -3,7 +3,7 @@ import { parseCategoryCommand, type Category, type CategoryTrack } from './radio
 import type { PlaybackMode } from './playback-authorization';
 
 /** Storage adapter must provide one real SQLite connection and BEGIN IMMEDIATE semantics.
- * Cloudflare D1 is NOT this adapter. No in-memory fallback or public media transport exists. */
+ * Cloudflare D1 is NOT this adapter. */
 export interface RadioDatabase {
   exec(sql: string): unknown;
   prepare(sql: string): {
@@ -12,7 +12,7 @@ export interface RadioDatabase {
     run(...params: (string | number)[]): unknown;
   };
 }
-export type ScheduledTrack = CategoryTrack & { durationMs: number };
+export type ScheduledTrack = CategoryTrack & { durationMs: number; sourceRevision?: string };
 export type SharedChannelConfig = {
   category: Category | null; mode: PlaybackMode; territory: string; minimumArtists: number;
   review: { reference: string; verifiedAt: number; expiresAt: number } | null;
@@ -21,7 +21,7 @@ export type SharedChannelConfig = {
 export type ChannelSnapshot = {
   simulation: boolean; channelId: string; category: Category | null; revision: number; serverNow: number;
   status: 'playing' | 'silent'; reason: string;
-  performance: { sequence: number; trackId: string; startedAt: number; endsAt: number; offsetMs: number } | null;
+  performance: { sequence: number; authorityId: string; trackId: string; startedAt: number; endsAt: number; offsetMs: number } | null;
 };
 type ChannelRow = { id: string; config_json: string; created_at: number; last_clock: number; revision: number; ledger_sequence: number };
 type EventRow = { sequence: number; track_json: string; started_at: number; ended_at: number; closed: number };
@@ -32,7 +32,7 @@ const inCategory = (t: ScheduledTrack, c: Category | null) => !c || (t.category.
   (!c.subgenre || t.category.subgenre === c.subgenre) && (!c.style || t.category.style === c.style));
 
 /** Server-owned clock/catalog/configuration. Listener commands never carry clocks, tracks or modes.
- * Every method is OFFLINE/SYNTHETIC and cannot read or transmit audio. */
+ * Media is delivered separately after current authority/source validation. */
 export class SharedRadioEngine {
   constructor(private db: RadioDatabase, private clock: () => number, private execution: 'simulation' | 'live' = 'simulation') {}
   private transaction<T>(fn: () => T): T {
@@ -143,7 +143,7 @@ export class SharedRadioEngine {
     this.db.prepare('UPDATE radio_engine_channels SET last_clock=?,revision=?,ledger_sequence=? WHERE id=?')
       .run(now,row.revision,history.length+(active?1:0),id);
     return {simulation:this.execution === 'simulation',channelId:id,category:c.category,revision:row.revision,serverNow:now,
-      status:active?'playing':'silent',reason,performance:active?{sequence:active.sequence,trackId:(JSON.parse(active.track_json) as ScheduledTrack).id,
+      status:active?'playing':'silent',reason,performance:active?{sequence:active.sequence,authorityId:`${row.revision}:${active.sequence}`,trackId:(JSON.parse(active.track_json) as ScheduledTrack).id,
         startedAt:active.started_at,endsAt:active.ended_at,offsetMs:now-active.started_at}:null};
   }
   tune(listener: ListenerAuthority, command: unknown): ChannelSnapshot {
@@ -171,6 +171,11 @@ export class SharedRadioEngine {
       this.authorize(listener,this.config(row),now);
       return this.advance(row.id,now);
     });
+  }
+  /** First connection joins Free Radio. Reconnect preserves an existing assignment. */
+  connect(listener: ListenerAuthority): ChannelSnapshot {
+    const existing = this.db.prepare('SELECT channel_id FROM radio_engine_sessions WHERE listener_id=?').get(listener.id);
+    return existing ? this.reconnect(listener) : this.tune(listener, null);
   }
   /** Trusted scheduler tick, independent of listener pause/disconnection. Gaps are silence,
    * not fabricated historical transmissions; overdue tracks end at their recorded boundary. */

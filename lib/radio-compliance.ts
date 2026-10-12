@@ -13,6 +13,8 @@ export type ComplianceTrack = {
   id: string; artistIds: string[]; albumId: string; compilationIds: string[];
   metadataReviewed: boolean; eligible: boolean; statutoryEligibility: Evidence | null;
   permission: Permission | null;
+  /** Reviewed direct contract limits, independent of statutory restrictions. */
+  directRestrictions?: { maxPlays: number; windowMs: number; minRepeatGapMs: number } | null;
 };
 export type PlaybackEvent = {
   channelId: string; track: ComplianceTrack; startedAt: number; endedAt: number;
@@ -57,7 +59,22 @@ export function evaluateRadioPlayback(track: ComplianceTrack, c: ComplianceConte
   if (!rights.allowed) return deny(rights.reason);
   const end = c.now + c.durationMs;
   if (p!.expires_at <= end) return deny('permission-expires-during-playback');
-  if (p!.recording_basis === 'direct') return result(true, 'reviewed-direct-permissions');
+  if (p!.recording_basis === 'direct') {
+    const limits = track.directRestrictions;
+    if (limits) {
+      if (!Number.isSafeInteger(limits.maxPlays) || limits.maxPlays < 1 ||
+          !Number.isSafeInteger(limits.windowMs) || limits.windowMs < 1 ||
+          !Number.isSafeInteger(limits.minRepeatGapMs) || limits.minRepeatGapMs < 0 ||
+          c.historyComplete !== true || !Array.isArray(c.history)) return deny('direct-contract-limits-invalid');
+      const history = c.history.filter(e => e.channelId === c.channelId && e.track.id === track.id);
+      if (history.some(e => !Number.isSafeInteger(e.startedAt) || !Number.isSafeInteger(e.endedAt) ||
+          e.endedAt <= e.startedAt || e.endedAt > c.now)) return deny('direct-contract-history-invalid');
+      if (history.filter(e => e.endedAt > c.now - limits.windowMs).length >= limits.maxPlays)
+        return deny('direct-contract-rolling-limit');
+      if (history.some(e => c.now - e.endedAt < limits.minRepeatGapMs)) return deny('direct-contract-repeat-gap');
+    }
+    return result(true, 'reviewed-direct-permissions');
+  }
   if (c.execution !== 'simulation') return deny('statutory-live-disabled');
   if (c.noninteractive !== true) return deny('statutory-interactivity-forbidden');
   if (c.territory !== 'US') return deny('statutory-territory-not-covered');

@@ -54,7 +54,7 @@ function upload(overrides = {}) {
   return new Request('https://musicbat.audio/api/musicbat', { method: 'POST', body: form });
 }
 
-test('uploaded bytes play intact and support mobile seeking, suffix ranges, and HEAD', async () => {
+test('uploaded bytes remain intact while standalone radio playback is closed', async () => {
   const { state, objects } = fixture();
   const api = await loadRoute('../app/api/musicbat/route.ts', state);
   const audio = await loadRoute('../app/api/musicbat/audio/[assetId]/route.ts', state);
@@ -65,20 +65,13 @@ test('uploaded bytes play intact and support mobile seeking, suffix ranges, and 
   assert.equal(track.title, 'Test song');
   assert.match(track.audio_url, /^\/api\/musicbat\/audio\/[0-9a-f-]+\.wav$/);
   assert.equal(objects.size, 1);
+  const object = [...objects.values()][0];
+  assert.deepEqual(new Uint8Array(object.bytes), wav);
   const url = 'https://musicbat.audio' + track.audio_url;
-  const full = await audio.GET(new Request(url));
-  assert.equal(full.status, 200); assert.equal(full.headers.get('content-type'), 'audio/wav');
-  assert.deepEqual(new Uint8Array(await full.arrayBuffer()), wav);
-  const partial = await audio.GET(new Request(url, { headers: { range: 'bytes=8-11' } }));
-  assert.equal(partial.status, 206); assert.equal(partial.headers.get('content-range'), `bytes 8-11/${wav.length}`);
-  assert.equal(await partial.text(), 'WAVE');
-  const suffix = await audio.GET(new Request(url, { headers: { range: 'bytes=-10' } }));
-  assert.equal(suffix.status, 206); assert.equal((await suffix.arrayBuffer()).byteLength, 10);
-  assert.equal((await audio.GET(new Request(url, { headers: { range: `bytes=${wav.length}-` } }))).status, 416);
-  assert.equal((await audio.GET(new Request(url, { headers: { range: 'bytes=-0' } }))).status, 416);
-  const head = await audio.HEAD(new Request(url, { method: 'HEAD' }));
-  assert.equal(head.headers.get('content-length'), String(wav.length)); assert.equal(await head.text(), '');
-  assert.equal((await audio.GET(new Request(url.replace(/[^/]+$/, 'unknown.wav')))).status, 404);
+  for (const range of [null,'bytes=8-11','bytes=-10']) {
+    assert.equal((await audio.GET(new Request(url,range?{headers:{range}}:{}))).status,410);
+  }
+  assert.equal((await audio.HEAD(new Request(url,{method:'HEAD'}))).status,410);
 });
 
 test('uploads store required genre and energy plus optional subgenre and mood tags', async () => {

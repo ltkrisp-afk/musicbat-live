@@ -1,6 +1,6 @@
 /** A private service binding is the only channel transport. Never fall back to
  * legacy asset delivery or browser scheduling when the service is missing. */
-export async function forwardRadio(request: Request, service: Fetcher | undefined, userId: string | null) {
+export async function forwardRadio(request: Request, service: Pick<Fetcher, 'fetch'> | undefined, userId: string | null) {
   if (!userId) return Response.json({error:'Sign in to use MusicBat.'},{status:401});
   if (!service) return Response.json({error:'Shared Radio is temporarily unavailable.'},{status:503});
   if (request.method === 'POST' && request.headers.get('origin') !== new URL(request.url).origin)

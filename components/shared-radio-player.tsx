@@ -29,13 +29,15 @@ export function SharedRadioPlayer({onTrack,onError,onPlay,onProgress,onEnded}:{o
     if(a.readyState>=1 && Math.abs(a.currentTime-offset)>0.35)a.currentTime=offset;
   },[silence]);
   const update=useCallback(async(category?:Category|null)=>{
-    if(flight.current)return;
+    if(flight.current || document.visibilityState==='hidden')return;
     flight.current=true;setBusy(true);
     const version=++generation.current;
     const began=performance.now();
+    const controller=new AbortController();
+    const timeout=setTimeout(()=>controller.abort(),2000);
     if(category!==undefined)silence();
     try {
-      const r=await fetch('/api/musicbat/channel',{cache:'no-store',...(category===undefined?{}:
+      const r=await fetch('/api/musicbat/channel',{cache:'no-store',signal:controller.signal,...(category===undefined?{}:
         {method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({category})})});
       if(!r.ok)throw new Error('Shared Radio is temporarily unavailable.');
       const d:Delivery=await r.json();
@@ -46,21 +48,21 @@ export function SharedRadioPlayer({onTrack,onError,onPlay,onProgress,onEnded}:{o
       if(!/^\/api\/musicbat\/channel\/audio\?/.test(d.mediaUrl))throw new Error('Invalid media authority.');
       const a=audio.current;
       authority.current={delivery:d,received:performance.now()-(performance.now()-began)/2};
-      callbacks.current.onTrack(d.snapshot.performance.trackId,`${d.snapshot.channelId}:${d.snapshot.performance.sequence}`);
+      callbacks.current.onTrack(d.snapshot.performance.trackId,`${d.snapshot.channelId}:${d.snapshot.performance.authorityId}`);
       if(a && a.getAttribute('src')!==d.mediaUrl){heard.current={key:d.mediaUrl,seconds:0,last:0};a.src=d.mediaUrl;a.load()}
       synchronize();
       if(a && wanted.current && a.paused)void a.play().catch(()=>callbacks.current.onError('Press Play to resume Radio.'));
-    }catch(e){if(version===generation.current){silence();callbacks.current.onError(e instanceof Error?e.message:'Radio unavailable.')}}finally{flight.current=false;setBusy(false)}
+    }catch(e){if(version===generation.current){silence();callbacks.current.onError(e instanceof Error?e.message:'Radio unavailable.')}}finally{clearTimeout(timeout);flight.current=false;setBusy(false)}
   },[silence,synchronize]);
   useEffect(()=>{
     // Resume persisted channel; a missing session requires explicit Free Radio tuning.
     const initial=setTimeout(()=>void update(),0);
     const element=audio.current, versions=generation;
     const poll=setInterval(()=>void update(),1000), guard=setInterval(synchronize,100);
-    const resume=()=>{if(document.visibilityState==='visible')void update()};
+    const resume=()=>{if(document.visibilityState==='visible')void update();else{++generation.current;silence()}};
     document.addEventListener('visibilitychange',resume);window.addEventListener('online',resume);
     return()=>{++versions.current;clearTimeout(initial);clearInterval(poll);clearInterval(guard);document.removeEventListener('visibilitychange',resume);window.removeEventListener('online',resume);element?.pause()};
-  },[update,synchronize]);
+  },[update,synchronize,silence]);
   const category=delivery?.snapshot.category;
   const options=delivery?.navigation ?? [];
   function choose(depth:'genre'|'subgenre'|'style',value:string){

@@ -227,7 +227,7 @@ function liveFixture(options={}) {
  return {...f,engine,handler,delivered,setAuthority(v){authority=v},setMedia(v){media=v}};
 }
 const tuneRequest=(category=null)=>new Request('https://radio.internal/channel',{method:'POST',body:JSON.stringify({category})});
-const audioRequest=s=>new Request(`https://radio.internal/channel/audio?channel=${s.channelId}&sequence=${s.performance.sequence}`);
+const audioRequest=s=>new Request(`https://radio.internal/channel/audio?channel=${s.channelId}&sequence=${encodeURIComponent(s.performance.authorityId)}`);
 test('live transport returns shared decisions; assigned audio bytes pass live checks',async()=>{
  const f=liveFixture();try{
   const d=await(await f.handler(tuneRequest())).json();assert.equal(d.snapshot.simulation,false);
@@ -316,3 +316,12 @@ test('gateway strips forged authority and never falls back on missing binding or
    assert.equal((await handler(audioRequest(d.snapshot))).status,403);
   }finally{f.close()}
  });
+test('private transport rechecks current membership after asynchronous media retrieval',async()=>{
+ const f=liveFixture();try {
+  let active=true;
+  const handler=createRadioTransport(f.engine,{authority:async()=>({...listener,id:'member',territory:'US',plusUntil:active?999999999:null}),
+    territory:()=> 'US',sourceEligible:async()=>true,media:async()=>{active=false;return new Response('fixture')}});
+  const tuned=await(await handler(new Request('https://radio.internal/channel',{method:'POST',body:JSON.stringify({category:{genre:'Rock'}})}))).json();
+  assert.equal((await handler(audioRequest(tuned.snapshot))).status,503);
+ }finally{f.close()}
+});
