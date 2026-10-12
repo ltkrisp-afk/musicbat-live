@@ -1,5 +1,6 @@
 declare namespace Cloudflare {
   interface Env {
+    RADIO_SERVICE?: Fetcher;
     DB?: D1Database;
     BUCKET?: R2Bucket;
     STRIPE_SECRET_KEY?: string;

@@ -19,7 +19,7 @@ export type SharedChannelConfig = {
   gate: StatutoryGate | null;
 };
 export type ChannelSnapshot = {
-  simulation: true; channelId: string; category: Category | null; revision: number; serverNow: number;
+  simulation: boolean; channelId: string; category: Category | null; revision: number; serverNow: number;
   status: 'playing' | 'silent'; reason: string;
   performance: { sequence: number; trackId: string; startedAt: number; endsAt: number; offsetMs: number } | null;
 };
@@ -34,7 +34,7 @@ const inCategory = (t: ScheduledTrack, c: Category | null) => !c || (t.category.
 /** Server-owned clock/catalog/configuration. Listener commands never carry clocks, tracks or modes.
  * Every method is OFFLINE/SYNTHETIC and cannot read or transmit audio. */
 export class SharedRadioEngine {
-  constructor(private db: RadioDatabase, private clock: () => number) {}
+  constructor(private db: RadioDatabase, private clock: () => number, private execution: 'simulation' | 'live' = 'simulation') {}
   private transaction<T>(fn: () => T): T {
     this.db.exec('BEGIN IMMEDIATE');
     try { const result = fn(); this.db.exec('COMMIT'); return result; }
@@ -63,7 +63,7 @@ export class SharedRadioEngine {
       throw new Error('radio-plus-entitlement-required');
   }
   private context(row: ChannelRow, c: SharedChannelConfig, now: number, durationMs: number, history: PlaybackEvent[]): ComplianceContext {
-    return { execution: 'simulation', mode: c.mode, territory: c.territory, channelId: row.id, now, durationMs,
+    return { execution: this.execution, mode: c.mode, territory: c.territory, channelId: row.id, now, durationMs,
       gate: c.gate, channelCreatedAt: row.created_at, historyComplete: true, history,
       noninteractive: true, requirementsEnforced: true };
   }
@@ -142,7 +142,7 @@ export class SharedRadioEngine {
     }
     this.db.prepare('UPDATE radio_engine_channels SET last_clock=?,revision=?,ledger_sequence=? WHERE id=?')
       .run(now,row.revision,history.length+(active?1:0),id);
-    return {simulation:true,channelId:id,category:c.category,revision:row.revision,serverNow:now,
+    return {simulation:this.execution === 'simulation',channelId:id,category:c.category,revision:row.revision,serverNow:now,
       status:active?'playing':'silent',reason,performance:active?{sequence:active.sequence,trackId:(JSON.parse(active.track_json) as ScheduledTrack).id,
         startedAt:active.started_at,endsAt:active.ended_at,offsetMs:now-active.started_at}:null};
   }

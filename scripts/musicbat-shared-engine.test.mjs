@@ -212,3 +212,107 @@ test('deleted ledger tails and missing decision history cannot reset rolling acc
   }finally{f.close()}
  }
 });
+
+const transportURL=await moduleAt('../lib/shared-radio-transport.ts');
+const {createRadioTransport}=await import(transportURL);
+const {forwardRadio}=await import(await moduleAt('../lib/radio-gateway.ts'));
+function liveFixture(options={}) {
+ const f=fixture(options);
+ const engine=new SharedRadioEngine(f.db,()=>liveFixture.now,'live');
+ liveFixture.now=10000;
+ let authority={...listener,territory:'US'};
+ const delivered=[];
+ let media=async(id)=>{delivered.push(id);return new Response('fixture-bytes',{headers:{'content-type':'audio/mpeg'}})};
+ const handler=createRadioTransport(engine,{authority:async()=>authority,territory:()=> 'US',sourceEligible:async()=>true,media:(...args)=>media(...args)});
+ return {...f,engine,handler,delivered,setAuthority(v){authority=v},setMedia(v){media=v}};
+}
+const tuneRequest=(category=null)=>new Request('https://radio.internal/channel',{method:'POST',body:JSON.stringify({category})});
+const audioRequest=s=>new Request(`https://radio.internal/channel/audio?channel=${s.channelId}&sequence=${s.performance.sequence}`);
+test('live transport returns shared decisions; assigned audio bytes pass live checks',async()=>{
+ const f=liveFixture();try{
+  const d=await(await f.handler(tuneRequest())).json();assert.equal(d.snapshot.simulation,false);
+  assert.equal(d.snapshot.performance.trackId,'a');assert.match(d.mediaUrl,/channel\/audio/);
+  const r=await f.handler(audioRequest(d.snapshot));assert.equal(r.status,200);assert.equal(await r.text(),'fixture-bytes');
+  assert.equal(r.headers.get('cache-control'),'private, no-store');assert.deepEqual(f.delivered,['a']);
+ }finally{f.close()}
+});
+test('live statutory-only catalog remains silent even with all synthetic gates',async()=>{
+ const f=liveFixture({tracks:[track('a',{permission:{...permission,recording_basis:'statutory'}})]});try{
+  const d=await(await f.handler(tuneRequest())).json();assert.equal(d.snapshot.status,'silent');assert.equal(d.mediaUrl,null);
+  assert.equal(f.delivered.length,0);
+ }finally{f.close()}
+});
+test('transport rejects individual songs, stale sequences, arbitrary URLs and extra media commands',async()=>{
+ const f=liveFixture();try{
+  const d=await(await f.handler(tuneRequest())).json();
+  for(const path of ['/channel/audio?channel=free&sequence=0','/channel/audio?channel=free&sequence=1&trackId=b','/channel/audio?channel=rock&sequence=1'])
+   assert.equal((await f.handler(new Request('https://radio.internal'+path))).status,409);
+  assert.equal((await f.handler(tuneRequest({genre:'Rock',trackId:'b'}))).status,503);
+  const bad=new Request('https://radio.internal/channel',{method:'POST',body:JSON.stringify({category:null,now:0})});
+  assert.equal((await f.handler(bad)).status,400);assert.equal(f.delivered.length,0);
+  assert.equal((await f.handler(audioRequest(d.snapshot))).status,200);
+ }finally{f.close()}
+});
+test('withdrawals before media request deny old audio and select eligible replacement',async()=>{
+ const f=liveFixture();try{
+  const d=await(await f.handler(tuneRequest())).json();liveFixture.now=10200;
+  f.db.prepare('UPDATE radio_engine_catalog SET track_json=? WHERE id=?').run(JSON.stringify(track('a',{permission:{...permission,withdrawn_at:10100}})),'a');
+  assert.equal((await f.handler(audioRequest(d.snapshot))).status,409);assert.equal(f.delivered.length,0);
+  const current=await(await f.handler(new Request('https://radio.internal/channel'))).json();assert.equal(current.snapshot.performance.trackId,'b');
+ }finally{f.close()}
+});
+test('withdrawal during asynchronous media read cancels old delivery',async()=>{
+ const f=liveFixture();try{
+  const d=await(await f.handler(tuneRequest())).json();
+  f.setMedia(async()=>{liveFixture.now=10200;f.db.prepare('DELETE FROM radio_engine_catalog WHERE id=?').run('a');return new Response('must-not-deliver')});
+  const r=await f.handler(audioRequest(d.snapshot));assert.equal(r.status,409);assert.equal(await r.text(),'');
+ }finally{f.close()}
+});
+test('live channel switches and reconnect retain server timeline for simultaneous listeners',async()=>{
+ const f=liveFixture();try{
+  const a=await(await f.handler(tuneRequest(path))).json();liveFixture.now=10200;
+  f.setAuthority({...listener,id:'two',territory:'US'});const b=await(await f.handler(tuneRequest(path))).json();
+  assert.equal(a.snapshot.performance.sequence,b.snapshot.performance.sequence);assert.equal(b.snapshot.performance.offsetMs,200);
+  await f.handler(tuneRequest({genre:'Rock'}));
+  assert.equal((await f.handler(audioRequest(a.snapshot))).status,409);
+  const back=await(await f.handler(tuneRequest(path))).json();assert.equal(back.snapshot.performance.startedAt,10000);
+ }finally{f.close()}
+});
+test('live authority, Plus entitlement, territory and storage failure never deliver bytes',async()=>{
+ const f=liveFixture();try{
+  f.setAuthority(null);assert.equal((await f.handler(tuneRequest())).status,401);
+  f.setAuthority({id:'free',plusUntil:null,territory:'US'});assert.equal((await f.handler(tuneRequest(path))).status,503);
+  f.setAuthority({...listener,territory:'CA'});assert.equal((await f.handler(tuneRequest())).status,403);
+  f.setAuthority({...listener,territory:'US'});f.db.exec('DROP TABLE radio_engine_decisions');
+  assert.equal((await f.handler(tuneRequest())).status,503);assert.equal(f.delivered.length,0);
+ }finally{f.close()}
+});
+test('empty live catalog provides explicit silence without media fallback',async()=>{
+ const f=liveFixture({tracks:[]});try{
+  const d=await(await f.handler(tuneRequest())).json();assert.equal(d.snapshot.status,'silent');assert.equal(d.mediaUrl,null);
+ }finally{f.close()}
+});
+test('simulation transport cannot hand out audio even for authorized fixtures',async()=>{
+ const f=fixture();try{
+  const handler=createRadioTransport(f.engine,{authority:async()=>({...listener,territory:'US'}),territory:()=> 'US',sourceEligible:async()=>true,media:async()=>{throw Error('must never run')}});
+  assert.equal((await handler(tuneRequest())).status,503);
+ }finally{f.close()}
+});
+test('gateway strips forged authority and never falls back on missing binding or failed service',async()=>{
+ const request=new Request('https://musicbat.audio/api/musicbat/channel',{method:'POST',headers:{origin:'https://musicbat.audio','x-musicbat-listener':'forged'},body:JSON.stringify({category:null})});
+ assert.equal((await forwardRadio(request.clone(),undefined,'real')).status,503);
+ assert.equal((await forwardRadio(request.clone(),undefined,null)).status,401);
+ const service={fetch:async r=>{assert.equal(r.headers.get('x-musicbat-listener'),'real');assert.equal(r.headers.get('x-musicbat-territory'),'unknown');assert.equal(new URL(r.url).pathname,'/channel');return Response.json({ok:true})}};
+ assert.equal((await forwardRadio(request.clone(),service,'real')).status,200);
+ const cross=new Request(request.clone(),{headers:{origin:'https://evil.example'}});
+ assert.equal((await forwardRadio(cross,service,'real')).status,403);
+ assert.equal((await forwardRadio(request.clone(),{fetch:async()=>{throw Error('offline')}},'real')).status,503);
+});
+
+ test('source-side withdrawal or stale rights deny media even if scheduler catalog still allows it',async()=>{
+  const f=liveFixture();try {
+   const handler=createRadioTransport(f.engine,{authority:async()=>({...listener,territory:'US'}),territory:()=> 'US',sourceEligible:async()=>false,media:async()=>{throw Error('must never deliver')}});
+   const d=await(await handler(tuneRequest())).json();
+   assert.equal((await handler(audioRequest(d.snapshot))).status,403);
+  }finally{f.close()}
+ });

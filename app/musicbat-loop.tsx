@@ -2,8 +2,8 @@
 
 import { FormEvent, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { Activity, Disc3, Gauge, Radio, ShieldCheck, Sparkles, Upload } from "lucide-react";
-import { MusicBatPlayer } from "@/components/musicbat-player";
-import { selectNextTrack } from "./rotation";
+import { SharedRadioPlayer } from "@/components/shared-radio-player";
+
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
@@ -103,14 +103,9 @@ async function api<T>(path: string, init?: RequestInit): Promise<T> {
 export default function MusicBatLoop({ displayName }: { displayName: string }) {
   const [tab, setTab] = useState("radio");
   const [tracks, setTracks] = useState<Track[]>([]);
-  const [energyLane, setEnergyLane] = useState<EnergyLane>("medium");
-  const [primaryGenre, setPrimaryGenre] = useState("All genres");
   const [shockRows, setShockRows] = useState<ShockRow[]>([]);
-  const [currentIndex, setCurrentIndex] = useState(0);
-  const [replay, setReplay] = useState(0);
-  const [autoPlay, setAutoPlay] = useState(false);
-  const creditsRef = useRef(new Map<number, number>());
-  const failedRef = useRef(new Set<number>());
+  const [sharedTrackId, setSharedTrackId] = useState<string | null>(null);
+  const [sharedPerformanceKey, setSharedPerformanceKey] = useState("");
   const currentTrackIdRef = useRef<number | null>(null);
   const activeSessionRef = useRef("");
   const signalStartingRef = useRef(false);
@@ -149,9 +144,8 @@ export default function MusicBatLoop({ displayName }: { displayName: string }) {
   const startingRef = useRef(false);
   const qualifyingRef = useRef(false);
 
-  const rotationTracks = useMemo(() => tracks.filter((track) => track.energy_lane === energyLane && (primaryGenre === "All genres" || track.primary_genre === primaryGenre)), [tracks, energyLane, primaryGenre]);
-  const current = tracks[currentIndex] ?? null;
-  const sessionKey = `${current?.id}:${replay}`;
+  const current = tracks.find(track => String(track.id) === sharedTrackId) ?? null;
+  const sessionKey = `${current?.id}:${sharedPerformanceKey}`;
   const [previousSession, setPreviousSession] = useState(sessionKey);
   // Reset render state when identity changes, before children commit the new audio.
   if (previousSession !== sessionKey) {
@@ -195,10 +189,7 @@ export default function MusicBatLoop({ displayName }: { displayName: string }) {
       for (const track of updated) if (!(track.id in next)) next[track.id] = ((track.sale_price_cents ?? 100) / 100).toFixed(2);
       return next;
     });
-    const selectedIndex = updated.findIndex((track) => track.id === currentTrackIdRef.current);
-    if (currentTrackIdRef.current === null && updated[0]) setPrimaryGenre(updated[0].primary_genre);
     setTracks(updated);
-    setCurrentIndex(Math.max(0, selectedIndex));
     setShockRows(shockData.rows.map((row) => ({
       ...row,
       track_id: Number(row.track_id),
@@ -416,9 +407,8 @@ export default function MusicBatLoop({ displayName }: { displayName: string }) {
       setUploadMoodTags("");
       setSaleRightsAttested(false);
       await refresh();
-      setCurrentIndex(0);
       setTab("radio");
-      setMessage("Track accepted. It is now live in MusicBat Radio.");
+      setMessage("Track accepted. Radio eligibility requires reviewed rights and category approval.");
     } catch (error) {
       const detail = error instanceof Error ? error.message : "Track could not be added.";
       setUploadError(detail);
@@ -460,32 +450,6 @@ export default function MusicBatLoop({ displayName }: { displayName: string }) {
     } finally { setBusy(false); }
   }
 
-  function nextTrack(continuePlaying = true) {
-    const next = selectNextTrack(rotationTracks, current?.id, creditsRef.current, failedRef.current);
-    if (!next) { setAutoPlay(false); setMessage(`No playable tracks are assigned to ${energyLanes.find((lane) => lane.id === energyLane)?.label}. Choose another lane or assign tracks in the catalog.`); return; }
-    setAutoPlay(continuePlaying);
-    setCurrentIndex(tracks.findIndex((track) => track.id === next.id));
-    setReplay((value) => value + 1);
-    setMessage(`Radio continues in ${primaryGenre === "All genres" ? "all genres" : primaryGenre} / ${energyCategory(energyLane)}.`);
-  }
-
-  function tuneEnergyLane(lane: EnergyLane) {
-    if (lane === energyLane) return;
-    setEnergyLane(lane);
-    creditsRef.current.clear();
-    const pool = tracks.filter((track) => track.energy_lane === lane && (primaryGenre === "All genres" || track.primary_genre === primaryGenre));
-    if (current && current.energy_lane === lane && (primaryGenre === "All genres" || current.primary_genre === primaryGenre)) return;
-    if (!pool.length) {
-      setAutoPlay(false);
-      setCurrentIndex(-1);
-      setReplay((value) => value + 1);
-      setMessage(`No tracks are assigned to ${lane} yet.`);
-      return;
-    }
-    setCurrentIndex(tracks.findIndex((track) => track.id === pool[0].id));
-    setReplay((value) => value + 1);
-  }
-
   async function sendRadioFeedback(signal: "up" | "down") {
     if (!current || !listenId || busy) return;
     const track = current;
@@ -512,18 +476,10 @@ export default function MusicBatLoop({ displayName }: { displayName: string }) {
       catch { /* Continue playback even if the completion signal cannot be saved. */ }
     }
     await refresh();
-    nextTrack(true);
   }
 
-  function tuneGenre(genre: string) {
-    if (genre === primaryGenre) return;
-    setPrimaryGenre(genre);
-    creditsRef.current.clear();
-    const pool = tracks.filter((track) => track.energy_lane === energyLane && (genre === "All genres" || track.primary_genre === genre));
-    if (current && current.energy_lane === energyLane && (genre === "All genres" || current.primary_genre === genre)) return;
-    setAutoPlay(false);
-    setCurrentIndex(pool.length ? tracks.findIndex((track) => track.id === pool[0].id) : -1);
-    setReplay((value) => value + 1);
+  function openRadio() {
+    setMessage("Use the Radio category controls to tune a shared channel.");
   }
 
   async function saveEnergyLane(track: Track, lane: EnergyLane) {
@@ -554,8 +510,8 @@ export default function MusicBatLoop({ displayName }: { displayName: string }) {
     if (!tracks.length) return "Catalog is waiting for its first track";
     if (canRespond) return "Listener response ready";
     if (listenId) return "Listen in progress";
-    return `${rotationTracks.length} track${rotationTracks.length === 1 ? "" : "s"} in ${energyLane} Radio`;
-  }, [listenId, canRespond, tracks.length, rotationTracks.length, energyLane]);
+    return sharedTrackId ? "Shared Radio performance" : "Radio is quiet or unavailable";
+  }, [listenId, canRespond, tracks.length, sharedTrackId]);
 
   return (
     <main className="min-h-screen bg-[#08070b] text-[#f7f4ed]">
@@ -586,15 +542,11 @@ export default function MusicBatLoop({ displayName }: { displayName: string }) {
               <div className="relative overflow-hidden rounded-[1.75rem] border border-white/10 bg-[#111018] p-6 shadow-[0_28px_90px_rgba(0,0,0,.45)] sm:p-9">
                 <div className="pointer-events-none absolute -right-24 -top-24 size-72 rounded-full bg-[#ff3ea5]/10 blur-3xl" />
                 <div className="relative">
-                  <div className="mb-10 flex items-center justify-between gap-4"><div className="flex items-center gap-2 text-xs font-black uppercase tracking-[0.18em] text-[#ff69bd]"><span className="size-2 rounded-full bg-[#ff3ea5] shadow-[0_0_14px_#ff3ea5]" /> Now in the cave</div><div className="rounded-full border border-white/10 px-3 py-1 text-xs text-white/45">{rotationTracks.length ? `${Math.max(0, rotationTracks.findIndex((track) => track.id === current?.id) + 1)} / ${rotationTracks.length}` : "0 / 0"}</div></div>
-                  <div role="group" aria-label="Tune Radio energy" className="mb-6 inline-flex rounded-full border border-white/10 bg-black/25 p-1">
-                    {energyLanes.map((lane) => <button key={lane.id} type="button" aria-pressed={energyLane === lane.id} onClick={() => tuneEnergyLane(lane.id)} className={`rounded-full px-3 py-1.5 text-xs font-bold transition ${energyLane === lane.id ? "bg-[#ff3ea5] text-white shadow-[0_0_14px_rgba(255,62,165,.25)]" : "text-white/50 hover:text-white"}`}>{lane.label}</button>)}
-                  </div>
-                  <label className="mb-6 block max-w-xs"><span className="mb-2 block text-xs font-bold text-white/50">Genre sequence</span><select aria-label="Radio genre" value={primaryGenre} onChange={(event) => tuneGenre(event.target.value)} className="h-10 w-full rounded-lg border border-white/12 bg-[#17141d] px-3 text-sm text-white"><option>All genres</option>{[...new Set(tracks.map((track) => track.primary_genre))].sort().map((genre) => <option key={genre}>{genre}</option>)}</select></label>
+                  <div className="mb-10 flex items-center justify-between gap-4"><div className="flex items-center gap-2 text-xs font-black uppercase tracking-[0.18em] text-[#ff69bd]"><span className="size-2 rounded-full bg-[#ff3ea5] shadow-[0_0_14px_#ff3ea5]" /> Now in the cave</div><div className="rounded-full border border-white/10 px-3 py-1 text-xs text-white/45">{sharedTrackId ? "Shared channel" : "Quiet"}</div></div>
+                  <SharedRadioPlayer onTrack={(id, key) => { setSharedTrackId(id); setSharedPerformanceKey(key); }} onError={setMessage} onPlay={() => void startListen()} onProgress={(seconds) => void qualifyListen(seconds)} onEnded={() => void completeListen()} />
                   {current ? <>
                     <div className="mb-8 min-h-36"><div className="mb-3 text-sm uppercase tracking-[0.16em] text-white/38">Independent signal · {current.primary_genre} / {energyCategory(current.energy_lane)}</div><h1 className="max-w-4xl text-4xl font-black leading-[0.98] tracking-[-0.045em] sm:text-6xl lg:text-7xl">{current.title}</h1><p className="mt-4 text-lg font-semibold text-white/58">{current.artist_name}</p></div>
                     <div className="flex flex-wrap items-center gap-3">
-                      <MusicBatPlayer key={sessionKey} src={current.audio_url} title={current.title} replay={replay} autoPlay={autoPlay} onPlay={() => { setAutoPlay(true); void startListen(); }} onProgress={(seconds) => void qualifyListen(seconds)} onEnded={() => void completeListen()} onError={setMessage} onUnavailable={() => { failedRef.current.add(current.id); nextTrack(autoPlay); }} />
                       <Button type="button" disabled={purchaseBusy} aria-busy={purchaseBusy} onClick={() => void buyCurrentTrack()} aria-label={`Buy ${current.title}`} data-track-id={current.id} className="h-12 shrink-0 rounded-full border border-[#ff3ea5]/50 bg-[#ff3ea5]/20 px-6 text-base font-black text-white disabled:opacity-60">{current.sale_enabled && current.sale_price_cents ? `Buy $${(current.sale_price_cents / 100).toFixed(2)}` : "Buy"}</Button>
                       <div className="flex shrink-0 items-center gap-1" role="group" aria-label="Radio feedback">
                         <Button type="button" variant="ghost" aria-label="More like this" title="More like this" disabled={busy || !canRespond} onClick={() => void sendRadioFeedback("up")} className="size-10 rounded-full px-0 text-lg font-black text-white/65 hover:bg-[#ff3ea5]/15 hover:text-[#ff69bd]">▲</Button>
@@ -605,12 +557,12 @@ export default function MusicBatLoop({ displayName }: { displayName: string }) {
                     <div className="mt-6 flex flex-wrap gap-3">
                       <Button aria-pressed={keepActive} disabled={busy || (!canRespond && !keepActive)} onClick={() => void toggleKeep(current)} title="Keep this track in rotation or remove your keep." className={keepActive ? "h-11 rounded-full border border-[#ff69bd] bg-[#ff3ea5] px-5 text-white" : "h-11 rounded-full border border-white/15 bg-white/[0.045] px-5 text-white"}>Keep in rotation</Button>
                     </div>
-                  </> : <div className="grid min-h-[390px] place-items-center text-center"><div><Disc3 className="mx-auto mb-5 size-12 text-[#ff69bd]" /><h1 className="text-3xl font-black tracking-tight">{tracks.length ? "This category is quiet." : "Radio needs its first track."}</h1><p className="mx-auto mt-3 max-w-md text-white/52">{tracks.length ? "Choose another genre or energy lane, or classify a track in the catalog." : "Upload your music file, classify it, and confirm your rights to enter Radio."}</p><Button onClick={() => setTab("catalog")} className="mt-6 rounded-full bg-[#ff3ea5] px-6 text-white hover:bg-[#ff69bd]">{tracks.length ? "Open catalog" : "Add the first track"}</Button></div></div>}
+                  </> : <div className="grid min-h-[390px] place-items-center text-center"><div><Disc3 className="mx-auto mb-5 size-12 text-[#ff69bd]" /><h1 className="text-3xl font-black tracking-tight">{tracks.length ? "This category is quiet." : "Radio needs its first track."}</h1><p className="mx-auto mt-3 max-w-md text-white/52">{tracks.length ? "Use the shared Radio category controls or review the catalog." : "Upload your music file, classify it, and confirm your rights to enter Radio."}</p><Button onClick={() => setTab("catalog")} className="mt-6 rounded-full bg-[#ff3ea5] px-6 text-white hover:bg-[#ff69bd]">{tracks.length ? "Open catalog" : "Add the first track"}</Button></div></div>}
                 </div>
               </div>
               <aside className="flex flex-col gap-5">
                 <div className="rounded-[1.5rem] border border-white/10 bg-white/[0.035] p-6"><div className="mb-5 flex items-center gap-2 text-xs font-black uppercase tracking-[0.16em] text-white/45"><Sparkles className="size-4 text-[#ff69bd]" /> Signal status</div><p className="text-lg font-semibold leading-snug">{loading ? "Loading the loop…" : message}</p>{message === "Sign in to use MusicBat." && <a href="/signin-with-chatgpt?return_to=%2F" className="mt-3 inline-block font-bold text-[#ff69bd] underline">Sign in to keep songs in rotation</a>}<div className="mt-6 h-1.5 overflow-hidden rounded-full bg-white/10"><div className={`h-full rounded-full bg-[#ff3ea5] transition-all ${canRespond ? "w-full" : listenId ? "w-2/3" : tracks.length ? "w-1/3" : "w-0"}`} /></div></div>
-                <div className="rounded-[1.5rem] border border-white/10 bg-[#15121b] p-6"><div className="text-xs font-black uppercase tracking-[0.16em] text-[#ff69bd]">Category signal</div><div className="mt-3 text-2xl font-black">Shock Score {current?.shock_score ?? 0}</div><div className="mt-2 text-sm text-white/50">▲ {current?.up_count ?? 0} · ▼ {current?.down_count ?? 0} · Keeps {current?.keep_count ?? 0}</div><div className="mt-1 text-xs text-white/38">Completions {current?.completion_count ?? 0} · Repeat listens {current?.repeat_count ?? 0} · Purchases {current?.purchase_count ?? 0}</div><div className="mt-2 text-sm text-white/50">Position: #{current?.position ?? "—"} — {current?.primary_genre ?? primaryGenre} / {current ? energyCategory(current.energy_lane) : energyCategory(energyLane)}</div></div>
+                <div className="rounded-[1.5rem] border border-white/10 bg-[#15121b] p-6"><div className="text-xs font-black uppercase tracking-[0.16em] text-[#ff69bd]">Category signal</div><div className="mt-3 text-2xl font-black">Shock Score {current?.shock_score ?? 0}</div><div className="mt-2 text-sm text-white/50">▲ {current?.up_count ?? 0} · ▼ {current?.down_count ?? 0} · Keeps {current?.keep_count ?? 0}</div><div className="mt-1 text-xs text-white/38">Completions {current?.completion_count ?? 0} · Repeat listens {current?.repeat_count ?? 0} · Purchases {current?.purchase_count ?? 0}</div><div className="mt-2 text-sm text-white/50">Position: #{current?.position ?? "—"} — {current?.primary_genre ?? "—"} / {current ? energyCategory(current.energy_lane) : "—"}</div></div>
               </aside>
             </section>
           </TabsContent>
@@ -658,7 +610,7 @@ export default function MusicBatLoop({ displayName }: { displayName: string }) {
                 <div className="mb-5 flex items-center justify-between"><div><div className="text-xs font-black uppercase tracking-[0.18em] text-white/42">Rights-cleared catalog</div><h2 className="mt-2 text-2xl font-black">{tracks.length} active track{tracks.length === 1 ? "" : "s"}</h2></div><ShieldCheck className="size-7 text-[#ff69bd]" /></div>
                 <div className="space-y-3">{tracks.map((track) => <div key={track.id} className="rounded-xl border border-white/8 bg-white/[0.025] p-2">
                   <div className="flex flex-wrap items-center gap-2">
-                    <button type="button" onClick={() => { tuneGenre(track.primary_genre); setTab("radio"); }} className="flex min-w-0 flex-1 basis-[220px] items-center justify-between gap-4 rounded-xl bg-white/[0.025] p-3 text-left transition hover:bg-[#ff3ea5]/5"><div className="min-w-0"><div className="truncate font-bold">{track.title}</div><div className="truncate text-sm text-white/42">{track.artist_name}{track.sale_enabled && track.sale_price_cents ? ` · $${(track.sale_price_cents / 100).toFixed(2)}` : ""}</div></div><div className="shrink-0 text-xs font-black uppercase tracking-wider text-[#ff69bd]">Tune genre</div></button>
+                    <button type="button" onClick={() => { openRadio(); setTab("radio"); }} className="flex min-w-0 flex-1 basis-[220px] items-center justify-between gap-4 rounded-xl bg-white/[0.025] p-3 text-left transition hover:bg-[#ff3ea5]/5"><div className="min-w-0"><div className="truncate font-bold">{track.title}</div><div className="truncate text-sm text-white/42">{track.artist_name}{track.sale_enabled && track.sale_price_cents ? ` · $${(track.sale_price_cents / 100).toFixed(2)}` : ""}</div></div><div className="shrink-0 text-xs font-black uppercase tracking-wider text-[#ff69bd]">Open Radio</div></button>
                   </div>
                   {Boolean(track.can_manage) && <div className="mt-2 rounded-lg border border-white/8 bg-black/15 p-3">
                     <div className="flex flex-wrap items-end gap-2">

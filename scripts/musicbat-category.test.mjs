@@ -74,10 +74,10 @@ test('each statutory prerequisite is mandatory and rolling history cannot be res
  assert.equal(simulateCategoryRadio(track.category,[channel],[],context).track,null);
 });
 test('radio UI has no seek control or individual-track catalog selection',async()=>{
- const player=await readFile(new URL('../components/musicbat-player.tsx',import.meta.url),'utf8');
+ const player=await readFile(new URL('../components/shared-radio-player.tsx',import.meta.url),'utf8');
  const ui=await readFile(new URL('../app/musicbat-loop.tsx',import.meta.url),'utf8');
- assert.ok(!player.includes('audio.currentTime ='));
- assert.ok(player.includes('<progress aria-label="Playback position"'));
+ assert.ok(!player.includes('aria-label="Seek"'));
+ assert.ok(player.includes('/api/musicbat/channel'));
  assert.ok(!ui.includes('setCurrentIndex(tracks.findIndex((item) => item.id === track.id))'));
- assert.ok(ui.includes('>Tune genre</div>'));
+ assert.ok(ui.includes('>Open Radio</div>'));
 });

@@ -95,14 +95,14 @@ test('insufficient/broken preferred tracks fall back; ineligible tracks never pl
 });
 test('MusicBat player omits native controls and Next; Buy and essential playback controls remain', () => {
   const player = readFileSync('app/musicbat-loop.tsx', 'utf8');
-  const controls = readFileSync('components/musicbat-player.tsx', 'utf8');
-  assert.match(player, /<MusicBatPlayer/);
+  const controls = readFileSync('components/shared-radio-player.tsx', 'utf8');
+  assert.match(player, /<SharedRadioPlayer/);
   assert.match(controls, /controlsList="nodownload noremoteplayback"/);
   assert.doesNotMatch(controls, /\bcontrols(?:\s|=)/);
-  assert.match(controls, /"Pause Radio" : "Play Radio"/);
-  assert.match(controls, /aria-label="Playback position"/);
+  assert.match(controls, /'Pause Radio':'Play Radio'/);
+  assert.doesNotMatch(controls, /type="range".*(?:seek|position)/);
   assert.match(controls, /aria-label="Volume"/);
-  assert.match(controls, /onEnded\(\); \}, 500\)/);
+  assert.match(controls, /onEnded.*update/);
   assert.match(player, /aria-label=\{`Buy \$\{current.title\}`\}/);
   assert.match(player, /aria-pressed=\{keepActive\}/);
   assert.match(player, /onEnded=\{\(\) => void completeListen\(\)\}/);
@@ -179,16 +179,17 @@ test('triangle feedback is append-only and records listener, session, artist, ca
   assert.equal(track.down_count, 1);
 });
 
-test('Radio UI exposes compact energy lanes and triangle responses, and advances only in the selected lane', () => {
+test('Radio UI preserves catalog classification and responses while using authoritative shared playback', () => {
   const player = readFileSync('app/musicbat-loop.tsx', 'utf8');
-  assert.match(player, /track\.energy_lane === energyLane/);
-  assert.match(player, /selectNextTrack\(rotationTracks/);
+  assert.match(player, /value=\{track.energy_lane\}/);
+  assert.doesNotMatch(player, /selectNextTrack|src=\{current.audio_url\}/);
+  assert.match(player, /<SharedRadioPlayer/);
   assert.match(player, /More like this/);
   assert.match(player, /Less like this/);
   assert.match(player, /signal: \"up\" \| \"down\"/);
   assert.match(player, /action: \"radio_feedback\"/);
   assert.match(player, /action: \"set_energy_lane\"/);
-  assert.match(player, /track\.primary_genre === primaryGenre/);
+  assert.match(player, /value=\{track.primary_genre\}/);
   assert.match(player, /Shock Room/);
   assert.doesNotMatch(player, /Weight Room|Hanger/);
 });
