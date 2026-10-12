@@ -82,6 +82,7 @@ export const purchases = sqliteTable("purchases", {
   amountCents: integer("amount_cents"),
   artistShareCents: integer("artist_share_cents"),
   platformFeeCents: integer("platform_fee_cents"),
+  processingCents: integer("processing_cents").notNull().default(0),
   currency: text("currency").notNull().default("usd"),
   processorAccountId: text("processor_account_id"),
   processorSessionId: text("processor_session_id"),

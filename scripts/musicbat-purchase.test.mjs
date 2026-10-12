@@ -58,6 +58,8 @@ async function fixture() {
       STRIPE_SECRET_KEY: "sk_test_musicbat",
       STRIPE_WEBHOOK_SECRET: "whsec_musicbat_test",
       MUSICBAT_BASE_URL: "https://musicbat.audio",
+      MUSICBAT_PROCESSING_BPS: "290",
+      MUSICBAT_PROCESSING_FIXED_CENTS: "30",
     },
   };
   globalThis.fetch = async (url, init = {}) => {
@@ -86,7 +88,7 @@ function post(trackId = 1, cookie = null, additions = {}) {
   return new Request("https://musicbat.audio/api/musicbat/purchase", {
     method: "POST",
     headers: { "content-type": "application/json", origin: "https://musicbat.audio", ...(cookie ? { cookie } : {}) },
-    body: JSON.stringify({ trackId, ...additions }),
+    body: JSON.stringify({ trackId, confirmedTotalCents: 1061, ...additions }),
   });
 }
 
@@ -101,7 +103,7 @@ async function sign(raw, secret, timestamp = Math.floor(Date.now() / 1000)) {
   return `t=${timestamp},v1=${signature}`;
 }
 
-test("Checkout is test-mode destination charge with exact 85/15 ledger split", async () => {
+test("Checkout is test-mode destination charge with exact 85/15 ledger split and itemized buyer fee", async () => {
   const { sqlite, state, purchase } = await fixture();
   const response = await purchase.POST(post(1, null, { amountCents: 1, paid: true, destination: "acct_wrong" }));
   assert.equal(response.status, 201);
@@ -117,10 +119,12 @@ test("Checkout is test-mode destination charge with exact 85/15 ledger split", a
   assert.equal(row.status, "pending");
   const create = state.requests.find((entry) => entry.url.endsWith("/v1/checkout/sessions") && entry.init.method === "POST");
   const form = create.init.body;
-  assert.equal(form.get("payment_intent_data[application_fee_amount]"), "150");
+  assert.equal(form.get("payment_intent_data[application_fee_amount]"), "211");
   assert.equal(form.get("payment_intent_data[transfer_data][destination]"), "acct_test_artist");
   assert.equal(form.get("payment_method_types[0]"), "card");
   assert.equal(form.get("mode"), "payment");
+  assert.equal(form.get("line_items[1][price_data][unit_amount]"), "61");
+  assert.equal(form.get("line_items[0][price_data][unit_amount]"), "1000");
   const repeat = await (await purchase.POST(post(1, cookie))).json();
   assert.equal(repeat.purchase.id, data.purchase.id);
   assert.equal(sqlite.prepare("SELECT count(*) AS total FROM purchases").get().total, 1);
@@ -145,9 +149,9 @@ test("valid signed webhook alone confirms payment and unlocks captured download"
   const cookie = checkout.headers.get("set-cookie").split(";")[0];
   const { purchase: draft } = await checkout.json();
   const session = {
-    id: "cs_test_musicbat", livemode: false, status: "complete", payment_status: "paid", amount_total: 1000, currency: "usd",
-    metadata: { musicbat_purchase_id: draft.id },
-    payment_intent: { id: "pi_test_musicbat", application_fee_amount: 150, transfer_data: { destination: "acct_test_artist" } },
+    id: "cs_test_musicbat", livemode: false, status: "complete", payment_status: "paid", amount_total: 1061, currency: "usd",
+    metadata: { musicbat_purchase_id: draft.id, musicbat_processing_cents: "61" },
+    payment_intent: { id: "pi_test_musicbat", application_fee_amount: 211, transfer_data: { destination: "acct_test_artist" } },
   };
   globalThis.fetch = async () => Response.json(session);
   const webhook = await load("../app/api/musicbat/stripe/webhook/route.ts", state);
@@ -178,7 +182,7 @@ test("3DS-style unpaid completion remains locked until later authenticated succe
   const checkout = await purchase.POST(post());
   const cookie = checkout.headers.get("set-cookie").split(";")[0];
   const { purchase: draft } = await checkout.json();
-  let session = { id: "cs_test_musicbat", livemode: false, status: "open", payment_status: "unpaid", amount_total: 1000, currency: "usd", metadata: { musicbat_purchase_id: draft.id }, payment_intent: { id: "pi_3ds", application_fee_amount: 150, transfer_data: { destination: "acct_test_artist" } } };
+  let session = { id: "cs_test_musicbat", livemode: false, status: "open", payment_status: "unpaid", amount_total: 1061, currency: "usd", metadata: { musicbat_purchase_id: draft.id, musicbat_processing_cents: "61" }, payment_intent: { id: "pi_3ds", application_fee_amount: 211, transfer_data: { destination: "acct_test_artist" } } };
   globalThis.fetch = async () => Response.json(session);
   const webhook = await load("../app/api/musicbat/stripe/webhook/route.ts", state);
   const pendingEvent = JSON.stringify({ id: "evt_3ds_pending", type: "checkout.session.completed", livemode: false, data: { object: { id: session.id } } });
@@ -198,5 +202,42 @@ test("checkout is blocked until sale consent and artist payout eligibility exist
   sqlite.prepare("UPDATE tracks SET sale_enabled = 1").run();
   sqlite.prepare("UPDATE artist_accounts SET payouts_enabled = 0").run();
   assert.equal((await purchase.POST(post())).status, 409);
+  sqlite.close();
+});
+
+test("buyer sees full price before any Checkout Session or purchase record exists", async () => {
+  const { sqlite, state, purchase } = await fixture();
+  const quote = await purchase.POST(post(1, null, { confirmedTotalCents: undefined }));
+  assert.equal(quote.status, 409);
+  const data = await quote.json();
+  assert.equal(data.confirmationRequired, true);
+  assert.deepEqual([data.quote.baseCents, data.quote.processingCents, data.quote.totalCents, data.quote.artistShareCents], [1000, 61, 1061, 850]);
+  assert.equal(sqlite.prepare("SELECT count(*) AS n FROM purchases").get().n, 0);
+  assert.equal(state.requests.filter((entry) => entry.url.endsWith("/v1/checkout/sessions")).length, 0);
+  sqlite.close();
+});
+
+test("processing charge stays with platform and checkout amount preserves artist base share", async () => {
+  const {sqlite,state,purchase}=await fixture();
+  assert.equal((await purchase.POST(post())).status,201);
+  const row=sqlite.prepare("SELECT * FROM purchases").get();
+  const form=state.requests.find(x=>x.init.method==='POST' && x.url.endsWith('/v1/checkout/sessions')).init.body;
+  const total=Number(form.get('line_items[0][price_data][unit_amount]'))+Number(form.get('line_items[1][price_data][unit_amount]'));
+  assert.equal(row.processing_cents,61);
+  assert.equal(total-Number(form.get('payment_intent_data[application_fee_amount]')),850);
+  assert.equal(total,1061);
+  sqlite.close();
+});
+
+test("legacy purchase snapshot still accepts historical fee and total", async () => {
+  const {sqlite,state,purchase}=await fixture();
+  const {purchase:draft}=await (await purchase.POST(post())).json();
+  sqlite.prepare('UPDATE purchases SET processing_cents=0, artist_share_cents=900, platform_fee_cents=100 WHERE id=?').run(draft.id);
+  const session={id:'cs_test_musicbat',livemode:false,payment_status:'paid',amount_total:1000,currency:'usd',metadata:{musicbat_purchase_id:draft.id},payment_intent:{id:'pi_legacy',application_fee_amount:100,transfer_data:{destination:'acct_test_artist'}}};
+  globalThis.fetch=async()=>Response.json(session);
+  const webhook=await load('../app/api/musicbat/stripe/webhook/route.ts',state);
+  const event=JSON.stringify({id:'evt_legacy',type:'checkout.session.completed',livemode:false,data:{object:{id:session.id}}});
+  assert.equal((await webhook.POST(new Request('https://musicbat.audio/api/musicbat/stripe/webhook',{method:'POST',headers:{'stripe-signature':await sign(event,state.env.STRIPE_WEBHOOK_SECRET)},body:event}))).status,200);
+  assert.equal(sqlite.prepare('SELECT artist_share_cents FROM purchases WHERE id=?').get(draft.id).artist_share_cents,900);
   sqlite.close();
 });

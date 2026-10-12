@@ -5,6 +5,7 @@ type Purchase = {
   id: string;
   amount_cents: number;
   platform_fee_cents: number;
+  processing_cents: number;
   processor_account_id: string;
   processor_session_id: string;
   status: string;
@@ -32,15 +33,20 @@ export async function POST(request: Request) {
     if (already) return Response.json({ received: true, duplicate: true });
     const session = await stripeGet<StripeCheckoutSession>(env, `/v1/checkout/sessions/${encodeURIComponent(sessionId)}`, { "expand[]": "payment_intent" });
     if (session.livemode) return Response.json({ error: "Live Stripe events are disabled." }, { status: 400 });
-    const purchase = await env.DB.prepare(`SELECT id, amount_cents, platform_fee_cents, processor_account_id, processor_session_id, status FROM purchases WHERE processor_session_id = ?`)
+    const purchase = await env.DB.prepare(`SELECT id, amount_cents, processing_cents, platform_fee_cents, processor_account_id, processor_session_id, status FROM purchases WHERE processor_session_id = ?`)
       .bind(session.id).first<Purchase>();
     if (!purchase) return Response.json({ error: "Purchase not found." }, { status: 404 });
+    // Legacy purchases have no processing metadata and retain their original ledger terms.
+    const feeText = session.metadata?.musicbat_processing_cents;
+    const processingCents = feeText === undefined ? 0 : Number(feeText);
+    const validProcessing = Number.isSafeInteger(processingCents) && processingCents >= 0 &&
+      processingCents === purchase.processing_cents;
     const isPaidEvent = event.type === "checkout.session.completed" || event.type === "checkout.session.async_payment_succeeded";
     if (isPaidEvent && session.payment_status === "paid") {
       const metadataId = session.metadata?.musicbat_purchase_id;
       const intent = typeof session.payment_intent === "object" ? session.payment_intent : null;
-      if (metadataId !== purchase.id || session.amount_total !== purchase.amount_cents || session.currency !== "usd"
-        || intent?.application_fee_amount !== purchase.platform_fee_cents || destination(session) !== purchase.processor_account_id) {
+      if (metadataId !== purchase.id || (!validProcessing || session.amount_total !== purchase.amount_cents + processingCents) || session.currency !== "usd"
+        || intent?.application_fee_amount !== purchase.platform_fee_cents + processingCents || destination(session) !== purchase.processor_account_id) {
         console.error("Stripe checkout verification mismatch", event.id, purchase.id);
         return Response.json({ error: "Checkout verification failed." }, { status: 400 });
       }

@@ -5,5 +5,7 @@ declare namespace Cloudflare {
     STRIPE_SECRET_KEY?: string;
     STRIPE_WEBHOOK_SECRET?: string;
     MUSICBAT_BASE_URL?: string;
+    MUSICBAT_PROCESSING_BPS?: string;
+    MUSICBAT_PROCESSING_FIXED_CENTS?: string;
   }
 }

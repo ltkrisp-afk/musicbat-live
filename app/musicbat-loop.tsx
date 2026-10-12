@@ -333,8 +333,15 @@ export default function MusicBatLoop({ displayName }: { displayName: string }) {
     setPurchaseBusy(true);
     setPurchaseMessage(`Selecting “${selected.title}”…`);
     try {
-      const result = await api<{ purchase: { id: string }; checkoutAvailable: true; checkoutUrl: string }>("/api/musicbat/purchase", {
-        method: "POST", body: JSON.stringify({ trackId: selected.id }),
+      const endpoint = "/api/musicbat/purchase";
+      const first = await fetch(endpoint, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ trackId: selected.id }) });
+      const quoteResponse = await first.json() as { confirmationRequired?: boolean; quote?: { baseCents: number; processingCents: number; totalCents: number }; error?: string };
+      if (!quoteResponse.confirmationRequired || !quoteResponse.quote) throw new Error(quoteResponse.error || "Checkout quote unavailable.");
+      const { baseCents, processingCents, totalCents } = quoteResponse.quote;
+      const usd = (cents: number) => `$${(cents / 100).toFixed(2)}`;
+      if (!window.confirm(`MusicBat purchase: ${selected.title}\nSong: ${usd(baseCents)}\nBuyer processing charge: ${usd(processingCents)}\nTotal charged: ${usd(totalCents)}\n\nArtist receives 85% of the song price. Continue to Stripe?`)) return;
+      const result = await api<{ purchase: { id: string }; checkoutAvailable: true; checkoutUrl: string }>(endpoint, {
+        method: "POST", body: JSON.stringify({ trackId: selected.id, confirmedTotalCents: totalCents }),
       });
       window.location.assign(result.checkoutUrl);
     } catch (error) {
@@ -527,7 +534,7 @@ export default function MusicBatLoop({ displayName }: { displayName: string }) {
             <div className="grid size-11 place-items-center rounded-full border border-[#ff3ea5]/40 bg-[#ff3ea5]/10 text-[#ff69bd] shadow-[0_0_34px_rgba(255,62,165,.18)]">
               <Activity className="size-5" />
             </div>
-            <div><div className="text-[0.72rem] font-black uppercase tracking-[0.24em] text-[#ff69bd]">MusicBat</div><div className="text-lg font-black tracking-tight">Minimum Working Loop</div></div>
+            <div><div className="text-[0.72rem] font-black uppercase tracking-[0.24em] text-[#ff69bd]">MusicBat</div></div>
           </div>
           <div className="text-right"><div className="text-sm font-semibold text-white/90">{displayName}</div><div className="text-xs text-white/45">{loopStatus}</div></div>
         </header>
@@ -584,7 +591,7 @@ export default function MusicBatLoop({ displayName }: { displayName: string }) {
                 <div className="space-y-4">
                   <div className="rounded-xl border border-white/10 bg-white/[0.03] p-4">
                     <div className="text-sm font-black text-white">Artist payouts</div>
-                    <p className="mt-1 text-sm text-white/50">{connectStatus?.ready ? "Stripe test payouts are ready." : connectStatus?.connected ? "Finish Stripe onboarding before buyers can check out." : "Connect a separate MusicBat Stripe Express account to receive 85% of each base-price sale."}</p>
+                    <p className="mt-1 text-sm text-white/50">{connectStatus?.ready ? "Stripe test payouts are ready." : connectStatus?.connected ? "Finish Stripe onboarding before buyers can check out." : "Connect a separate MusicBat Stripe Express account to receive 85% of each sale."}</p>
                     <Button type="button" disabled={connectBusy || Boolean(connectStatus?.ready)} onClick={() => void connectStripe()} className="mt-3 h-10 rounded-full border border-[#ff3ea5]/50 bg-[#ff3ea5]/15 px-4 text-white hover:bg-[#ff3ea5]/25">{connectBusy ? "Opening Stripe…" : connectStatus?.ready ? "Stripe connected" : connectStatus?.connected ? "Finish Stripe setup" : "Connect Stripe payouts"}</Button>
                   </div>
                   <label className="block"><span className="mb-2 block text-sm font-semibold text-white/65">Track title</span><Input value={title} onChange={(event) => setTitle(event.target.value)} required maxLength={120} className="h-12 rounded-xl border-white/12 bg-white/[0.045] px-4 text-white placeholder:text-white/25" placeholder="Track title" /></label>
@@ -630,7 +637,7 @@ export default function MusicBatLoop({ displayName }: { displayName: string }) {
                       <Button type="button" disabled={busy || !saleConsents[track.id]} onClick={() => void saveSale(track, true)} className="h-10 rounded-full bg-[#ff3ea5] px-4 text-white hover:bg-[#ff69bd]">{track.sale_enabled ? "Update sale" : "Enable sale"}</Button>
                       {Boolean(track.sale_enabled) && <Button type="button" disabled={busy} onClick={() => void saveSale(track, false)} className="h-10 rounded-full border border-white/15 bg-white/[0.045] px-4 text-white hover:bg-white/10">Stop sales</Button>}
                     </div>
-                    <label className="mt-3 flex cursor-pointer items-start gap-2"><Checkbox checked={Boolean(saleConsents[track.id])} onCheckedChange={(value) => setSaleConsents((consents) => ({ ...consents, [track.id]: value === true }))} className="mt-0.5 border-white/25 data-[state=checked]:border-[#ff3ea5] data-[state=checked]:bg-[#ff3ea5]" /><span className="text-xs leading-relaxed text-white/50">I authorize MusicBat to sell and deliver this recording. Artist receives 85%; MusicBat retains 15% of the base price. Buyer processing charges are not configured in this test flow.</span></label>
+                    <label className="mt-3 flex cursor-pointer items-start gap-2"><Checkbox checked={Boolean(saleConsents[track.id])} onCheckedChange={(value) => setSaleConsents((consents) => ({ ...consents, [track.id]: value === true }))} className="mt-0.5 border-white/25 data-[state=checked]:border-[#ff3ea5] data-[state=checked]:bg-[#ff3ea5]" /><span className="text-xs leading-relaxed text-white/50">I authorize MusicBat to sell and deliver this recording. Artist receives 85% of the song price; MusicBat retains 15%. Buyer processing charge is displayed separately before checkout.</span></label>
                     <div className="mt-2 text-xs text-white/40">{track.sale_enabled ? (track.seller_ready ? "Checkout ready in Stripe test mode." : "Sale saved; finish Stripe payout setup before checkout can open.") : "Not currently for sale."}</div>
                   </div>}
                 </div>)}</div>
