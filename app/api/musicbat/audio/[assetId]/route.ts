@@ -11,7 +11,8 @@ async function serve(request: Request, headOnly = false) {
     if (!track) return new Response(null, { status: 404 });
     const permission = await env.DB.prepare("SELECT * FROM playback_permissions WHERE track_id = ?").bind(track.id).first<Permission>();
     const now = Date.now();
-    // This endpoint supports individual requests and seeking. Never accept a client mode downgrade.
+    // Direct-license asset delivery only; Radio Plus category tuning does not grant interactive rights.
+    // Never route statutory audio through this asset/range endpoint.
     const mode = "radio-plus" as const;
     const territory = (request as Request & { cf?: { country?: string } }).cf?.country ?? "unknown";
     const decision = authorizePlayback(permission, mode, now, territory);

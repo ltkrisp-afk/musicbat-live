@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { FormEvent, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { Activity, Disc3, Gauge, Radio, ShieldCheck, Sparkles, Upload } from "lucide-react";
 import { MusicBatPlayer } from "@/components/musicbat-player";
 import { selectNextTrack } from "./rotation";
@@ -8,6 +8,13 @@ import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+
+const subscribeLocation = (notify: () => void) => {
+  window.addEventListener("popstate", notify);
+  return () => window.removeEventListener("popstate", notify);
+};
+const readLocation = () => window.location.search;
+const serverLocation = () => "";
 
 type Track = {
   id: number;
@@ -112,7 +119,12 @@ export default function MusicBatLoop({ displayName }: { displayName: string }) {
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [purchaseBusy, setPurchaseBusy] = useState(false);
-  const [purchaseMessage, setPurchaseMessage] = useState("");
+  const [purchaseStatus, setPurchaseMessage] = useState("");
+  const returnSearch = useSyncExternalStore(subscribeLocation, readLocation, serverLocation);
+  const returnParams = new URLSearchParams(returnSearch);
+  const purchaseMessage = purchaseStatus || (returnParams.get("purchase") === "cancelled"
+    ? "Checkout cancelled. The track remains locked and you were not charged."
+    : returnParams.get("purchase") === "success" ? "Payment received by Stripe. Confirming it securely…" : "");
   const [purchaseDownloadUrl, setPurchaseDownloadUrl] = useState("");
   const purchaseStartingRef = useRef(false);
   const [message, setMessage] = useState("Loading rights-cleared Radio…");
@@ -139,16 +151,29 @@ export default function MusicBatLoop({ displayName }: { displayName: string }) {
 
   const rotationTracks = useMemo(() => tracks.filter((track) => track.energy_lane === energyLane && (primaryGenre === "All genres" || track.primary_genre === primaryGenre)), [tracks, energyLane, primaryGenre]);
   const current = tracks[currentIndex] ?? null;
-  currentTrackIdRef.current = current?.id ?? null;
-  activeSessionRef.current = `${current?.id}:${replay}`;
+  const sessionKey = `${current?.id}:${replay}`;
+  const [previousSession, setPreviousSession] = useState(sessionKey);
+  // Reset render state when identity changes, before children commit the new audio.
+  if (previousSession !== sessionKey) {
+    setPreviousSession(sessionKey);
+    setListenId(null);
+    setQualified(false);
+  }
+  useLayoutEffect(() => {
+    currentTrackIdRef.current = current?.id ?? null;
+    activeSessionRef.current = sessionKey;
+    startingRef.current = false;
+    qualifyingRef.current = false;
+  }, [current?.id, sessionKey]);
   const canRespond = qualified;
   const keepActive = Boolean(current?.viewer_keep_in_rotation);
 
-  const refresh = useCallback(async () => {
-    const [trackData, shockData] = await Promise.all([
+  const fetchRadio = useCallback(() => Promise.all([
       api<{ tracks: Track[] }>("/api/musicbat?view=tracks"),
       api<{ rows: ShockRow[] }>("/api/musicbat?view=shock-room"),
-    ]);
+    ]), []);
+
+  const applyRadio = useCallback(([trackData, shockData]: [{ tracks: Track[] }, { rows: ShockRow[] }]) => {
     const updated = trackData.tracks.map((track) => ({
       ...track,
       id: Number(track.id),
@@ -188,32 +213,46 @@ export default function MusicBatLoop({ displayName }: { displayName: string }) {
     })));
   }, []);
 
+  const refresh = useCallback(async () => applyRadio(await fetchRadio()), [applyRadio, fetchRadio]);
+
   useEffect(() => {
-    refresh()
-      .then(() => setMessage("Choose a track and press play."))
-      .catch((error) => setMessage(error instanceof Error ? error.message : "Radio unavailable."))
-      .finally(() => setLoading(false));
-  }, [refresh]);
+    let cancelled = false;
+    fetchRadio()
+      .then((data) => { if (!cancelled) applyRadio(data); })
+      .then(() => { if (!cancelled) setMessage("Choose a musical category and press play."); })
+      .catch((error) => { if (!cancelled) setMessage(error instanceof Error ? error.message : "Radio unavailable."); })
+      .finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
+  }, [fetchRadio, applyRadio]);
 
   const refreshConnectStatus = useCallback(async () => {
     try {
-      setConnectStatus(await api<ConnectStatus>("/api/musicbat/stripe/connect"));
+      const status = await api<ConnectStatus>("/api/musicbat/stripe/connect");
+      setConnectStatus(status);
     } catch { setConnectStatus(null); }
   }, []);
 
-  useEffect(() => { void refreshConnectStatus(); }, [refreshConnectStatus]);
+  useEffect(() => {
+    let cancelled = false;
+    api<ConnectStatus>("/api/musicbat/stripe/connect")
+      .then(status => { if (!cancelled) setConnectStatus(status); })
+      .catch(() => { if (!cancelled) setConnectStatus(null); });
+    return () => { cancelled = true; };
+  }, []);
 
   useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
+    const params = new URLSearchParams(returnSearch);
     const state = params.get("purchase");
     const order = params.get("order");
     const stripeReturn = params.get("stripe");
     if (stripeReturn) {
-      void refreshConnectStatus().then(() => setMessage(stripeReturn === "return" ? "Stripe setup returned to MusicBat. Payout status refreshed." : "Restart Stripe onboarding to finish payout setup."));
+      void api<ConnectStatus>("/api/musicbat/stripe/connect").then(status => {
+        setConnectStatus(status);
+        setMessage(stripeReturn === "return" ? "Stripe setup returned to MusicBat. Payout status refreshed." : "Restart Stripe onboarding to finish payout setup.");
+      }).catch(() => setConnectStatus(null));
     }
-    if (state === "cancelled") setPurchaseMessage("Checkout cancelled. The track remains locked and you were not charged.");
     if (state === "success" && order) {
-      setPurchaseMessage("Payment received by Stripe. Confirming it securely…");
+
       void (async () => {
         for (let attempt = 0; attempt < 6; attempt += 1) {
           try {
@@ -231,15 +270,7 @@ export default function MusicBatLoop({ displayName }: { displayName: string }) {
       })();
     }
     if (state === "cancelled" || stripeReturn) window.history.replaceState({}, "", window.location.pathname);
-  }, [refreshConnectStatus]);
-
-  useEffect(() => {
-    setListenId(null);
-    setPurchaseMessage("");
-    setQualified(false);
-    startingRef.current = false;
-    qualifyingRef.current = false;
-  }, [current?.id, replay]);
+  }, [refreshConnectStatus, returnSearch]);
 
   useEffect(() => {
     const context = (document as Document & { modelContext?: ToolContext }).modelContext;
@@ -563,7 +594,7 @@ export default function MusicBatLoop({ displayName }: { displayName: string }) {
                   {current ? <>
                     <div className="mb-8 min-h-36"><div className="mb-3 text-sm uppercase tracking-[0.16em] text-white/38">Independent signal · {current.primary_genre} / {energyCategory(current.energy_lane)}</div><h1 className="max-w-4xl text-4xl font-black leading-[0.98] tracking-[-0.045em] sm:text-6xl lg:text-7xl">{current.title}</h1><p className="mt-4 text-lg font-semibold text-white/58">{current.artist_name}</p></div>
                     <div className="flex flex-wrap items-center gap-3">
-                      <MusicBatPlayer src={current.audio_url} title={current.title} replay={replay} autoPlay={autoPlay} onPlay={() => { setAutoPlay(true); void startListen(); }} onProgress={(seconds) => void qualifyListen(seconds)} onEnded={() => void completeListen()} onError={setMessage} onUnavailable={() => { failedRef.current.add(current.id); nextTrack(autoPlay); }} />
+                      <MusicBatPlayer key={sessionKey} src={current.audio_url} title={current.title} replay={replay} autoPlay={autoPlay} onPlay={() => { setAutoPlay(true); void startListen(); }} onProgress={(seconds) => void qualifyListen(seconds)} onEnded={() => void completeListen()} onError={setMessage} onUnavailable={() => { failedRef.current.add(current.id); nextTrack(autoPlay); }} />
                       <Button type="button" disabled={purchaseBusy} aria-busy={purchaseBusy} onClick={() => void buyCurrentTrack()} aria-label={`Buy ${current.title}`} data-track-id={current.id} className="h-12 shrink-0 rounded-full border border-[#ff3ea5]/50 bg-[#ff3ea5]/20 px-6 text-base font-black text-white disabled:opacity-60">{current.sale_enabled && current.sale_price_cents ? `Buy $${(current.sale_price_cents / 100).toFixed(2)}` : "Buy"}</Button>
                       <div className="flex shrink-0 items-center gap-1" role="group" aria-label="Radio feedback">
                         <Button type="button" variant="ghost" aria-label="More like this" title="More like this" disabled={busy || !canRespond} onClick={() => void sendRadioFeedback("up")} className="size-10 rounded-full px-0 text-lg font-black text-white/65 hover:bg-[#ff3ea5]/15 hover:text-[#ff69bd]">▲</Button>
@@ -627,7 +658,7 @@ export default function MusicBatLoop({ displayName }: { displayName: string }) {
                 <div className="mb-5 flex items-center justify-between"><div><div className="text-xs font-black uppercase tracking-[0.18em] text-white/42">Rights-cleared catalog</div><h2 className="mt-2 text-2xl font-black">{tracks.length} active track{tracks.length === 1 ? "" : "s"}</h2></div><ShieldCheck className="size-7 text-[#ff69bd]" /></div>
                 <div className="space-y-3">{tracks.map((track) => <div key={track.id} className="rounded-xl border border-white/8 bg-white/[0.025] p-2">
                   <div className="flex flex-wrap items-center gap-2">
-                    <button type="button" onClick={() => { failedRef.current.delete(track.id); setEnergyLane(track.energy_lane); setAutoPlay(false); setCurrentIndex(tracks.findIndex((item) => item.id === track.id)); setReplay((cycle) => cycle + 1); setTab("radio"); }} className="flex min-w-0 flex-1 basis-[220px] items-center justify-between gap-4 rounded-xl bg-white/[0.025] p-3 text-left transition hover:bg-[#ff3ea5]/5"><div className="min-w-0"><div className="truncate font-bold">{track.title}</div><div className="truncate text-sm text-white/42">{track.artist_name}{track.sale_enabled && track.sale_price_cents ? ` · $${(track.sale_price_cents / 100).toFixed(2)}` : ""}</div></div><div className="shrink-0 text-xs font-black uppercase tracking-wider text-[#ff69bd]">Play</div></button>
+                    <button type="button" onClick={() => { tuneGenre(track.primary_genre); setTab("radio"); }} className="flex min-w-0 flex-1 basis-[220px] items-center justify-between gap-4 rounded-xl bg-white/[0.025] p-3 text-left transition hover:bg-[#ff3ea5]/5"><div className="min-w-0"><div className="truncate font-bold">{track.title}</div><div className="truncate text-sm text-white/42">{track.artist_name}{track.sale_enabled && track.sale_price_cents ? ` · $${(track.sale_price_cents / 100).toFixed(2)}` : ""}</div></div><div className="shrink-0 text-xs font-black uppercase tracking-wider text-[#ff69bd]">Tune genre</div></button>
                   </div>
                   {Boolean(track.can_manage) && <div className="mt-2 rounded-lg border border-white/8 bg-black/15 p-3">
                     <div className="flex flex-wrap items-end gap-2">
