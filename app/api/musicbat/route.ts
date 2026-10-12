@@ -25,8 +25,8 @@ const energyLanes = new Set(["soft", "medium", "hard", "turbo"]);
 const primaryGenres = new Set(["Alternative", "Blues", "Classical", "Country", "Electronic", "Experimental", "Folk", "Hip-Hop", "Jazz", "Metal", "Other", "Punk", "Pop", "Rock"]);
 
 const shockScoreSql = `
-  (COALESCE((SELECT COUNT(DISTINCT listener_id) FROM radio_feedback f WHERE f.track_id = t.id AND f.signal = 'up'), 0)
-   - COALESCE((SELECT COUNT(DISTINCT listener_id) FROM radio_feedback f WHERE f.track_id = t.id AND f.signal = 'down'), 0)
+  (COALESCE((SELECT COUNT(DISTINCT listener_id) FROM radio_feedback f WHERE f.track_id = t.id AND f.signal = 'up' AND f.rowid = (SELECT MAX(latest.rowid) FROM radio_feedback latest WHERE latest.track_id = f.track_id AND latest.listener_id = f.listener_id)), 0)
+   - COALESCE((SELECT COUNT(DISTINCT listener_id) FROM radio_feedback f WHERE f.track_id = t.id AND f.signal = 'down' AND f.rowid = (SELECT MAX(latest.rowid) FROM radio_feedback latest WHERE latest.track_id = f.track_id AND latest.listener_id = f.listener_id)), 0)
    + 2 * COALESCE((SELECT COUNT(*) FROM track_keeps k WHERE k.track_id = t.id), 0)
    + COALESCE((SELECT COUNT(*) FROM listens l WHERE l.track_id = t.id AND l.completed_at IS NOT NULL), 0)
    + 2 * MAX(0, (SELECT COUNT(*) FROM listens l WHERE l.track_id = t.id AND l.qualified = 1)
@@ -34,8 +34,8 @@ const shockScoreSql = `
    + 3 * COALESCE((SELECT COUNT(*) FROM purchases p WHERE p.track_id = t.id AND p.status = 'paid'), 0))`;
 
 const shockStatsSql = `
-  (SELECT COUNT(DISTINCT listener_id) FROM radio_feedback f WHERE f.track_id = t.id AND f.signal = 'up') AS up_count,
-  (SELECT COUNT(DISTINCT listener_id) FROM radio_feedback f WHERE f.track_id = t.id AND f.signal = 'down') AS down_count,
+  (SELECT COUNT(DISTINCT listener_id) FROM radio_feedback f WHERE f.track_id = t.id AND f.signal = 'up' AND f.rowid = (SELECT MAX(latest.rowid) FROM radio_feedback latest WHERE latest.track_id = f.track_id AND latest.listener_id = f.listener_id)) AS up_count,
+  (SELECT COUNT(DISTINCT listener_id) FROM radio_feedback f WHERE f.track_id = t.id AND f.signal = 'down' AND f.rowid = (SELECT MAX(latest.rowid) FROM radio_feedback latest WHERE latest.track_id = f.track_id AND latest.listener_id = f.listener_id)) AS down_count,
   (SELECT COUNT(*) FROM track_keeps k WHERE k.track_id = t.id) AS keep_count,
   (SELECT COUNT(*) FROM listens l WHERE l.track_id = t.id AND l.completed_at IS NOT NULL) AS completion_count,
   MAX(0, (SELECT COUNT(*) FROM listens l WHERE l.track_id = t.id AND l.qualified = 1)

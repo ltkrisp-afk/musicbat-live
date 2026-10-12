@@ -173,6 +173,10 @@ test('triangle feedback is append-only and records listener, session, artist, ca
   assert.ok(rows.every((row) => row.created_at));
   assert.equal((await route.POST(post({ action: 'radio_feedback', trackId: 3, listenId: 'radio-session-1', energyLane: 'hard', signal: 'up' }))).status, 409);
   assert.equal(sqlite.prepare('SELECT count(*) AS n FROM radio_feedback').get().n, 2);
+  const catalog = await (await route.GET(new Request('https://musicbat.audio/api/musicbat'))).json();
+  const track = catalog.tracks.find(t => t.id === 2);
+  assert.equal(track.up_count, 0);
+  assert.equal(track.down_count, 1);
 });
 
 test('Radio UI exposes compact energy lanes and triangle responses, and advances only in the selected lane', () => {
@@ -223,8 +227,8 @@ test('Shock Room ranks listener behavior within genre and energy; exposure alone
   assert.equal((await route.POST(post({ action: 'complete_listen', trackId: 1, listenId: 'a2' }))).status, 200);
   const afterSignals = await (await getShockRoom()).json();
   const rankedOne = afterSignals.rows.find(row => row.track_id === 1);
-  assert.equal(rankedOne.up_count, 1);
+  assert.equal(rankedOne.up_count, 0);
   assert.equal(rankedOne.down_count, 1);
   assert.equal(rankedOne.completion_count, 2);
-  assert.equal(rankedOne.shock_score, 6);
+  assert.equal(rankedOne.shock_score, 5);
 });
