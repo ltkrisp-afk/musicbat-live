@@ -18,7 +18,10 @@ function database() {
 async function handlers(sqlite) {
   globalThis.musicbatRotationState = {
     user: { userId: 'artist-1', displayName: 'The Enucleators' },
-    env: { DB: { prepare(sql) {
+    env: { RADIO_SERVICE: { async fetch() {
+      const track = sqlite.prepare('SELECT track_id FROM listens WHERE listener_id=? ORDER BY rowid DESC LIMIT 1').get(globalThis.musicbatRotationState.user?.userId)?.track_id ?? 1;
+      return Response.json({snapshot:{simulation:false,status:'playing',channelId:'test-plus',category:{genre:'Rock'},performance:{trackId:String(track),authorityId:'test-authority'}}});
+    } }, DB: { prepare(sql) {
       const stmt = sqlite.prepare(sql);
       const bound = (...args) => ({ async first() { return stmt.get(...args) ?? null; }, async all() { return { results: stmt.all(...args) }; }, async run() { return stmt.run(...args); } });
       return { ...bound(), bind: bound };
@@ -171,7 +174,7 @@ test('triangle feedback is append-only and records listener, session, artist, ca
     { track_id: 2, artist_id: 'artist-1', listener_id: 'listener-1', listen_id: 'radio-session-1', energy_lane: 'medium', signal: 'down' },
   ]);
   assert.ok(rows.every((row) => row.created_at));
-  assert.equal((await route.POST(post({ action: 'radio_feedback', trackId: 3, listenId: 'radio-session-1', energyLane: 'hard', signal: 'up' }))).status, 409);
+  assert.equal((await route.POST(post({ action: 'radio_feedback', trackId: 3, listenId: 'radio-session-1', energyLane: 'hard', signal: 'up' }))).status, 403);
   assert.equal(sqlite.prepare('SELECT count(*) AS n FROM radio_feedback').get().n, 2);
   const catalog = await (await route.GET(new Request('https://musicbat.audio/api/musicbat'))).json();
   const track = catalog.tracks.find(t => t.id === 2);

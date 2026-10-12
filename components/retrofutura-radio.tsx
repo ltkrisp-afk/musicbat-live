@@ -5,7 +5,7 @@ import { backDial, dialChoices, exploreDial, rotateDial, type DialState } from '
 import type { Category } from '../lib/radio-category';
 import type { ChannelOption, ChannelSnapshot } from '../lib/shared-radio-engine';
 
-/** Offline presentation contract. The parent supplies server snapshots and a category-only
+/** Server-connected presentation contract. The parent supplies server snapshots and a category-only
  * tune operation. This component never chooses tracks, rewinds media or resets a ledger. */
 export function RetrofuturaRadio({options,snapshot,onTune}: {
  options: ChannelOption[]; snapshot: ChannelSnapshot | null;
@@ -49,7 +49,7 @@ export function RetrofuturaRadio({options,snapshot,onTune}: {
      <progress aria-label="Shared channel position" value={Math.min(1,Math.max(0,fraction))} max={1}
       style={{width:'100%',accentColor:'#b6ff32',marginTop:14}} />
      <div style={{color:'#ff3ea5',fontSize:12,marginTop:12}}>{snapshot?.status==='playing'?'SHARED SIGNAL':'STATION QUIET'}</div>
-     <div style={{color:'#a7b3a4',fontSize:11,marginTop:8}}>Offline engineering preview</div>
+     <div style={{color:'#a7b3a4',fontSize:11,marginTop:8}}>Turn to hear. Push to explore.</div>
     </div>
     <div style={{textAlign:'center',color:'#17201c'}}>
      <div style={{display:'flex',alignItems:'center',gap:12}}>

@@ -198,7 +198,7 @@ test('Retrofutura renders engine-provided hierarchy and authoritative snapshot w
  const f=fixture();try {
   const snapshot=f.engine.tune(listener,path);
   const html=renderToStaticMarkup(React.createElement(exports.RetrofuturaRadio,{options:f.engine.navigation(listener),snapshot,onTune:async()=>{}}));
-  for(const text of ['Rock','GENRE','SUBGENRE','STYLE','Push dial to tune category','optional $3/month','Offline engineering preview','SHARED SIGNAL']) assert.ok(html.includes(text),text);
+  for(const text of ['Rock','GENRE','SUBGENRE','STYLE','Push dial to tune category','optional $3/month','Turn to hear. Push to explore.','SHARED SIGNAL']) assert.ok(html.includes(text),text);
   assert.ok(!html.includes('<audio'));assert.ok(!html.includes('audio_url'));
   assert.ok(html.includes('#ff3ea5'));assert.ok(html.includes('#b6ff32'));
  }finally{f.close()}

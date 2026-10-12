@@ -112,6 +112,7 @@ export default function MusicBatLoop({ displayName }: { displayName: string }) {
   const signalStartingRef = useRef(false);
   const [listenId, setListenId] = useState<string | null>(null);
   const [qualified, setQualified] = useState(false);
+  const [interactive, setInteractive] = useState(false);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [purchaseBusy, setPurchaseBusy] = useState(false);
@@ -161,7 +162,7 @@ export default function MusicBatLoop({ displayName }: { displayName: string }) {
     startingRef.current = false;
     qualifyingRef.current = false;
   }, [current?.id, sessionKey]);
-  const canRespond = qualified;
+  const canRespond = interactive && qualified;
   const keepActive = Boolean(current?.viewer_keep_in_rotation);
 
   const fetchRadio = useCallback(() => Promise.all([
@@ -312,7 +313,7 @@ export default function MusicBatLoop({ displayName }: { displayName: string }) {
   }
 
   async function qualifyListen(currentTime: number) {
-    if (!current || !listenId || qualified || qualifyingRef.current || currentTime < 12) return;
+    if (!interactive || !current || !listenId || qualified || qualifyingRef.current || currentTime < 12) return;
     qualifyingRef.current = true;
     const session = activeSessionRef.current;
     try {
@@ -334,12 +335,12 @@ export default function MusicBatLoop({ displayName }: { displayName: string }) {
   async function toggleKeep(track: Track) {
     if (signalStartingRef.current) return;
     const session = activeSessionRef.current;
-    const active = Boolean(track.can_manage ? track.keep_in_rotation : track.viewer_keep_in_rotation);
+    const active = Boolean(track.viewer_keep_in_rotation);
     signalStartingRef.current = true;
     setBusy(true);
     try {
       await api("/api/musicbat", { method: "POST", body: JSON.stringify({
-        action: track.can_manage ? "set_rotation_priority" : "toggle_keep",
+        action: "toggle_keep",
         trackId: track.id, enabled: !active,
       }) });
       await refresh();
@@ -547,7 +548,7 @@ export default function MusicBatLoop({ displayName }: { displayName: string }) {
                 <div className="pointer-events-none absolute -right-24 -top-24 size-72 rounded-full bg-[#ff3ea5]/10 blur-3xl" />
                 <div className="relative">
                   <div className="mb-10 flex items-center justify-between gap-4"><div className="flex items-center gap-2 text-xs font-black uppercase tracking-[0.18em] text-[#ff69bd]"><span className="size-2 rounded-full bg-[#ff3ea5] shadow-[0_0_14px_#ff3ea5]" /> Now in the cave</div><div className="rounded-full border border-white/10 px-3 py-1 text-xs text-white/45">{sharedTrackId ? "Shared channel" : "Quiet"}</div></div>
-                  <SharedRadioPlayer onTrack={(id, key) => { setSharedTrackId(id); setSharedPerformanceKey(key); }} onError={setMessage} onPlay={() => void startListen()} onProgress={(seconds) => void qualifyListen(seconds)} onEnded={() => void completeListen()} />
+                  <SharedRadioPlayer onInteractive={setInteractive} onTrack={(id, key) => { setSharedTrackId(id); setSharedPerformanceKey(key); }} onError={setMessage} onPlay={() => void startListen()} onProgress={(seconds) => void qualifyListen(seconds)} onEnded={() => void completeListen()} />
                   {current ? <>
                     <div className="mb-8 min-h-36"><div className="mb-3 text-sm uppercase tracking-[0.16em] text-white/38">Independent signal · {current.primary_genre} / {energyCategory(current.energy_lane)}</div><h1 className="max-w-4xl text-4xl font-black leading-[0.98] tracking-[-0.045em] sm:text-6xl lg:text-7xl">{current.title}</h1><p className="mt-4 text-lg font-semibold text-white/58">{current.artist_name}</p></div>
                     <div className="flex flex-wrap items-center gap-3">
@@ -559,7 +560,7 @@ export default function MusicBatLoop({ displayName }: { displayName: string }) {
                     </div>
                     {purchaseMessage && <p role="status" aria-live="polite" className="mt-3 text-sm leading-relaxed text-white/65">{purchaseMessage}{purchaseDownloadUrl && <> <a className="font-black text-[#ff69bd] underline" href={purchaseDownloadUrl}>Download track</a></>}</p>}
                     <div className="mt-6 flex flex-wrap gap-3">
-                      <Button aria-pressed={keepActive} disabled={busy || (!canRespond && !keepActive)} onClick={() => void toggleKeep(current)} title="Keep this track in rotation or remove your keep." className={keepActive ? "h-11 rounded-full border border-[#ff69bd] bg-[#ff3ea5] px-5 text-white" : "h-11 rounded-full border border-white/15 bg-white/[0.045] px-5 text-white"}>Keep in rotation</Button>
+                      <Button aria-pressed={keepActive} disabled={busy || !canRespond} onClick={() => void toggleKeep(current)} title="Keep this track in rotation or remove your keep." className={keepActive ? "h-11 rounded-full border border-[#ff69bd] bg-[#ff3ea5] px-5 text-white" : "h-11 rounded-full border border-white/15 bg-white/[0.045] px-5 text-white"}>Keep in rotation</Button>
                     </div>
                   </> : <div className="grid min-h-[390px] place-items-center text-center"><div><Disc3 className="mx-auto mb-5 size-12 text-[#ff69bd]" /><h1 className="text-3xl font-black tracking-tight">{tracks.length ? "This category is quiet." : "Radio needs its first track."}</h1><p className="mx-auto mt-3 max-w-md text-white/52">{tracks.length ? "Use the shared Radio category controls or review the catalog." : "Upload your music file, classify it, and confirm your rights to enter Radio."}</p><Button onClick={() => setTab("catalog")} className="mt-6 rounded-full bg-[#ff3ea5] px-6 text-white hover:bg-[#ff69bd]">{tracks.length ? "Open catalog" : "Add the first track"}</Button></div></div>}
                 </div>

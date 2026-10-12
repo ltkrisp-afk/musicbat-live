@@ -46,13 +46,26 @@ test('connected upload → review → concurrent shared playback → response �
   publishCatalogRecording(runtime,row,p,{artistIds:['test-artist'],albumId:'test-album',compilationIds:[],durationMs:30000,directRestrictions:null,metadataReviewed:true},asset);
   const review={reference:'GENERATED TEST ONLY channel',verifiedAt:now-1,expiresAt:now+86400000};
   runtime.establishChannel('free',{category:null,mode:'free-radio',territory:'worldwide',minimumArtists:1,review,gate:null});
+  runtime.establishChannel('rock',{category:{genre:'Rock'},mode:'radio-plus',territory:'worldwide',minimumArtists:1,review,gate:null});
   runtime.establishChannel('hardcore',{category:{genre:'Rock',subgenre:'Punk',style:'Hardcore'},mode:'radio-plus',territory:'worldwide',minimumArtists:1,review,gate:null});runtime.tick();
   f.state.env.RADIO_SERVICE={fetch:request=>{const h=new Headers(request.headers);h.set('authorization','Bearer '+token);return runtime.fetch(new Request(request,{headers:h}))}};
   const service=catalogBoundRadio(f.state.env.RADIO_SERVICE,f.state.env.DB);
   const channel=(id='owner')=>new Request('https://radio.internal/channel',{headers:{'x-musicbat-listener':id,'x-musicbat-territory':'US'}});
   const [one,two]=await Promise.all([service.fetch(channel()),service.fetch(channel('listener-two'))]);assert.equal(one.status,200);assert.equal(two.status,200);const a=await one.json(),b=await two.json();assert.equal(a.snapshot.performance.authorityId,b.snapshot.performance.authorityId);assert.equal(a.snapshot.performance.trackId,String(row.id));
   let audio=new Request(new URL(a.mediaUrl.replace('/api/musicbat',''),'https://radio.internal'),{headers:channel().headers});assert.equal((await service.fetch(audio)).status,200);
-  assert.equal((await f.route.POST(post({action:'start_listen',trackId:row.id,performanceKey:a.snapshot.channelId+':'+a.snapshot.performance.authorityId}))).status,200);const listen=f.sqlite.prepare('SELECT id FROM listens').get().id;f.sqlite.prepare("UPDATE listens SET started_at=datetime('now','-13 seconds') WHERE id=?").run(listen);assert.equal((await f.route.POST(post({action:'qualify_listen',trackId:row.id,listenId:listen}))).status,200);assert.equal((await f.route.POST(post({action:'radio_feedback',trackId:row.id,listenId:listen,signal:'up'}))).status,200);
+  assert.equal((await f.route.POST(post({action:'radio_feedback',trackId:row.id,listenId:'forged',signal:'up'}))).status,403);
+  assert.equal((await f.route.POST(post({action:'toggle_keep',trackId:row.id,enabled:true}))).status,403);
+  runtime.setMembership('owner',now+86400000,'GENERATED TEST ONLY membership');
+  const tuned=await service.fetch(new Request('https://radio.internal/channel',{method:'POST',headers:channel().headers,body:JSON.stringify({category:{genre:'Rock'}})}));assert.equal(tuned.status,200);const plus=await tuned.json();
+  const listenRequest=()=>post({action:'start_listen',trackId:row.id,performanceKey:plus.snapshot.channelId+':'+plus.snapshot.performance.authorityId});
+  const starts=await Promise.all([f.route.POST(listenRequest()),f.route.POST(listenRequest()),f.route.POST(listenRequest())]);assert.ok(starts.every(r=>r.status===200));
+  const startIds=await Promise.all(starts.map(r=>r.json()));assert.equal(new Set(startIds.map(r=>r.listenId)).size,1);
+  assert.equal((await f.route.POST(listenRequest())).status,200);assert.equal(f.sqlite.prepare('SELECT count(*) n FROM listens').get().n,1);
+const listen=f.sqlite.prepare('SELECT id FROM listens').get().id;f.sqlite.prepare("UPDATE listens SET started_at=datetime('now','-13 seconds') WHERE id=?").run(listen);assert.equal((await f.route.POST(post({action:'qualify_listen',trackId:row.id,listenId:listen}))).status,200);assert.equal((await f.route.POST(post({action:'radio_feedback',trackId:row.id,listenId:listen,signal:'up'}))).status,200);
+  assert.equal((await f.route.POST(post({action:'radio_feedback',trackId:row.id,listenId:listen,signal:'up'}))).status,200);
+  assert.equal((await f.route.POST(post({action:'toggle_keep',trackId:row.id,enabled:true}))).status,200);assert.equal((await f.route.POST(post({action:'toggle_keep',trackId:row.id,enabled:true}))).status,200);
+  const shock=await (await f.route.GET(new Request('https://musicbat.audio/api/musicbat?view=shock-room'))).json();assert.equal(shock.rows[0].up_count,1);assert.equal(shock.rows[0].keep_count,1);assert.equal(shock.rows[0].shock_score,3);
+  runtime.setMembership('owner',null,'GENERATED TEST ONLY expired');assert.equal((await f.route.POST(post({action:'radio_feedback',trackId:row.id,listenId:listen,signal:'down'}))).status,403);runtime.setMembership('owner',now+86400000,'GENERATED TEST ONLY renewed');
   assert.equal((await f.route.POST(post({action:'edit_metadata',trackId:row.id,title:'Generated correction',primaryGenre:'Rock',subgenre:'Punk',style:'Art Punk',energyLane:'hard'}))).status,200);
   assert.equal(JSON.parse(runtime.db.prepare('SELECT track_json FROM radio_sources').get().track_json).category.style,'Art Punk');
   assert.notEqual((await service.fetch(audio)).status,200);
@@ -95,4 +108,21 @@ test('sales withdrawal during asynchronous processor readiness cannot create a n
   globalThis.fetch=async()=>{f.sqlite.prepare('UPDATE tracks SET sale_enabled=0 WHERE id=1').run();return Response.json({id:'acct_test_loop',charges_enabled:true,payouts_enabled:true,details_submitted:true})};
   const response=await route.POST(new Request('https://musicbat.audio/api/musicbat/purchase',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({trackId:1,confirmedTotalCents:237})}));assert.equal(response.status,409);assert.equal(f.sqlite.prepare('SELECT count(*) n FROM purchases').get().n,0);
  }finally{globalThis.fetch=originalFetch;f.sqlite.close()}
+});
+
+test('Free Radio and incomplete authority cannot qualify or count signals; withdrawal denies retained qualified keeps',async()=>{
+ const f=await fixture();try {
+  await upload(f.route);
+  let category=null;
+  f.state.env.RADIO_SERVICE={async fetch(){return Response.json({snapshot:{simulation:false,status:'playing',channelId:'fixture',category,performance:{trackId:'1',authorityId:'one'}}})}};
+  const start=await f.route.POST(post({action:'start_listen',trackId:1,performanceKey:'fixture:one'}));assert.equal(start.status,200);const {listenId}=await start.json();
+  f.sqlite.prepare("UPDATE listens SET started_at=datetime('now','-13 seconds')").run();
+  assert.equal((await f.route.POST(post({action:'qualify_listen',trackId:1,listenId}))).status,403);
+  category=undefined;assert.equal((await f.route.POST(post({action:'qualify_listen',trackId:1,listenId}))).status,403);
+  category={genre:'Rock'};assert.equal((await f.route.POST(post({action:'qualify_listen',trackId:1,listenId}))).status,200);
+  f.sqlite.prepare("UPDATE tracks SET status='withdrawn',radio_enabled=0 WHERE id=1").run();
+  assert.equal((await f.route.POST(post({action:'toggle_keep',trackId:1,enabled:true}))).status,409);
+  assert.equal((await f.route.POST(post({action:'radio_feedback',trackId:1,listenId,signal:'up'}))).status,409);
+  assert.equal(f.sqlite.prepare('SELECT count(*) n FROM track_keeps').get().n,0);assert.equal(f.sqlite.prepare('SELECT count(*) n FROM radio_feedback').get().n,0);
+ }finally{f.sqlite.close()}
 });

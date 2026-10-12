@@ -96,8 +96,8 @@ async function assignedPerformance(userId: string, request: Request) {
       response=await fetch(new URL('/channel',url),{headers,redirect:'error',signal:AbortSignal.timeout(2000)});
     }
     if (!response?.ok) return null;
-    const data=await response.json() as {snapshot:{simulation:boolean;status:string;channelId:string;performance:{trackId:string;authorityId:string}|null}};
-    return data.snapshot.status==='playing' && !data.snapshot.simulation && data.snapshot.performance ? {trackId:data.snapshot.performance.trackId,key:data.snapshot.channelId+':'+data.snapshot.performance.authorityId} : null;
+    const data=await response.json() as {snapshot:{simulation:boolean;status:string;channelId:string;category:unknown;performance:{trackId:string;authorityId:string}|null}};
+    return data.snapshot.status==='playing' && !data.snapshot.simulation && data.snapshot.performance ? {trackId:data.snapshot.performance.trackId,interactive:!!data.snapshot.category && typeof data.snapshot.category==='object' && typeof (data.snapshot.category as {genre?:unknown}).genre==='string',key:data.snapshot.channelId+':'+data.snapshot.performance.authorityId} : null;
   } catch {return null;}
 }
 
@@ -358,6 +358,11 @@ export async function POST(request: Request) {
       return Response.json({ track });
     }
 
+    if (body.action === "radio_feedback" || body.action === "toggle_keep") {
+      const assigned = await assignedPerformance(user.userId, request);
+      if (!assigned?.interactive || assigned.trackId !== String(body.trackId)) return fail("Radio Plus listening is required for counted signals.", 403);
+    }
+
     if (body.action === "radio_feedback") {
       const trackId = Number(body.trackId);
       const listenId = body.listenId?.trim() ?? "";
@@ -366,7 +371,7 @@ export async function POST(request: Request) {
       const listen = await db.prepare(`
         SELECT l.id, t.artist_id FROM listens l
         JOIN tracks t ON t.id = l.track_id
-        WHERE l.id = ? AND l.track_id = ? AND l.listener_id = ? AND l.qualified = 1 AND t.status = 'active' AND t.rights_attested = 1
+        WHERE l.id = ? AND l.track_id = ? AND l.listener_id = ? AND l.qualified = 1 AND t.status = 'active' AND t.rights_attested = 1 AND t.radio_enabled = 1
       `).bind(listenId, trackId, user.userId).first<{ id: string; artist_id: string }>();
       if (!listen) return fail("Start listening to this track before sending feedback.", 409);
       await db.prepare(`
@@ -379,7 +384,7 @@ export async function POST(request: Request) {
     if (body.action === "toggle_keep") {
       const trackId = Number(body.trackId);
       if (!Number.isInteger(trackId) || trackId < 1 || typeof body.enabled !== "boolean") return fail("A valid track and ON/OFF state are required.");
-      const qualified = await db.prepare("SELECT id FROM listens WHERE track_id = ? AND listener_id = ? AND qualified = 1 LIMIT 1").bind(trackId, user.userId).first();
+      const qualified = await db.prepare("SELECT l.id FROM listens l JOIN tracks t ON t.id=l.track_id WHERE l.track_id = ? AND l.listener_id = ? AND l.qualified = 1 AND t.status='active' AND t.radio_enabled=1 LIMIT 1").bind(trackId, user.userId).first();
       if (!qualified) return fail("Listen for at least 12 seconds before keeping a track.", 409);
       if (body.enabled) {
         await db.prepare(`INSERT INTO track_keeps (track_id, listener_id) VALUES (?, ?)
@@ -417,9 +422,13 @@ export async function POST(request: Request) {
       if (!track) return fail("That track is unavailable.", 404);
       const assigned=await assignedPerformance(user.userId,request);
       if (!assigned || assigned.trackId!==String(trackId) || body.performanceKey!==assigned.key) return fail('Listen to the assigned Radio performance before responding.',409);
-      const listenId = crypto.randomUUID();
-      await db.prepare("INSERT INTO listens (id, track_id, listener_id, qualified, radio_performance) VALUES (?, ?, ?, 0, ?)").bind(listenId, trackId, user.userId,assigned.key).run();
-      return Response.json({ listenId, minimumSeconds: 12 });
+      // One atomic statement prevents concurrent retries from adding repeat-listen points.
+      await db.prepare(`INSERT INTO listens (id, track_id, listener_id, qualified, radio_performance)
+        SELECT ?, ?, ?, 0, ? WHERE NOT EXISTS (
+          SELECT 1 FROM listens WHERE track_id=? AND listener_id=? AND radio_performance=?
+        )`).bind(crypto.randomUUID(),trackId,user.userId,assigned.key,trackId,user.userId,assigned.key).run();
+      const listen = await db.prepare("SELECT id FROM listens WHERE track_id=? AND listener_id=? AND radio_performance=? LIMIT 1").bind(trackId,user.userId,assigned.key).first<{id:string}>();
+      return Response.json({ listenId:listen!.id, minimumSeconds: 12 });
     }
 
     if (body.action === "qualify_listen") {
@@ -432,6 +441,7 @@ export async function POST(request: Request) {
       if (!listen) return fail("Listening session was not found.", 404);
       const assigned=await assignedPerformance(user.userId,request);
       if (!assigned || assigned.trackId!==String(trackId) || assigned.key!==listen.radio_performance) return fail('This Radio performance has ended or changed.',409);
+      if (!assigned.interactive) return fail("Free Radio listens do not create counted signals.",403);
       if (Number(listen.elapsed) < 12) return fail("Keep listening before responding.", 409);
       await db.prepare("UPDATE listens SET qualified = 1, qualified_at = CURRENT_TIMESTAMP WHERE id = ?").bind(listenId).run();
       return Response.json({ qualified: true });

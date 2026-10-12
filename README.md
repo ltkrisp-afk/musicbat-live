@@ -3,12 +3,12 @@
 A deployable proof of the MusicBat activity engine:
 
 1. An artist uploads an MP3, WAV, or FLAC file (up to 25 MiB), supplies a track title and artist/band name, and attests their rights.
-2. The track enters MusicBat Radio.
-3. A signed-in listener plays it for at least 12 seconds.
-4. The qualified listener places one bounded Hanger response.
-5. The Weight Room updates from distinct listener signals.
+2. The authenticated owner sees the track in My Music. Upload attestation alone does not publish audio; reviewed recording/composition permissions, private source import and an eligible shared channel are required.
+3. A signed-in listener hears server-assigned shared Radio. Free Radio creates exposure; entitled Radio Plus listeners qualify after 12 seconds.
+4. A qualified Radio Plus listener submits ▲, ▼ or an independent Keep; retries cannot multiply the score.
+5. Shock Room updates from distinct listener choices and recorded purchases.
 
-The loop uses platform-provided identity and durable D1 storage for the catalog plus R2 for uploaded audio. It does not depend on Render, Neon, Manus OAuth, or a paid database.
+The loop uses platform-provided identity and durable D1 storage for the catalog plus R2 for uploaded audio. Shared scheduling and immutable audio delivery use the separate private SQLite Radio runtime. No production configuration is asserted by this source checkout.
 
 ## Commands
 
@@ -33,7 +33,7 @@ The Radio Buy button snapshots the exact track, price, seller, and stored file i
 
 Stripe-hosted Checkout can present eligible wallets alongside card entry. Wallet availability remains controlled by Stripe, the device/browser, domain registration, and the MusicBat Stripe account's payment-method settings.
 
-The Radio audio route remains public listening audio; purchase authorization is not DRM and cannot prevent capture of an openly streamed recording. Refund initiation, tax-liability configuration, receipts inside MusicBat, and cross-device purchase recovery are outside this phase.
+The legacy per-track Radio audio route is closed; shared audio requires authenticated current channel authority; purchase authorization is not DRM and cannot prevent capture of an openly streamed recording. Refund initiation, tax-liability configuration, receipts inside MusicBat, and cross-device purchase recovery are outside this phase.
 
 Validation: `node --test scripts/musicbat-upload.test.mjs scripts/musicbat-rotation.test.mjs scripts/musicbat-purchase.test.mjs`.
 
@@ -47,7 +47,7 @@ Integrated correction: Checkout application fee includes the base platform share
 
 Migration 0007 introduces reviewed, time-limited, territory-scoped recording and composition permission evidence and an audit table. No existing checkbox or catalog row is converted into a license. The audio endpoint checks permissions before GET, HEAD and every range request; audit-storage errors deny service. It uses interactive authorization because this endpoint permits individual track requests and seeking, regardless of a client mode parameter. Free-only permissions cannot be used here. Cache responses are private/no-store. An already delivered buffer cannot be recalled. Audit records describe authorization/access decisions, not confirmed listening or completed performances.
 
-Statutory playback is disabled. An actual noninteractive channel scheduler, atomic shared rolling-window accounting, reporting/royalties and reviewed service eligibility are NOT IMPLEMENTED. The pure mode policy distinguishes Free Radio and Radio Plus, but a separate noninteractive streaming transport is NOT IMPLEMENTED. Direct license evidence must cover the actual recording and composition uses, including applicable reproduction rights; qualified rights review is required before a grant is entered through trusted administration. No self-service public grant endpoint exists. Existing tracks will stop streaming until reviewed grants exist after applying this migration; these migrations have not been applied to production.
+Statutory playback is disabled. The private direct-license runtime implements continuous shared scheduling, persistent channel history and per-delivery eligibility checks. Direct-license restrictions are enforced by the scheduling engine. Statutory service eligibility, reporting and royalty operations remain unconfigured and statutory transmission remains disabled. Direct license evidence must cover the actual recording and composition uses, including applicable reproduction rights; qualified rights review is required before a grant is entered through trusted administration. No self-service public grant endpoint exists. Existing tracks will stop streaming until reviewed grants exist after applying this migration; these migrations have not been applied to production.
 
 Reference checked October 12, 2026: https://www.copyright.gov/title17/92chap1.html, sections 114(d)(2), 114(d)(3)(C), 114(d)(4) and 114(j)(13). Statutory sound-recording performance-complement rules concern a three-hour channel window, distinct album/artist/compilation selections and consecutive limits; they do not create composition authorization. This implementation declines statutory playback rather than representing unchecked playback as compliant.
 

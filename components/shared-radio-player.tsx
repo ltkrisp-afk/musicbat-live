@@ -1,21 +1,22 @@
 "use client";
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { RetrofuturaRadio } from './retrofutura-radio';
 import type { Category } from '../lib/radio-category';
 import type { ChannelOption, ChannelSnapshot } from '../lib/shared-radio-engine';
 type Delivery = {snapshot:ChannelSnapshot;navigation:ChannelOption[];mediaUrl:string|null};
 
 /** No local track selection. Silence and failed authority immediately unload audio. */
-export function SharedRadioPlayer({onTrack,onError,onPlay,onProgress,onEnded}:{onTrack:(id:string|null,key:string)=>void;onError:(message:string)=>void;onPlay:()=>void;onProgress:(seconds:number)=>void;onEnded:()=>void}) {
+export function SharedRadioPlayer({onTrack,onError,onPlay,onProgress,onEnded,onInteractive}:{onInteractive?:(enabled:boolean)=>void;onTrack:(id:string|null,key:string)=>void;onError:(message:string)=>void;onPlay:()=>void;onProgress:(seconds:number)=>void;onEnded:()=>void}) {
   const audio=useRef<HTMLAudioElement>(null), generation=useRef(0), wanted=useRef(false), flight=useRef(false);
   const authority=useRef<{delivery:Delivery;received:number}|null>(null);
-  const callbacks=useRef({onTrack,onError,onPlay,onProgress,onEnded});
-  useEffect(()=>{callbacks.current={onTrack,onError,onPlay,onProgress,onEnded}},[onTrack,onError,onPlay,onProgress,onEnded]);
+  const callbacks=useRef({onTrack,onError,onPlay,onProgress,onEnded,onInteractive});
+  useEffect(()=>{callbacks.current={onTrack,onError,onPlay,onProgress,onEnded,onInteractive}},[onTrack,onError,onPlay,onProgress,onEnded,onInteractive]);
   const [delivery,setDelivery]=useState<Delivery|null>(null);
   const [playing,setPlaying]=useState(false);
   const [busy,setBusy]=useState(false);
   const heard=useRef({key:"",seconds:0,last:0});
   const silence=useCallback(()=>{
-    authority.current=null;setDelivery(null);callbacks.current.onTrack(null,"");
+    authority.current=null;setDelivery(null);callbacks.current.onTrack(null,"");callbacks.current.onInteractive?.(false);
     const a=audio.current;if(a){a.pause();a.removeAttribute('src');a.load()}
   },[]);
   const synchronize=useCallback(()=>{
@@ -29,7 +30,7 @@ export function SharedRadioPlayer({onTrack,onError,onPlay,onProgress,onEnded}:{o
     if(a.readyState>=1 && Math.abs(a.currentTime-offset)>0.35)a.currentTime=offset;
   },[silence]);
   const update=useCallback(async(category?:Category|null)=>{
-    if(flight.current || document.visibilityState==='hidden')return;
+    if(flight.current || document.visibilityState==='hidden'){if(category!==undefined)throw new Error('Radio is updating. Try tuning again.');return;}
     flight.current=true;setBusy(true);
     const version=++generation.current;
     const began=performance.now();
@@ -39,11 +40,11 @@ export function SharedRadioPlayer({onTrack,onError,onPlay,onProgress,onEnded}:{o
     try {
       const r=await fetch('/api/musicbat/channel',{cache:'no-store',signal:controller.signal,...(category===undefined?{}:
         {method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({category})})});
-      if(!r.ok)throw new Error('Shared Radio is temporarily unavailable.');
+      if(!r.ok){const error=await r.json().catch(()=>null) as {error?:string}|null;throw new Error(error?.error ?? 'Shared Radio is temporarily unavailable.');}
       const d:Delivery=await r.json();
       if(version!==generation.current)return;
       if(d.snapshot.simulation || !Number.isSafeInteger(d.snapshot.serverNow))throw new Error('Playback authority unavailable.');
-      setDelivery(d);
+      setDelivery(d);callbacks.current.onInteractive?.(d.snapshot.category!==null);
       if(d.snapshot.status!=='playing' || !d.snapshot.performance || !d.mediaUrl){silence();setDelivery(d);return}
       if(!/^\/api\/musicbat\/channel\/audio\?/.test(d.mediaUrl))throw new Error('Invalid media authority.');
       const a=audio.current;
@@ -52,7 +53,7 @@ export function SharedRadioPlayer({onTrack,onError,onPlay,onProgress,onEnded}:{o
       if(a && a.getAttribute('src')!==d.mediaUrl){heard.current={key:d.mediaUrl,seconds:0,last:0};a.src=d.mediaUrl;a.load()}
       synchronize();
       if(a && wanted.current && a.paused)void a.play().catch(()=>callbacks.current.onError('Press Play to resume Radio.'));
-    }catch(e){if(version===generation.current){silence();callbacks.current.onError(e instanceof Error?e.message:'Radio unavailable.')}}finally{clearTimeout(timeout);flight.current=false;setBusy(false)}
+    }catch(e){if(version===generation.current){silence();callbacks.current.onError(e instanceof Error?e.message:'Radio unavailable.')}if(category!==undefined)throw e;}finally{clearTimeout(timeout);flight.current=false;setBusy(false)}
   },[silence,synchronize]);
   useEffect(()=>{
     // Resume persisted channel; a missing session requires explicit Free Radio tuning.
@@ -66,14 +67,15 @@ export function SharedRadioPlayer({onTrack,onError,onPlay,onProgress,onEnded}:{o
   const category=delivery?.snapshot.category;
   const options=delivery?.navigation ?? [];
   function choose(depth:'genre'|'subgenre'|'style',value:string){
-    if(!value){void update(depth==='genre'?null:depth==='subgenre'?{genre:category!.genre}:{genre:category!.genre,subgenre:category!.subgenre});return}
+    if(!value){void update(depth==='genre'?null:depth==='subgenre'?{genre:category!.genre}:{genre:category!.genre,subgenre:category!.subgenre}).catch(()=>undefined);return}
     const next:Category={genre:depth==='genre'?value:category!.genre};
     if(depth!=='genre')next.subgenre=depth==='subgenre'?value:category!.subgenre;
     if(depth==='style')next.style=value;
-    void update(next);
+    void update(next).catch(()=>undefined);
   }
   return <div className="mb-6 space-y-3">
-    <button type="button" disabled={busy} onClick={()=>void update(null)}>Free Radio</button>
+    <RetrofuturaRadio options={options} snapshot={delivery?.snapshot ?? null} onTune={update} />
+    <button type="button" disabled={busy} onClick={()=>void update(null).catch(()=>undefined)}>Free Radio</button>
     {(['genre','subgenre','style'] as const).map(depth=>{
       if(depth==='subgenre'&&!category?.genre || depth==='style'&&!category?.subgenre)return null;
       const choices=options.filter(o=>o.category && (depth==='genre'? !o.category.subgenre :
@@ -87,7 +89,7 @@ export function SharedRadioPlayer({onTrack,onError,onPlay,onProgress,onEnded}:{o
     <audio ref={audio} preload="none" controlsList="nodownload noremoteplayback" onLoadedMetadata={synchronize}
       onPlay={()=>{setPlaying(true);heard.current.last=performance.now();callbacks.current.onPlay()}} onPause={()=>{setPlaying(false);heard.current.last=0}} onTimeUpdate={()=>{
         synchronize();const a=audio.current,now=performance.now();
-        if(a&&!a.paused&&authority.current){if(heard.current.last)heard.current.seconds+=Math.min(1,(now-heard.current.last)/1000);heard.current.last=now;callbacks.current.onProgress(heard.current.seconds)}
+        if(a&&!a.paused&&authority.current){if(heard.current.last)heard.current.seconds+=Math.min(1,(now-heard.current.last)/1000);heard.current.last=now;callbacks.current.onPlay();callbacks.current.onProgress(heard.current.seconds)}
       }}
       onEnded={()=>{callbacks.current.onEnded();void update()}} onError={()=>{silence();callbacks.current.onError('Audio unavailable. Radio will reconnect.')}} />
     <button type="button" disabled={!delivery?.mediaUrl} aria-label={playing?'Pause Radio':'Play Radio'} onClick={()=>{
