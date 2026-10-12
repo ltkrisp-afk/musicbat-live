@@ -9,6 +9,7 @@ type ActionBody = {
   rightsAttested?: boolean;
   trackId?: number;
   listenId?: string;
+  performanceKey?: string;
   kind?: string;
   enabled?: boolean;
   saleEnabled?: boolean;
@@ -18,6 +19,8 @@ type ActionBody = {
   signal?: string;
   primaryGenre?: string;
   subgenre?: string;
+  style?: string;
+  representativeId?: string;
   moodTags?: string[];
 };
 
@@ -65,11 +68,76 @@ function publicError(error: unknown) {
   return fail("MusicBat could not complete that action.", 500);
 }
 
+/** Consent is committed first. A failed sidecar sync never undoes withdrawal;
+ * the channel gateway independently checks this catalog on every delivery. */
+async function syncArtistRadio(id: number) {
+  const row=await database().prepare('SELECT status,radio_enabled,primary_genre,subgenre,style FROM tracks WHERE id=?').bind(id).first<{status:string;radio_enabled:number;primary_genre:string;subgenre:string|null;style:string|null}>();
+  if (!row) return false;
+  const body=JSON.stringify({trackId:String(id),reference:'authenticated-artist-catalog',
+    action:row.status==='active' && row.radio_enabled===1?'classify':'withdraw',
+    category:{genre:row.primary_genre,...(row.subgenre?{subgenre:row.subgenre}:{}),...(row.style?{style:row.style}:{})}});
+  try {
+    if (env.RADIO_SERVICE) return (await env.RADIO_SERVICE.fetch(new Request('https://radio.internal/catalog/control',{method:'POST',headers:{'authorization':'Bearer '+(env.RADIO_RUNTIME_TOKEN ?? '')},body}))).ok;
+    if (!env.RADIO_RUNTIME_ORIGIN || !env.RADIO_RUNTIME_TOKEN) return false;
+    const url=new URL(env.RADIO_RUNTIME_ORIGIN);
+    if (url.protocol!=='https:' || url.pathname!=='/' || url.username || url.password || url.search || url.hash) return false;
+    return (await fetch(new URL('/catalog/control',url),{method:'POST',headers:{'authorization':'Bearer '+env.RADIO_RUNTIME_TOKEN},body,redirect:'error',signal:AbortSignal.timeout(2000)})).ok;
+  } catch { return false; }
+}
+
+async function assignedPerformance(userId: string, request: Request) {
+  const headers=new Headers({'x-musicbat-listener':userId,'x-musicbat-territory':(request as Request & {cf?:{country?:string}}).cf?.country ?? 'unknown','authorization':'Bearer '+(env.RADIO_RUNTIME_TOKEN ?? '')});
+  try {
+    let response;
+    if (env.RADIO_SERVICE) response=await env.RADIO_SERVICE.fetch(new Request('https://radio.internal/channel',{headers}));
+    else if (env.RADIO_RUNTIME_ORIGIN && env.RADIO_RUNTIME_TOKEN) {
+      const url=new URL(env.RADIO_RUNTIME_ORIGIN);
+      if (url.protocol!=='https:' || url.pathname!=='/' || url.username || url.password || url.search || url.hash) return null;
+      response=await fetch(new URL('/channel',url),{headers,redirect:'error',signal:AbortSignal.timeout(2000)});
+    }
+    if (!response?.ok) return null;
+    const data=await response.json() as {snapshot:{simulation:boolean;status:string;channelId:string;performance:{trackId:string;authorityId:string}|null}};
+    return data.snapshot.status==='playing' && !data.snapshot.simulation && data.snapshot.performance ? {trackId:data.snapshot.performance.trackId,key:data.snapshot.channelId+':'+data.snapshot.performance.authorityId} : null;
+  } catch {return null;}
+}
+
+async function registeredRadioTrack(id: number, category: {genre:string;subgenre?:string;style?:string}) {
+  const headers={'authorization':'Bearer '+(env.RADIO_RUNTIME_TOKEN ?? '')};
+  try {
+    let response;
+    const path='/catalog/status?trackId='+id;
+    if (env.RADIO_SERVICE) response=await env.RADIO_SERVICE.fetch(new Request('https://radio.internal'+path,{headers}));
+    else if (env.RADIO_RUNTIME_ORIGIN && env.RADIO_RUNTIME_TOKEN) {
+      const origin=new URL(env.RADIO_RUNTIME_ORIGIN);
+      if (origin.protocol!=='https:' || origin.pathname!=='/' || origin.username || origin.password || origin.search || origin.hash) return false;
+      response=await fetch(new URL(path,origin),{headers,redirect:'error',signal:AbortSignal.timeout(2000)});
+    }
+    if (!response?.ok) return false;
+    const data=await response.json() as {registered:boolean;category:unknown};
+    return data.registered && JSON.stringify(data.category)===JSON.stringify(category);
+  } catch {return false;}
+}
+
 export async function GET(request: Request) {
   try {
     const db = database();
     const url = new URL(request.url);
     const view = url.searchParams.get("view") ?? "tracks";
+
+    if (view === "rotunda") {
+      const user = await requireUser();
+      const rows = await db.prepare(`SELECT t.*, 1 AS can_manage,
+        CASE WHEN t.status != 'active' OR t.radio_enabled = 0 THEN 'withdrawn'
+          WHEN EXISTS(SELECT 1 FROM playback_permissions p WHERE p.track_id=t.id AND p.artist_authorized=1 AND p.recording_basis='direct' AND p.withdrawn_at IS NULL AND p.free_allowed=1 AND p.starts_at<=unixepoch('now')*1000 AND p.reviewed_at<=unixepoch('now')*1000 AND length(trim(p.recording_evidence))>0 AND length(trim(p.composition_evidence))>0 AND length(trim(p.reviewed_by))>0 AND p.expires_at > ?)
+          THEN 'rights reviewed; runtime registration required' ELSE 'awaiting rights review' END AS radio_status
+        FROM tracks t WHERE t.artist_id=? OR EXISTS(SELECT 1 FROM track_authority a WHERE a.track_id=t.id AND a.account_id=? AND a.revoked_at IS NULL)
+        ORDER BY t.created_at DESC, t.id DESC`).bind(Date.now(), user.userId, user.userId).all();
+      const profile = await db.prepare('SELECT artist_name FROM artist_profiles WHERE account_id=?').bind(user.userId).first();
+      await Promise.all(rows.results.map(async row => {
+        if (row.radio_status==='rights reviewed; runtime registration required' && await registeredRadioTrack(Number(row.id),{genre:String(row.primary_genre),...(row.subgenre?{subgenre:String(row.subgenre)}:{}),...(row.style?{style:String(row.style)}:{})})) row.radio_status='registered in Radio pool';
+      }));
+      return Response.json({tracks:rows.results, profile, accountId:user.userId}, {headers:{'cache-control':'private, no-store'}});
+    }
 
     if (view === "shock-room") {
       const rows = await db.prepare(`
@@ -86,8 +154,9 @@ export async function GET(request: Request) {
     const viewer = await getChatGPTUser();
     const rows = await db.prepare(`
       SELECT t.id, t.artist_id, t.title, t.artist_name, t.audio_url, t.created_at, t.keep_in_rotation, t.energy_lane,
-        t.primary_genre, t.subgenre, t.mood_tags,
+        t.primary_genre, t.subgenre, t.style, t.radio_enabled, t.status, t.mood_tags,
         t.sale_enabled, t.sale_price_cents, t.sale_currency,
+        EXISTS(SELECT 1 FROM playback_permissions p WHERE p.track_id=t.id AND p.recording_basis='direct' AND p.artist_authorized=1 AND p.free_allowed=1 AND p.withdrawn_at IS NULL AND p.starts_at<=unixepoch('now')*1000 AND p.expires_at>unixepoch('now')*1000 AND length(trim(p.recording_evidence))>0 AND length(trim(p.composition_evidence))>0 AND length(trim(p.reviewed_by))>0) AS radio_rights_reviewed,
         (t.artist_id = ?) AS can_manage,
         EXISTS(SELECT 1 FROM artist_accounts a WHERE a.artist_id = t.artist_id AND a.charges_enabled = 1 AND a.payouts_enabled = 1 AND a.details_submitted = 1) AS seller_ready,
         EXISTS(SELECT 1 FROM listens l WHERE l.track_id = t.id AND l.listener_id = ? AND l.qualified = 1) AS viewer_qualified,
@@ -98,7 +167,7 @@ export async function GET(request: Request) {
       WHERE t.status = 'active' AND t.rights_attested = 1
       ORDER BY t.created_at DESC, t.id DESC
     `).bind(viewer?.userId ?? "", viewer?.userId ?? "", viewer?.userId ?? "").all();
-    return Response.json({ tracks: rows.results.map((track) => ({ ...track, rotation_eligible: true })) }, { headers: { "cache-control": "private, no-store", "vary": "Cookie" } });
+    return Response.json({ tracks: rows.results.map((track) => ({ ...track, rotation_eligible: track.radio_enabled === 1 && track.radio_rights_reviewed === 1 })) }, { headers: { "cache-control": "private, no-store", "vary": "Cookie" } });
   } catch (error) {
     return publicError(error);
   }
@@ -107,6 +176,7 @@ export async function GET(request: Request) {
 export async function POST(request: Request) {
   try {
     const user = await requireUser();
+    if (request.headers.get("origin") && request.headers.get("origin") !== new URL(request.url).origin) return fail("Cross-origin changes are not allowed.",403);
     const db = database();
     if (request.headers.get("content-type")?.startsWith("multipart/form-data")) {
       if (!env.BUCKET) return fail("Audio uploads are temporarily unavailable. Try again shortly.", 503);
@@ -138,6 +208,7 @@ export async function POST(request: Request) {
       const salePriceCents = Number(form.get("salePriceCents"));
       const energyLane = String(form.get("energyLane") ?? "medium");
       const primaryGenre = String(form.get("primaryGenre") ?? "").trim();
+      const style = String(form.get("style") ?? "").trim();
       const rawSubgenre = String(form.get("subgenre") ?? "").trim();
       const subgenre = rawSubgenre || null;
       const rawMoodTags = String(form.get("moodTags") ?? "");
@@ -148,6 +219,7 @@ export async function POST(request: Request) {
       if (form.get("rightsAttested") !== "true") return fail("Rights attestation is required.");
       if (!energyLanes.has(energyLane)) return fail("Choose a valid Radio energy lane.");
       if (!primaryGenres.has(primaryGenre)) return fail("Choose a valid primary genre.");
+      if (style.length > 80 || (style && !rawSubgenre)) return fail("Style requires a subgenre and must be 80 characters or fewer.");
       if (rawSubgenre.length > 80) return fail("Subgenre must be 80 characters or fewer.");
       if (rawMoodTags.length > 240 || moodTags.length > 5 || moodTags.some((tag) => tag.length > 40)) return fail("Use up to five mood tags, each 40 characters or fewer.");
       if (saleEnabled && !saleRightsAttested) return fail("Sale authorization is required to sell this track.");
@@ -171,12 +243,16 @@ export async function POST(request: Request) {
       });
       let track;
       try {
-        track = await db.prepare(`
-          INSERT INTO tracks (artist_id, artist_name, title, audio_url, rights_attested, energy_lane, primary_genre, subgenre, mood_tags, sale_enabled, sale_rights_attested, sale_price_cents, sale_currency, status)
-          VALUES (?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?, ?, 'usd', 'active')
-          RETURNING id, title, artist_name, audio_url, created_at, energy_lane, primary_genre, subgenre, mood_tags, sale_enabled, sale_price_cents, sale_currency
-        `).bind(user.userId, artistName, title, audioUrl, energyLane, primaryGenre, subgenre, JSON.stringify(moodTags), saleEnabled ? 1 : 0, saleEnabled ? 1 : 0, saleEnabled ? salePriceCents : null).first();
-        if (!track) throw new Error("Track registration failed");
+        const now=Date.now();
+        const result=await db.batch([
+          db.prepare(`INSERT INTO tracks (artist_id,artist_name,title,audio_url,rights_attested,energy_lane,primary_genre,subgenre,mood_tags,sale_enabled,sale_rights_attested,sale_price_cents,sale_currency,status,style)
+            VALUES (?,?,?,?,1,?,?,?,?,?,?,?,'usd','active',?) RETURNING *`)
+            .bind(user.userId,artistName,title,audioUrl,energyLane,primaryGenre,subgenre,JSON.stringify(moodTags),saleEnabled?1:0,saleEnabled?1:0,saleEnabled?salePriceCents:null,style||null),
+          db.prepare('INSERT INTO artist_profiles VALUES (?,?,?,?) ON CONFLICT(account_id) DO UPDATE SET artist_name=excluded.artist_name,updated_at=excluded.updated_at').bind(user.userId,artistName,now,now),
+          db.prepare('INSERT INTO artist_track_audit SELECT ?,id,?,?,?,? FROM tracks WHERE audio_url=? AND artist_id=?').bind(crypto.randomUUID(),user.userId,'upload',JSON.stringify({artistName,primaryGenre,subgenre,style,rightsAttested:true,saleEnabled}),now,audioUrl,user.userId),
+        ]);
+        track=result[0].results[0];
+        if (!track) throw new Error('Track registration failed');
       } catch (error) {
         await env.BUCKET.delete(key);
         throw error;
@@ -184,6 +260,52 @@ export async function POST(request: Request) {
       return Response.json({ track }, { status: 201 });
     }
     const body = (await request.json()) as ActionBody;
+    if (!body || Array.isArray(body) || typeof body !== "object") return fail("A valid action is required.");
+    for (const key of ["title","artistName","primaryGenre","subgenre","style","energyLane","representativeId"] as const) if (body[key] !== undefined && typeof body[key] !== "string") return fail("Metadata fields must be text.");
+
+    if (body.action === 'set_artist_identity') {
+      const name=body.artistName?.trim();
+      if (!name || name.length>80) return fail('Choose an artist or band name, up to 80 characters.');
+      await db.prepare('INSERT INTO artist_profiles VALUES (?,?,?,?) ON CONFLICT(account_id) DO UPDATE SET artist_name=excluded.artist_name,updated_at=excluded.updated_at').bind(user.userId,name,Date.now(),Date.now()).run();
+      return Response.json({saved:true});
+    }
+    if (['edit_metadata','set_radio','withdraw_track','delete_track','grant_representative','revoke_representative'].includes(body.action ?? '')) {
+      const id = Number(body.trackId);
+      if (!Number.isSafeInteger(id) || id < 1) return fail('A valid track is required.');
+      const track = await db.prepare(`SELECT t.* FROM tracks t WHERE t.id=? AND (t.artist_id=? OR EXISTS(SELECT 1 FROM track_authority a WHERE a.track_id=t.id AND a.account_id=? AND a.revoked_at IS NULL))`).bind(id,user.userId,user.userId).first<{id:number;artist_id:string;status:string}>();
+      if (!track) return fail('Only an authorized artist or representative can manage this track.',403);
+      const now = Date.now();
+      const statements = [];
+      if (body.action === 'grant_representative' || body.action === 'revoke_representative') {
+        if (track.artist_id !== user.userId) return fail('Only the owner may appoint representatives.',403);
+        if (!body.representativeId?.trim() || body.representativeId.length > 200) return fail('A verified representative account ID is required.');
+        const account = await db.prepare('SELECT account_id FROM artist_profiles WHERE account_id=?').bind(body.representativeId).first();
+        if (!account) return fail('The representative must first sign in and create an artist identity.');
+        statements.push(body.action === 'grant_representative'
+          ? db.prepare('INSERT INTO track_authority VALUES (?,?,?,?,NULL) ON CONFLICT(track_id,account_id) DO UPDATE SET granted_by=excluded.granted_by,granted_at=excluded.granted_at,revoked_at=NULL').bind(id,body.representativeId,user.userId,now)
+          : db.prepare('UPDATE track_authority SET revoked_at=? WHERE track_id=? AND account_id=?').bind(now,id,body.representativeId));
+      } else {
+        if (track.status === 'deleted') return fail('Deleted tracks cannot be changed.',409);
+        if (body.action === 'edit_metadata') {
+          const title=body.title?.trim() ?? '', genre=body.primaryGenre ?? '', sub=body.subgenre?.trim() ?? '', style=body.style?.trim() ?? '';
+          if (!title || title.length>120 || !primaryGenres.has(genre) || sub.length>80 || style.length>80 || (style && !sub) || !energyLanes.has(body.energyLane ?? '')) return fail('Choose a valid title, Genre → Subgenre → Style and energy lane.');
+          statements.push(db.prepare('UPDATE tracks SET title=?,primary_genre=?,subgenre=?,style=?,energy_lane=? WHERE id=? AND (artist_id=? OR EXISTS(SELECT 1 FROM track_authority a WHERE a.track_id=tracks.id AND a.account_id=? AND a.revoked_at IS NULL))').bind(title,genre,sub||null,style||null,body.energyLane,id,user.userId,user.userId));
+        } else if (body.action === 'set_radio') {
+          if (typeof body.enabled !== 'boolean') return fail('Choose radio participation on or off.');
+          statements.push(db.prepare("UPDATE tracks SET radio_enabled=?,status='active' WHERE id=? AND (artist_id=? OR EXISTS(SELECT 1 FROM track_authority a WHERE a.track_id=tracks.id AND a.account_id=? AND a.revoked_at IS NULL))").bind(body.enabled?1:0,id,user.userId,user.userId));
+          // Returning to Radio is a new request; withdrawn grants are never silently restored.
+          if (!body.enabled) statements.push(db.prepare('UPDATE playback_permissions SET withdrawn_at=? WHERE track_id=? AND EXISTS(SELECT 1 FROM tracks t WHERE t.id=playback_permissions.track_id AND (t.artist_id=? OR EXISTS(SELECT 1 FROM track_authority a WHERE a.track_id=t.id AND a.account_id=? AND a.revoked_at IS NULL)))').bind(now,id,user.userId,user.userId));
+        } else {
+          statements.push(db.prepare('UPDATE tracks SET status=?,radio_enabled=0,sale_enabled=0,sale_rights_attested=0 WHERE id=? AND (artist_id=? OR EXISTS(SELECT 1 FROM track_authority a WHERE a.track_id=tracks.id AND a.account_id=? AND a.revoked_at IS NULL))').bind(body.action==='delete_track'?'deleted':'withdrawn',id,user.userId,user.userId));
+          statements.push(db.prepare('UPDATE playback_permissions SET withdrawn_at=? WHERE track_id=? AND EXISTS(SELECT 1 FROM tracks t WHERE t.id=playback_permissions.track_id AND (t.artist_id=? OR EXISTS(SELECT 1 FROM track_authority a WHERE a.track_id=t.id AND a.account_id=? AND a.revoked_at IS NULL)))').bind(now,id,user.userId,user.userId));
+        }
+      }
+      statements.push(db.prepare('INSERT INTO artist_track_audit SELECT ?,id,?,?,?,? FROM tracks t WHERE t.id=? AND (t.artist_id=? OR EXISTS(SELECT 1 FROM track_authority a WHERE a.track_id=t.id AND a.account_id=? AND a.revoked_at IS NULL))').bind(crypto.randomUUID(),user.userId,body.action,JSON.stringify(body),now,id,user.userId,user.userId));
+      const results=await db.batch(statements);
+      if (results[0].meta.changes===0) return fail('Track authority changed. Refresh your catalog.',403);
+      const radioSynchronized = await syncArtistRadio(id);
+      return Response.json({saved:true,recordsPreserved:true,radioSynchronized});
+    }
 
     if (body.action === "add_track") {
       return fail("Upload your music file with its track title and artist or band name.");
@@ -195,10 +317,14 @@ export async function POST(request: Request) {
       // Eligibility is controlled by status/rights, never by this priority flag.
       const track = await db.prepare(`
         UPDATE tracks SET keep_in_rotation = ?
-        WHERE id = ? AND artist_id = ?
+        WHERE id = ? AND status != 'deleted' AND (artist_id = ? OR EXISTS(SELECT 1 FROM track_authority a WHERE a.track_id=tracks.id AND a.account_id=? AND a.revoked_at IS NULL))
         RETURNING id, keep_in_rotation, status, rights_attested
-      `).bind(body.enabled ? 1 : 0, trackId, user.userId).first();
+      `).bind(body.enabled ? 1 : 0, trackId, user.userId, user.userId).first();
       if (!track) return fail("Only the uploading artist can edit this track's priority.", 403);
+      if (track) {
+        await db.prepare('INSERT INTO artist_track_audit VALUES (?,?,?,?,?,?)').bind(crypto.randomUUID(),trackId,user.userId,body.action,JSON.stringify(body),Date.now()).run();
+        await syncArtistRadio(trackId);
+      }
       return Response.json({ track });
     }
 
@@ -207,10 +333,14 @@ export async function POST(request: Request) {
       const energyLane = body.energyLane ?? "";
       if (!Number.isInteger(trackId) || trackId < 1 || !energyLanes.has(energyLane)) return fail("Choose a valid track and Radio energy lane.");
       const track = await db.prepare(`
-        UPDATE tracks SET energy_lane = ? WHERE id = ? AND artist_id = ?
+        UPDATE tracks SET energy_lane = ? WHERE id = ? AND status != 'deleted' AND (artist_id = ? OR EXISTS(SELECT 1 FROM track_authority a WHERE a.track_id=tracks.id AND a.account_id=? AND a.revoked_at IS NULL))
         RETURNING id, energy_lane
-      `).bind(energyLane, trackId, user.userId).first();
+      `).bind(energyLane, trackId, user.userId, user.userId).first();
       if (!track) return fail("Only the uploading artist can assign this track's energy lane.", 403);
+      if (track) {
+        await db.prepare('INSERT INTO artist_track_audit VALUES (?,?,?,?,?,?)').bind(crypto.randomUUID(),trackId,user.userId,body.action,JSON.stringify(body),Date.now()).run();
+        await syncArtistRadio(trackId);
+      }
       return Response.json({ track });
     }
 
@@ -218,9 +348,13 @@ export async function POST(request: Request) {
       const trackId = Number(body.trackId);
       const primaryGenre = body.primaryGenre ?? "";
       if (!Number.isInteger(trackId) || trackId < 1 || !primaryGenres.has(primaryGenre)) return fail("Choose a valid track and primary genre.");
-      const track = await db.prepare(`UPDATE tracks SET primary_genre = ? WHERE id = ? AND artist_id = ?
-        RETURNING id, primary_genre`).bind(primaryGenre, trackId, user.userId).first();
+      const track = await db.prepare(`UPDATE tracks SET primary_genre = ?, subgenre=NULL, style=NULL WHERE id = ? AND status != 'deleted' AND (artist_id = ? OR EXISTS(SELECT 1 FROM track_authority a WHERE a.track_id=tracks.id AND a.account_id=? AND a.revoked_at IS NULL))
+        RETURNING id, primary_genre`).bind(primaryGenre, trackId, user.userId, user.userId).first();
       if (!track) return fail("Only the uploading artist can change this track's genre.", 403);
+      if (track) {
+        await db.prepare('INSERT INTO artist_track_audit VALUES (?,?,?,?,?,?)').bind(crypto.randomUUID(),trackId,user.userId,body.action,JSON.stringify(body),Date.now()).run();
+        await syncArtistRadio(trackId);
+      }
       return Response.json({ track });
     }
 
@@ -265,10 +399,14 @@ export async function POST(request: Request) {
       if (enabled && (!Number.isInteger(price) || price < 50 || price > 100000)) return fail("Set a sale price from $0.50 to $1,000.00.");
       const track = await db.prepare(`
         UPDATE tracks SET sale_enabled = ?, sale_rights_attested = ?, sale_price_cents = ?, sale_currency = 'usd'
-        WHERE id = ? AND artist_id = ?
+        WHERE id = ? AND (status = 'active' OR ? = 0) AND status != 'deleted' AND (artist_id = ? OR EXISTS(SELECT 1 FROM track_authority a WHERE a.track_id=tracks.id AND a.account_id=? AND a.revoked_at IS NULL))
         RETURNING id, sale_enabled, sale_price_cents, sale_currency
-      `).bind(enabled ? 1 : 0, enabled ? 1 : 0, enabled ? price : null, trackId, user.userId).first();
+      `).bind(enabled ? 1 : 0, enabled ? 1 : 0, enabled ? price : null, trackId, enabled ? 1 : 0, user.userId, user.userId).first();
       if (!track) return fail("Only the uploading artist can edit this track's sale settings.", 403);
+      if (track) {
+        await db.prepare('INSERT INTO artist_track_audit VALUES (?,?,?,?,?,?)').bind(crypto.randomUUID(),trackId,user.userId,body.action,JSON.stringify(body),Date.now()).run();
+        await syncArtistRadio(trackId);
+      }
       return Response.json({ track });
     }
 
@@ -277,8 +415,10 @@ export async function POST(request: Request) {
       if (!Number.isInteger(trackId) || trackId < 1) return fail("Valid track is required.");
       const track = await db.prepare("SELECT id FROM tracks WHERE id = ? AND status = 'active' AND rights_attested = 1").bind(trackId).first();
       if (!track) return fail("That track is unavailable.", 404);
+      const assigned=await assignedPerformance(user.userId,request);
+      if (!assigned || assigned.trackId!==String(trackId) || body.performanceKey!==assigned.key) return fail('Listen to the assigned Radio performance before responding.',409);
       const listenId = crypto.randomUUID();
-      await db.prepare("INSERT INTO listens (id, track_id, listener_id, qualified) VALUES (?, ?, ?, 0)").bind(listenId, trackId, user.userId).run();
+      await db.prepare("INSERT INTO listens (id, track_id, listener_id, qualified, radio_performance) VALUES (?, ?, ?, 0, ?)").bind(listenId, trackId, user.userId,assigned.key).run();
       return Response.json({ listenId, minimumSeconds: 12 });
     }
 
@@ -286,10 +426,12 @@ export async function POST(request: Request) {
       const trackId = Number(body.trackId);
       const listenId = body.listenId?.trim() ?? "";
       const listen = await db.prepare(`
-        SELECT id, (unixepoch('now') - unixepoch(started_at)) AS elapsed
+        SELECT id, radio_performance, (unixepoch('now') - unixepoch(started_at)) AS elapsed
         FROM listens WHERE id = ? AND track_id = ? AND listener_id = ?
-      `).bind(listenId, trackId, user.userId).first<{ id: string; elapsed: number }>();
+      `).bind(listenId, trackId, user.userId).first<{ id: string; elapsed: number; radio_performance:string|null }>();
       if (!listen) return fail("Listening session was not found.", 404);
+      const assigned=await assignedPerformance(user.userId,request);
+      if (!assigned || assigned.trackId!==String(trackId) || assigned.key!==listen.radio_performance) return fail('This Radio performance has ended or changed.',409);
       if (Number(listen.elapsed) < 12) return fail("Keep listening before responding.", 409);
       await db.prepare("UPDATE listens SET qualified = 1, qualified_at = CURRENT_TIMESTAMP WHERE id = ?").bind(listenId).run();
       return Response.json({ qualified: true });

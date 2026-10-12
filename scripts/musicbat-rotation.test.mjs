@@ -40,7 +40,7 @@ test('existing uploads toggle ON/OFF persistently without changing eligibility, 
     const { tracks } = await (await route.GET(get())).json();
     assert.equal(tracks.length, 5);
     assert.equal(tracks.find((t) => t.id === 3).keep_in_rotation, Number(enabled));
-    assert.ok(tracks.every((t) => t.rotation_eligible));
+    assert.ok(tracks.every((t) => !t.rotation_eligible), "Upload consent alone does not grant Radio eligibility");
     assert.deepEqual(sqlite.prepare('SELECT id, audio_url, status, rights_attested FROM tracks').all(), before);
   }
   globalThis.musicbatRotationState.user = { userId: 'another-artist' };

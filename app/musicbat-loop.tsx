@@ -2,6 +2,7 @@
 
 import { FormEvent, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { Activity, Disc3, Gauge, Radio, ShieldCheck, Sparkles, Upload } from "lucide-react";
+import { ArtistRotunda } from "@/components/artist-rotunda";
 import { SharedRadioPlayer } from "@/components/shared-radio-player";
 
 import { Button } from "@/components/ui/button";
@@ -135,6 +136,7 @@ export default function MusicBatLoop({ displayName }: { displayName: string }) {
   const [uploadEnergyLane, setUploadEnergyLane] = useState<EnergyLane>("medium");
   const [uploadGenre, setUploadGenre] = useState("");
   const [uploadSubgenre, setUploadSubgenre] = useState("");
+  const [uploadStyle, setUploadStyle] = useState("");
   const [uploadMoodTags, setUploadMoodTags] = useState("");
   const [saleRightsAttested, setSaleRightsAttested] = useState(false);
   const [saleDrafts, setSaleDrafts] = useState<Record<number, string>>({});
@@ -296,7 +298,7 @@ export default function MusicBatLoop({ displayName }: { displayName: string }) {
     try {
       const result = await api<{ listenId: string; minimumSeconds: number }>("/api/musicbat", {
         method: "POST",
-        body: JSON.stringify({ action: "start_listen", trackId: current.id }),
+        body: JSON.stringify({ action: "start_listen", trackId: current.id, performanceKey: sharedPerformanceKey }),
       });
       if (activeSessionRef.current !== session) return;
       setListenId(result.listenId);
@@ -392,6 +394,7 @@ export default function MusicBatLoop({ displayName }: { displayName: string }) {
       form.set("energyLane", uploadEnergyLane);
       form.set("primaryGenre", uploadGenre);
       form.set("subgenre", uploadSubgenre);
+      form.set("style", uploadStyle);
       form.set("moodTags", uploadMoodTags);
       await api("/api/musicbat", { method: "POST", body: form });
       setTitle("");
@@ -404,10 +407,11 @@ export default function MusicBatLoop({ displayName }: { displayName: string }) {
       setUploadEnergyLane("medium");
       setUploadGenre("");
       setUploadSubgenre("");
+      setUploadStyle("");
       setUploadMoodTags("");
       setSaleRightsAttested(false);
       await refresh();
-      setTab("radio");
+      setTab("rotunda");
       setMessage("Track accepted. Radio eligibility requires reviewed rights and category approval.");
     } catch (error) {
       const detail = error instanceof Error ? error.message : "Track could not be added.";
@@ -531,11 +535,11 @@ export default function MusicBatLoop({ displayName }: { displayName: string }) {
         </div>
 
         <Tabs value={tab} onValueChange={setTab} className="gap-5">
-          <TabsList className="h-auto w-full justify-start gap-1 rounded-xl border border-white/10 bg-white/[0.035] p-1.5 sm:w-fit">
+          <TabsList className="h-auto w-full flex-wrap justify-start gap-1 rounded-xl border border-white/10 bg-white/[0.035] p-1.5 sm:w-fit">
             <TabsTrigger value="radio" className="h-10 rounded-lg px-4 text-white/55 data-[state=active]:bg-[#ff3ea5] data-[state=active]:text-white"><Radio /> Radio</TabsTrigger>
             <TabsTrigger value="catalog" className="h-10 rounded-lg px-4 text-white/55 data-[state=active]:bg-[#ff3ea5] data-[state=active]:text-white"><Disc3 /> Add Track</TabsTrigger>
             <TabsTrigger value="shock" className="h-10 rounded-lg px-4 text-white/55 data-[state=active]:bg-[#ff3ea5] data-[state=active]:text-white"><Gauge /> Shock Room</TabsTrigger>
-          </TabsList>
+          <TabsTrigger value="rotunda" className="h-10 rounded-lg px-4 text-white/55 data-[state=active]:bg-[#ff3ea5] data-[state=active]:text-white">My Music</TabsTrigger></TabsList>
 
           <TabsContent value="radio">
             <section className="grid gap-5 lg:grid-cols-[minmax(0,1.55fr)_minmax(310px,.65fr)]">
@@ -581,6 +585,7 @@ export default function MusicBatLoop({ displayName }: { displayName: string }) {
                   <label className="block"><span className="mb-2 block text-sm font-semibold text-white/65">Artist or band name</span><Input value={artistName} onChange={(event) => setArtistName(event.target.value)} required maxLength={80} className="h-12 rounded-xl border-white/12 bg-white/[0.045] px-4 text-white placeholder:text-white/25" placeholder="Artist or band name" /></label>
                   <label className="block"><span className="mb-2 block text-sm font-semibold text-white/65">Primary genre</span><select value={uploadGenre} onChange={(event) => setUploadGenre(event.target.value)} required className="h-12 w-full rounded-xl border border-white/12 bg-[#17141d] px-4 text-white"><option value="">Choose a genre</option>{primaryGenres.map((genre) => <option key={genre}>{genre}</option>)}</select></label>
                   <label className="block"><span className="mb-2 block text-sm font-semibold text-white/65">Subgenre (optional)</span><Input value={uploadSubgenre} onChange={(event) => setUploadSubgenre(event.target.value)} maxLength={80} className="h-12 rounded-xl border-white/12 bg-white/[0.045] px-4 text-white" placeholder="e.g. post-punk" /></label>
+                  <label className="block"><span className="mb-2 block text-sm font-semibold text-white/65">Style (requires subgenre)</span><Input value={uploadStyle} onChange={(event) => setUploadStyle(event.target.value)} maxLength={80} className="h-12 rounded-xl border-white/12 bg-white/[0.045] px-4 text-white" /></label>
                   <label className="block"><span className="mb-2 block text-sm font-semibold text-white/65">Mood / feel tags (optional, comma separated)</span><Input value={uploadMoodTags} onChange={(event) => setUploadMoodTags(event.target.value)} maxLength={240} className="h-12 rounded-xl border-white/12 bg-white/[0.045] px-4 text-white" placeholder="urgent, hazy, defiant" /></label>
                   <label className="block"><span className="mb-2 block text-sm font-semibold text-white/65">Radio energy lane</span><select value={uploadEnergyLane} onChange={(event) => setUploadEnergyLane(event.target.value as EnergyLane)} className="h-12 w-full rounded-xl border border-white/12 bg-[#17141d] px-4 text-white">{energyLanes.map((lane) => <option key={lane.id} value={lane.id}>{lane.label}</option>)}</select></label>
                   <div className="block">
@@ -602,12 +607,12 @@ export default function MusicBatLoop({ displayName }: { displayName: string }) {
                     <label className="block"><span className="mb-2 block text-sm font-semibold text-white/65">Price in USD</span><Input value={salePrice} onChange={(event) => setSalePrice(event.target.value)} required min="0.50" max="1000" step="0.01" type="number" inputMode="decimal" className="h-11 rounded-xl border-white/12 bg-black/20 px-4 text-white" /></label>
                     <label className="flex cursor-pointer items-start gap-3"><Checkbox checked={saleRightsAttested} onCheckedChange={(value) => setSaleRightsAttested(value === true)} className="mt-0.5 border-white/25 data-[state=checked]:border-[#ff3ea5] data-[state=checked]:bg-[#ff3ea5]" /><span className="text-sm leading-relaxed text-white/62">I authorize MusicBat to sell and deliver this recording to buyers.</span></label>
                   </div>}
-                  <Button disabled={busy || !rightsAttested || !audioFile || !uploadGenre || (sellTrack && !saleRightsAttested)} type="submit" className="h-12 w-full rounded-xl bg-[#ff3ea5] text-base font-black text-white hover:bg-[#ff69bd]">{busy ? "Uploading your track…" : "Add to Radio"}</Button>
+                  <Button disabled={busy || !rightsAttested || !audioFile || !uploadGenre || (sellTrack && !saleRightsAttested)} type="submit" className="h-12 w-full rounded-xl bg-[#ff3ea5] text-base font-black text-white hover:bg-[#ff69bd]">{busy ? "Uploading your track…" : "Upload music"}</Button>
                   {uploadError && <p role="alert" className="text-sm text-[#ff9dcc]">{uploadError}{signInRequired && <> <a className="font-bold underline" href="/signin-with-chatgpt?return_to=%2F">Sign in to upload</a></>}</p>}
                 </div>
               </form>
               <div className="rounded-[1.75rem] border border-white/10 bg-white/[0.025] p-6 sm:p-8">
-                <div className="mb-5 flex items-center justify-between"><div><div className="text-xs font-black uppercase tracking-[0.18em] text-white/42">Rights-cleared catalog</div><h2 className="mt-2 text-2xl font-black">{tracks.length} active track{tracks.length === 1 ? "" : "s"}</h2></div><ShieldCheck className="size-7 text-[#ff69bd]" /></div>
+                <div className="mb-5 flex items-center justify-between"><div><div className="text-xs font-black uppercase tracking-[0.18em] text-white/42">Music catalog</div><h2 className="mt-2 text-2xl font-black">{tracks.length} active track{tracks.length === 1 ? "" : "s"}</h2></div><ShieldCheck className="size-7 text-[#ff69bd]" /></div>
                 <div className="space-y-3">{tracks.map((track) => <div key={track.id} className="rounded-xl border border-white/8 bg-white/[0.025] p-2">
                   <div className="flex flex-wrap items-center gap-2">
                     <button type="button" onClick={() => { openRadio(); setTab("radio"); }} className="flex min-w-0 flex-1 basis-[220px] items-center justify-between gap-4 rounded-xl bg-white/[0.025] p-3 text-left transition hover:bg-[#ff3ea5]/5"><div className="min-w-0"><div className="truncate font-bold">{track.title}</div><div className="truncate text-sm text-white/42">{track.artist_name}{track.sale_enabled && track.sale_price_cents ? ` · $${(track.sale_price_cents / 100).toFixed(2)}` : ""}</div></div><div className="shrink-0 text-xs font-black uppercase tracking-wider text-[#ff69bd]">Open Radio</div></button>
@@ -627,6 +632,8 @@ export default function MusicBatLoop({ displayName }: { displayName: string }) {
               </div>
             </section>
           </TabsContent>
+
+          <TabsContent value="rotunda"><ArtistRotunda onChange={async () => { applyRadio(await fetchRadio()); }} /></TabsContent>
 
           <TabsContent value="shock">
             <section className="overflow-hidden rounded-[1.75rem] border border-white/10 bg-[#111018]">

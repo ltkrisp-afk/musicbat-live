@@ -10,7 +10,7 @@ export function privateRadioService(origin: string | undefined, token: string | 
     async fetch(input: RequestInfo | URL, init?: RequestInit) {
       const request = new Request(input, init);
       const path = new URL(request.url);
-      if (!['/channel','/channel/audio'].includes(path.pathname)) return new Response(null, { status: 404 });
+      if (!['/channel','/channel/audio','/catalog/control','/catalog/status'].includes(path.pathname)) return new Response(null, { status: 404 });
       const url = new URL(path.pathname + path.search, base);
       const headers = new Headers(request.headers); headers.set('authorization', 'Bearer ' + token);
       return fetch(new Request(url, { method:request.method,headers,

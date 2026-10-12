@@ -12,6 +12,8 @@ export const tracks = sqliteTable("tracks", {
   energyLane: text("energy_lane").notNull().default("medium"),
   primaryGenre: text("primary_genre").notNull().default("Other"),
   subgenre: text("subgenre"),
+  style: text("style"),
+  radioEnabled: integer("radio_enabled", {mode:"boolean"}).notNull().default(true),
   moodTags: text("mood_tags").notNull().default("[]"),
   saleEnabled: integer("sale_enabled", { mode: "boolean" }).notNull().default(false),
   saleRightsAttested: integer("sale_rights_attested", { mode: "boolean" }).notNull().default(false),
@@ -46,6 +48,7 @@ export const listens = sqliteTable(
     startedAt: text("started_at").notNull().default(sql`CURRENT_TIMESTAMP`),
     qualifiedAt: text("qualified_at"),
     completedAt: text("completed_at"),
+    radioPerformance: text("radio_performance"),
   },
   (table) => [
     index("idx_listens_track_listener_qualified").on(
@@ -136,3 +139,16 @@ export const playbackDecisions = sqliteTable("playback_decisions", {
   decidedAt: integer("decided_at").notNull(),
   permissionSnapshot: text("permission_snapshot").notNull(),
 }, table => [index("idx_playback_decisions_track_time").on(table.trackId, table.decidedAt)]);
+
+export const artistProfiles = sqliteTable('artist_profiles', {
+  accountId:text('account_id').primaryKey(), artistName:text('artist_name').notNull(),
+  verifiedAccountAt:integer('verified_account_at').notNull(), updatedAt:integer('updated_at').notNull(),
+});
+export const trackAuthority = sqliteTable('track_authority', {
+  trackId:integer('track_id').notNull().references(()=>tracks.id), accountId:text('account_id').notNull(),
+  grantedBy:text('granted_by').notNull(), grantedAt:integer('granted_at').notNull(), revokedAt:integer('revoked_at'),
+},table=>[uniqueIndex('idx_track_authority').on(table.trackId,table.accountId)]);
+export const artistTrackAudit = sqliteTable('artist_track_audit', {
+  id:text('id').primaryKey(), trackId:integer('track_id').notNull(), accountId:text('account_id').notNull(),
+  action:text('action').notNull(), detail:text('detail').notNull(), createdAt:integer('created_at').notNull(),
+});

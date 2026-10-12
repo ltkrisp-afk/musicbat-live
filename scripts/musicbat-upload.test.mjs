@@ -19,11 +19,11 @@ function fixture() {
   const tracks = [];
   const grant = {recording_basis:'direct', recording_evidence:'test-recording-contract', composition_evidence:'test-composition-contract', reviewed_by:'test-reviewer', reviewed_at:0, artist_authorized:1, free_allowed:1, plus_allowed:1, starts_at:0, expires_at:9999999999999, withdrawn_at:null, territory:'worldwide'};
   const state = { user: { userId: 'artist-1', displayName: 'Account name' }, failInsert: false, env: {
-    DB: { prepare(sql) { return { bind(...values) { return { async run() { return {}; }, async first() {
+    DB: { async batch(statements) { return Promise.all(statements.map(s=>s.execute())); }, prepare(sql) { return { bind(...values) { return { async run() { return {}; }, async execute() { return {results: sql.includes("INSERT INTO tracks") ? [await this.first()] : []}; }, async first() {
       if (sql.includes('playback_permissions')) return grant;
       if (sql.includes('INSERT INTO tracks')) {
         if (state.failInsert) throw new Error('simulated catalog failure');
-        const track = { id: tracks.length + 1, artist_name: values[1], title: values[2], audio_url: values[3], energy_lane: values[4], primary_genre: values[5], subgenre: values[6], mood_tags: values[7] };
+        const track = { id: tracks.length + 1, artist_name: values[1], title: values[2], audio_url: values[3], energy_lane: values[4], primary_genre: values[5], subgenre: values[6], mood_tags: values[7], style: values[11] };
         tracks.push(track); return track;
       }
       return tracks.find(track => track.audio_url === values[0]) ?? null;

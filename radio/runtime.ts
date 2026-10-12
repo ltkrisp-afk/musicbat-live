@@ -187,6 +187,20 @@ export class RadioRuntime {
     } catch (error) { this.db.exec('ROLLBACK'); throw error; }
     this.tick();
   }
+  classify(id: string, category: unknown) {
+    const parsed=parseCategoryCommand(category), source=this.source(id);
+    if (!parsed) throw new Error('invalid-classification');
+    if (!source || source.status!=='active') return false;
+    if (JSON.stringify(source.track.category)===JSON.stringify(parsed)) return false;
+    const track={...source.track,category:parsed,sourceRevision:createHash('sha256').update(source.asset.sha256+JSON.stringify(parsed)).digest('hex')};
+    this.db.exec('BEGIN IMMEDIATE');
+    try {
+      this.db.prepare('UPDATE radio_sources SET track_json=?,updated_at=? WHERE id=?').run(JSON.stringify(track),this.clock(),id);
+      this.db.prepare('UPDATE radio_engine_catalog SET track_json=? WHERE id=?').run(JSON.stringify(track),id);
+      this.audit(id,'artist-classification',JSON.stringify(parsed));this.db.exec('COMMIT');
+    } catch(error){this.db.exec('ROLLBACK');throw error;}
+    this.tick(); return true;
+  }
   establishChannel(id: string, config: SharedChannelConfig) {
     if (!id?.trim() || !config.review?.reference?.trim() ||
         !Number.isSafeInteger(config.review.verifiedAt) || config.review.verifiedAt < 0 || config.review.verifiedAt > this.clock() ||
@@ -218,6 +232,25 @@ export class RadioRuntime {
   }
   async fetch(request: Request) {
     if (this.closed || !this.healthy) return Response.json({ error: 'Radio authority unavailable.' }, { status: 503, headers: { 'cache-control': 'no-store' } });
+    if (new URL(request.url).pathname === '/catalog/status') {
+      const presented=Buffer.from(request.headers.get('authorization')?.replace(/^Bearer /,'') ?? '');
+      if (presented.length!==this.token.length || !timingSafeEqual(presented,this.token)) return new Response(null,{status:401});
+      if (request.method!=='GET') return new Response(null,{status:405});
+      const id=new URL(request.url).searchParams.get('trackId') ?? '',source=this.source(id);
+      const registered=source?.status==='active' && !!this.db.prepare('SELECT id FROM radio_engine_catalog WHERE id=?').get(id);
+      return Response.json({registered:!!registered,category:source?.track.category ?? null},{headers:{'cache-control':'no-store'}});
+    }
+    if (new URL(request.url).pathname === '/catalog/control') {
+      const presented=Buffer.from(request.headers.get('authorization')?.replace(/^Bearer /,'') ?? '');
+      if (presented.length!==this.token.length || !timingSafeEqual(presented,this.token)) return new Response(null,{status:401});
+      if (request.method!=='POST') return new Response(null,{status:405});
+      const body=await request.json() as {trackId?:string;action?:string;reference?:string;category?:unknown};
+      if (!body.trackId || !body.reference?.trim()) return new Response(null,{status:400});
+      if (body.action==='classify') return Response.json({changed:this.classify(body.trackId,body.category)});
+      if (body.action!=='withdraw') return new Response(null,{status:400});
+      this.withdraw(body.trackId,body.reference);
+      return Response.json({withdrawn:true});
+    }
     return this.transport(request);
   }
   close() { if (this.closed) return; if (this.timer) clearInterval(this.timer); this.timer = null; this.closed = true; this.db.close(); }

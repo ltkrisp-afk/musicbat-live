@@ -103,10 +103,11 @@ export async function POST(request: Request) {
     const { artistShare, platformFee } = split(track.sale_price_cents);
     purchase = await env.DB.prepare(`INSERT INTO purchases
       (id, buyer_hash, track_id, title, artist_name, artist_id, audio_path, status, amount_cents, artist_share_cents, platform_fee_cents, currency, processor_account_id, processing_cents)
-      VALUES (?, ?, ?, ?, ?, ?, ?, 'awaiting_checkout', ?, ?, ?, 'usd', ?, ?)
+      SELECT ?, ?, ?, ?, ?, ?, ?, 'awaiting_checkout', ?, ?, ?, 'usd', ?, ? FROM tracks
+      WHERE id=? AND status='active' AND sale_enabled=1 AND sale_rights_attested=1 AND artist_id=? AND audio_url=? AND sale_price_cents=?
       RETURNING id, title, artist_name, processor_session_id`)
-      .bind(id, buyer.hash, trackId, track.title, track.artist_name, track.artist_id, track.audio_url, track.sale_price_cents, artistShare, platformFee, track.stripe_account_id, surcharge).first<PurchaseDraft>();
-    if (!purchase) throw new Error("Purchase draft could not be saved.");
+      .bind(id, buyer.hash, trackId, track.title, track.artist_name, track.artist_id, track.audio_url, track.sale_price_cents, artistShare, platformFee, track.stripe_account_id, surcharge,trackId,track.artist_id,track.audio_url,track.sale_price_cents).first<PurchaseDraft>();
+    if (!purchase) return response({error:"The artist changed this song’s sale permissions or price. Refresh the catalog."},409,buyer.cookie);
     const base = musicBatOrigin(env, request);
     let checkout: StripeCheckoutSession;
     try {
