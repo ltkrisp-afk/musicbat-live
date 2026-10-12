@@ -111,3 +111,28 @@ export const stripeEvents = sqliteTable("stripe_events", {
   eventType: text("event_type").notNull(),
   processedAt: text("processed_at").notNull().default(sql`CURRENT_TIMESTAMP`),
 });
+
+export const playbackPermissions = sqliteTable("playback_permissions", {
+  trackId: integer("track_id").primaryKey().references(() => tracks.id),
+  recordingBasis: text("recording_basis").notNull(),
+  recordingEvidence: text("recording_evidence").notNull(),
+  compositionEvidence: text("composition_evidence").notNull(),
+  reviewedBy: text("reviewed_by").notNull(),
+  reviewedAt: integer("reviewed_at").notNull(),
+  artistAuthorized: integer("artist_authorized").notNull().default(0),
+  freeAllowed: integer("free_allowed").notNull().default(0),
+  plusAllowed: integer("plus_allowed").notNull().default(0),
+  startsAt: integer("starts_at").notNull(),
+  expiresAt: integer("expires_at").notNull(),
+  withdrawnAt: integer("withdrawn_at"),
+  territory: text("territory").notNull(),
+});
+export const playbackDecisions = sqliteTable("playback_decisions", {
+  id: text("id").primaryKey(),
+  trackId: integer("track_id").notNull(),
+  mode: text("mode").notNull(),
+  allowed: integer("allowed").notNull(),
+  reason: text("reason").notNull(),
+  decidedAt: integer("decided_at").notNull(),
+  permissionSnapshot: text("permission_snapshot").notNull(),
+}, table => [index("idx_playback_decisions_track_time").on(table.trackId, table.decidedAt)]);

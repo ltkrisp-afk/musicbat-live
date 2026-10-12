@@ -6,7 +6,9 @@ import ts from 'typescript';
 // Execute the real handlers with platform boundaries replaced by test doubles.
 async function loadRoute(path, state) {
   globalThis.musicbatTestState = state;
+  const policy = await readFile(new URL('../lib/playback-authorization.ts', import.meta.url), 'utf8');
   const source = (await readFile(new URL(path, import.meta.url), 'utf8'))
+    .replace(/import \{ authorizePlayback, type Permission \} from [^;]+;/, policy)
     .replace('import { env } from "cloudflare:workers";', 'const env = globalThis.musicbatTestState.env;')
     .replace('import { getChatGPTUser } from "../../chatgpt-auth";', 'const getChatGPTUser = async () => globalThis.musicbatTestState.user;');
   const { outputText } = ts.transpileModule(source, { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext } });
@@ -15,8 +17,10 @@ async function loadRoute(path, state) {
 function fixture() {
   const objects = new Map();
   const tracks = [];
+  const grant = {recording_basis:'direct', recording_evidence:'test-recording-contract', composition_evidence:'test-composition-contract', reviewed_by:'test-reviewer', reviewed_at:0, artist_authorized:1, free_allowed:1, plus_allowed:1, starts_at:0, expires_at:9999999999999, withdrawn_at:null, territory:'worldwide'};
   const state = { user: { userId: 'artist-1', displayName: 'Account name' }, failInsert: false, env: {
-    DB: { prepare(sql) { return { bind(...values) { return { async first() {
+    DB: { prepare(sql) { return { bind(...values) { return { async run() { return {}; }, async first() {
+      if (sql.includes('playback_permissions')) return grant;
       if (sql.includes('INSERT INTO tracks')) {
         if (state.failInsert) throw new Error('simulated catalog failure');
         const track = { id: tracks.length + 1, artist_name: values[1], title: values[2], audio_url: values[3], energy_lane: values[4], primary_genre: values[5], subgenre: values[6], mood_tags: values[7] };

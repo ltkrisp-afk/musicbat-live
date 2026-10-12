@@ -1,4 +1,5 @@
 import { env } from "cloudflare:workers";
+import { authorizePlayback, type Permission } from "../../../../../lib/playback-authorization";
 
 async function serve(request: Request, headOnly = false) {
   try {
@@ -6,8 +7,18 @@ async function serve(request: Request, headOnly = false) {
     const pathname = new URL(request.url).pathname;
     const assetId = pathname.split("/").pop() ?? "";
     if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.(mp3|wav|flac)$/.test(assetId)) return new Response(null, { status: 404 });
-    const track = await env.DB.prepare("SELECT id FROM tracks WHERE audio_url = ? AND status = 'active' AND rights_attested = 1").bind(`/api/musicbat/audio/${assetId}`).first();
+    const track = await env.DB.prepare("SELECT id FROM tracks WHERE audio_url = ? AND status = 'active' AND rights_attested = 1").bind(`/api/musicbat/audio/${assetId}`).first<{ id: number }>();
     if (!track) return new Response(null, { status: 404 });
+    const permission = await env.DB.prepare("SELECT * FROM playback_permissions WHERE track_id = ?").bind(track.id).first<Permission>();
+    const now = Date.now();
+    // This endpoint supports individual requests and seeking. Never accept a client mode downgrade.
+    const mode = "radio-plus" as const;
+    const territory = (request as Request & { cf?: { country?: string } }).cf?.country ?? "unknown";
+    const decision = authorizePlayback(permission, mode, now, territory);
+    await env.DB.prepare(`INSERT INTO playback_decisions (id, track_id, mode, allowed, reason, decided_at, permission_snapshot)
+      VALUES (?, ?, ?, ?, ?, ?, ?)`)
+      .bind(crypto.randomUUID(), track.id, mode, Number(decision.allowed), decision.reason, now, JSON.stringify(permission)).run();
+    if (!decision.allowed) return Response.json({ error: "This recording is not authorized for this playback mode." }, { status: 403, headers: { "cache-control": "no-store" } });
     const key = `tracks/${assetId}`;
     const metadata = await env.BUCKET.head(key);
     if (!metadata) return new Response(null, { status: 404 });
@@ -15,7 +26,7 @@ async function serve(request: Request, headOnly = false) {
       "content-type": metadata.httpMetadata?.contentType ?? "audio/mpeg",
       "content-length": String(metadata.size),
       "accept-ranges": "bytes",
-      "cache-control": "public, max-age=0, must-revalidate",
+      "cache-control": "private, no-store",
       "x-content-type-options": "nosniff",
       "etag": metadata.httpEtag,
     });
