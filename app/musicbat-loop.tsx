@@ -1,7 +1,10 @@
 "use client";
+/* Full document navigation refreshes server-authenticated artist and sign-in pages. */
+/* eslint-disable @next/next/no-html-link-for-pages */
 
 import { FormEvent, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { Activity, Disc3, Gauge, Radio, ShieldCheck, Sparkles, Upload } from "lucide-react";
+import { ArtistDiscovery, type Artist } from "@/components/artist-discovery";
 import { ArtistRotunda } from "@/components/artist-rotunda";
 import { SharedRadioPlayer } from "@/components/shared-radio-player";
 
@@ -103,13 +106,25 @@ async function api<T>(path: string, init?: RequestInit): Promise<T> {
   return data;
 }
 
-type Artist = {artist_id:string;slug:string;artist_name:string;track_count:number;following:number};
 export default function MusicBatLoop({ displayName, artistSlug, initialTab }: { displayName: string; artistSlug?:string;initialTab?:string }) {
   const [tab, setTab] = useState(artistSlug ? "discover" : initialTab ?? "radio");
   const [artists,setArtists]=useState<Artist[]>([]),[canManage,setCanManage]=useState(false),[followingOnly,setFollowingOnly]=useState(false),[search,setSearch]=useState('');
-  const loadArtists=useCallback(async()=>{const d=await api<{artists:Artist[];canManage:boolean}>('/api/musicbat?view=artists');setArtists(d.artists);setCanManage(d.canManage);},[]);
-  useEffect(()=>{void loadArtists().catch(()=>{});},[loadArtists]);
-  async function followArtist(artist:Artist){try{await api('/api/musicbat',{method:'POST',body:JSON.stringify({action:'follow_artist',artistId:artist.artist_id,enabled:!artist.following})});await loadArtists();}catch(e){setMessage(e instanceof Error?e.message:'Could not follow artist.');}}
+  const [artistError,setArtistError]=useState(''),[artistLoading,setArtistLoading]=useState(true),[followBusy,setFollowBusy]=useState(false);
+  const followStartingRef=useRef(false);
+  const loadArtists=useCallback(async()=>{
+    setArtistLoading(true);
+    try {const d=await api<{artists:Artist[];canManage:boolean}>('/api/musicbat?view=artists');setArtists(d.artists);setCanManage(d.canManage);setArtistError('');}
+    catch(e){setArtistError(e instanceof Error?e.message:'Could not load artists.');throw e;}
+    finally{setArtistLoading(false);}
+  },[]);
+  useEffect(()=>{const task=setTimeout(()=>void loadArtists().catch(()=>{}),0);return()=>clearTimeout(task);},[loadArtists]);
+  async function followArtist(artist:Artist){
+    if(followStartingRef.current)return;
+    followStartingRef.current=true;setFollowBusy(true);
+    try{await api('/api/musicbat',{method:'POST',body:JSON.stringify({action:'follow_artist',artistId:artist.artist_id,enabled:!artist.following})});await loadArtists();setMessage(artist.following?'Artist unfollowed.':'Artist followed.');}
+    catch(e){setMessage(e instanceof Error?e.message:'Could not follow artist.');}
+    finally{followStartingRef.current=false;setFollowBusy(false);}
+  }
 
   const [tracks, setTracks] = useState<Track[]>([]);
   const [shockRows, setShockRows] = useState<ShockRow[]>([]);
@@ -213,7 +228,7 @@ export default function MusicBatLoop({ displayName, artistSlug, initialTab }: { 
       purchase_count: Number(row.purchase_count),
       position: Number(row.position),
     })));
-  }, []);
+  }, [setTracks,setShockRows]);
 
   const refresh = useCallback(async () => Promise.all([fetchRadio(),loadArtists()]).then(([data])=>applyRadio(data)), [applyRadio, fetchRadio,loadArtists]);
 
@@ -552,18 +567,11 @@ export default function MusicBatLoop({ displayName, artistSlug, initialTab }: { 
           {canManage && <TabsTrigger value="rotunda" className="h-10 rounded-lg px-4 text-white/55 data-[state=active]:bg-[#ff3ea5] data-[state=active]:text-white">Manage Songs</TabsTrigger>}</TabsList>
 
           <TabsContent value="discover">
-            <section className="space-y-5 rounded-[1.75rem] border border-white/10 bg-[#111018] p-6 sm:p-8">
-              <div><p className="text-xs uppercase tracking-widest text-[#ff3ea5]">The patron follows the music</p><h1 className="mt-2 text-3xl font-bold">{artistSlug ? artists.find(a=>a.slug===artistSlug)?.artist_name ?? 'Artist' : 'Discover Artists'}</h1><p className="mt-2 text-sm text-white/60">Browse releases, follow artists, and buy authorized recordings. Bat Radio provides shared discovery; Radio Plus unlocks eligible tuning and listener feedback.</p></div>
-              {artistSlug && <a href="/?view=discover" className="inline-block text-sm text-[#ff69bd] underline">Browse all artists</a>}
-              {!artistSlug && <div className="flex flex-wrap gap-3"><Input aria-label="Search artists" placeholder="Search artists" value={search} onChange={e=>setSearch(e.target.value)} /><button onClick={()=>setFollowingOnly(!followingOnly)} className="rounded border border-white/20 p-2">{followingOnly?'Show all artists':'Following'}</button></div>}
-              {artists.filter(a=>(!artistSlug || a.slug===artistSlug)&&(!followingOnly||Boolean(a.following))&&a.artist_name.toLowerCase().includes(search.toLowerCase())).map(a=><article key={a.artist_id} className="space-y-3 rounded-xl border border-white/10 p-4"><div className="flex flex-wrap justify-between gap-3"><a href={'/'+a.slug} className="text-xl font-bold text-[#ff69bd]">{a.artist_name}</a><button onClick={()=>void followArtist(a)} className="rounded border border-white/20 px-3 py-2">{a.following?'Unfollow artist':'Follow artist'}</button></div>
-                {tracks.filter(t=>t.artist_id===a.artist_id).map(t=><div key={t.id} className="flex flex-wrap items-center justify-between gap-3 border-t border-white/10 pt-3"><div><h2 className="font-bold">{t.title}</h2><p className="text-xs text-white/60">{t.primary_genre}{t.subgenre?' / '+t.subgenre:''}</p></div>{Boolean(t.sale_enabled)&&t.sale_price_cents && <button disabled={purchaseBusy||!t.seller_ready} onClick={()=>void buyCurrentTrack(t)} className="rounded border border-[#ff3ea5]/40 px-3 py-2">{t.seller_ready ? `Buy $${(t.sale_price_cents/100).toFixed(2)} + processing` : 'Sales awaiting payout setup'}</button>}</div>)}
-                {!Number(a.track_count)&&<p className="text-sm text-white/60">No active releases. Follow this artist and return for future music.</p>}
-              </article>)}
-              {!artists.filter(a=>(!artistSlug||a.slug===artistSlug)&&(!followingOnly||a.following)&&a.artist_name.toLowerCase().includes(search.toLowerCase())).length&&<p>No artists found.</p>}
-              <button onClick={()=>{openRadio();setTab('radio');}} className="rounded border border-[#ff3ea5]/40 px-4 py-2">Listen through Bat Radio</button>
-              <p role="status" className="text-sm text-white/60">{purchaseMessage || message}</p>
-            </section>
+            <ArtistDiscovery artists={artists} tracks={tracks} artistSlug={artistSlug} search={search} onSearch={setSearch}
+              followingOnly={followingOnly} onFollowingOnly={setFollowingOnly} loading={artistLoading} error={artistError}
+              onRetry={()=>void loadArtists().catch(()=>{})} followBusy={followBusy} onFollow={a=>void followArtist(a)}
+              purchaseBusy={purchaseBusy} onBuy={t=>void buyCurrentTrack(t as Track)}
+              onRadio={()=>{openRadio();setTab('radio');}} message={purchaseMessage || message} />
           </TabsContent>
           <TabsContent value="radio">
             <section className="grid gap-5 lg:grid-cols-[minmax(0,1.55fr)_minmax(310px,.65fr)]">
@@ -657,13 +665,13 @@ export default function MusicBatLoop({ displayName, artistSlug, initialTab }: { 
             </section>
           </TabsContent>
 
-          <TabsContent value="rotunda">{canManage && <ArtistRotunda onChange={refresh} />}</TabsContent>
+          <TabsContent value="rotunda">{canManage && <ArtistRotunda onChange={refresh} onUpload={()=>setTab("catalog")} />}</TabsContent>
 
           <TabsContent value="shock">
-            <section className="overflow-hidden rounded-[1.75rem] border border-white/10 bg-[#111018]">
+            {canManage && <section className="overflow-hidden rounded-[1.75rem] border border-white/10 bg-[#111018]">
               <div className="border-b border-white/10 p-6 sm:p-8"><div className="text-xs font-black uppercase tracking-[0.18em] text-[#ff69bd]">Shock Room</div><h1 className="mt-2 text-3xl font-black tracking-[-0.04em]">Listening is exposure. Choice is signal.</h1><p className="mt-2 max-w-3xl text-sm text-white/48">Catalog genre and energy set the eligible category. Rotation creates exposure. Listener choices set position. Score = ▲ − ▼ + 2×Keeps + Completions + 2×Repeat listens + 3×Purchases. Plays alone add no points.</p></div>
               {shockRows.length ? <div>{shockRows.map((row) => <div key={row.track_id} className="grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-3 border-b border-white/8 px-5 py-4 last:border-0 sm:px-8"><div className="text-2xl font-black text-[#ff69bd]">#{row.position}</div><div className="min-w-0"><div className="truncate font-black">{row.title}</div><div className="truncate text-xs text-white/45">{row.artist_name} · {row.primary_genre} / {energyCategory(row.energy_lane)}</div><div className="mt-1 text-xs text-white/50">▲ {row.up_count} · ▼ {row.down_count} · Keeps {row.keep_count}</div></div><div className="text-right"><div className="text-xl font-black">{row.shock_score}</div><div className="text-[0.65rem] uppercase tracking-wider text-white/35">Shock Score</div></div></div>)}</div> : <div className="p-8 text-sm text-white/50">No eligible tracks are classified yet.</div>}
-            </section>
+            </section>}
           </TabsContent>
         </Tabs>
       </div>

@@ -1,28 +1,32 @@
 "use client";
+/* Full document navigation refreshes server-authenticated artist and sign-in pages. */
+/* eslint-disable @next/next/no-html-link-for-pages */
 import { useCallback, useEffect, useState } from 'react';
 type ArtistTrack={id:number;title:string;artist_name:string;primary_genre:string;subgenre:string|null;style:string|null;energy_lane:string;status:string;radio_enabled:number;radio_status:string;sale_enabled:number;sale_price_cents:number|null;artist_id:string;created_at:string;artist_slug:string;listener_count:number;up_count:number;down_count:number;keep_count:number;completion_count:number;repeat_count:number;purchase_count:number};
 const genres=['Alternative','Blues','Classical','Country','Electronic','Experimental','Folk','Hip-Hop','Jazz','Metal','Other','Punk','Pop','Rock'];
 async function request(path:string,body?:unknown){const r=await fetch(path,{cache:'no-store',...(body?{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(body)}:{})});const data=await r.json() as {error?:string;tracks:ArtistTrack[];accountId:string;profile?:{artist_name:string}};if(!r.ok)throw new Error(data.error ?? 'Could not save.');return data;}
-export function ArtistRotunda({onChange}:{onChange:()=>Promise<void>}) {
+export function ArtistRotunda({onChange,onUpload}:{onChange:()=>Promise<void>;onUpload:()=>void}) {
+ const [observedAt,setObservedAt]=useState(0);
  const [tracks,setTracks]=useState<ArtistTrack[]>([]),[account,setAccount]=useState(''),[name,setName]=useState(''),[error,setError]=useState(''),[busy,setBusy]=useState(false);
- const load=useCallback(async()=>{try{const data=await request('/api/musicbat?view=rotunda');setTracks(data.tracks);setAccount(data.accountId);setName(data.profile?.artist_name ?? data.tracks[0]?.artist_name ?? 'Your artist identity');setError('');}catch(e){setError(e instanceof Error?e.message:'Sign in to manage your music.');}},[]);
+ const load=useCallback(async()=>{try{const data=await request('/api/musicbat?view=rotunda');setTracks(data.tracks);setObservedAt(Date.now());setAccount(data.accountId);setName(data.profile?.artist_name ?? data.tracks[0]?.artist_name ?? 'Your artist identity');setError('');}catch(e){setError(e instanceof Error?e.message:'Sign in to manage your music.');}},[]);
  useEffect(()=>{const task=setTimeout(()=>void load(),0);return()=>clearTimeout(task)},[load]);
  async function save(body:unknown){setBusy(true);try{await request('/api/musicbat',body);await load();await onChange();}catch(e){setError(e instanceof Error?e.message:'Could not save.')}finally{setBusy(false)}}
  return <section className="space-y-5 rounded-[1.75rem] border border-white/10 bg-[#111018] p-6 sm:p-8">
   <div><p className="text-xs uppercase tracking-widest text-[#ff3ea5]">Manage Songs</p><h1 className="mt-2 text-2xl font-bold">{name}</h1><p className="mt-2 text-sm text-white/60">The musician follows what happens to their music. Upload, edit, and remove songs here. Radio permission and sales permission are separate.</p></div>
+  <button type="button" onClick={onUpload} className="rounded border border-[#ff3ea5]/40 px-4 py-2">Add Track</button>
   <aside className="rounded-xl border border-white/10 p-4"><h2 className="font-bold">Initial Discovery — First 14 Days</h2><p className="mt-2 text-sm text-white/60">Two weeks is an introductory observation period, not a guarantee of statistically meaningful results. Genuine activity appears as listeners participate. A new catalog is not a failed catalog. Continue building your audience and adding recordings you are authorized to share.</p></aside>
   {account && <details className="text-xs text-white/50"><summary>Account identity for representative authorization</summary><code>{account}</code></details>}
   {error && <p role="alert" className="text-[#ff9dcc]">{error} <a href="/signin-with-chatgpt?return_to=%2F" className="underline">Sign in</a></p>}
   <form onSubmit={e=>{e.preventDefault();const f=new FormData(e.currentTarget);void save({action:"set_artist_identity",artistName:f.get("artistName")})}} className="flex flex-wrap gap-3"><label>Artist / band identity<input name="artistName" required maxLength={80} defaultValue={name==='Your artist identity'?'':name} key={name} className="block rounded border border-white/20 bg-black/30 p-2" /></label><button disabled={busy} className="rounded border border-[#ff3ea5]/40 p-2">Save identity</button></form>
-  {!tracks.length && !error && <p>Your catalog is empty. Use Add Music to upload your first recording. Existing recordings appear only for their authenticated owner or appointed representative.</p>}
+  {!tracks.length && !error && <p>Your catalog is empty. Use Add Track to upload your first recording. Existing recordings appear only for their authenticated owner or appointed representative.</p>}
   {tracks.map(t=><article key={t.id} className="space-y-4 rounded-xl border border-white/10 p-4">
    <div><h2 className="text-lg font-bold">{t.title}</h2><p className="text-sm text-white/60">{t.artist_name} · {t.status} · Radio: {t.radio_status} · {t.sale_enabled?'Sales enabled':'Sales stopped'}</p></div>
-   <p className="text-sm text-white/60">{t.artist_slug && <a className="underline" href={'/'+t.artist_slug}>View artist page</a>} · Released {t.created_at.slice(0,10)} · {new Date(t.created_at.replace(' ','T')+'Z').getTime() > Date.now()-14*86400000 ? 'Initial Discovery' : 'Ongoing discovery'}</p>
+   <p className="text-sm text-white/60">{t.artist_slug && <a className="underline" href={'/'+t.artist_slug}>View artist page</a>} · Released {t.created_at.slice(0,10)} · {new Date(t.created_at.replace(' ','T')+'Z').getTime() > observedAt-14*86400000 ? 'Initial Discovery' : 'Ongoing discovery'}</p>
    <p className="text-sm">{Number(t.listener_count)<2 ? 'Not enough listener activity yet.' : `${t.listener_count} distinct qualified listeners. These are observed counts, not a statistical verdict.`}</p>
    <p className="text-xs text-white/60">Like {t.up_count} · Not for Me {t.down_count} · Keeps {t.keep_count} · Completions {t.completion_count} · Repeat listens {t.repeat_count} · Purchases {t.purchase_count}</p>
    {t.status!=='deleted' && <>
     <details><summary className="cursor-pointer font-bold text-[#ff3ea5]">Edit Song</summary>
-    <form onSubmit={e=>{e.preventDefault();const f=new FormData(e.currentTarget);void save({action:'edit_metadata',trackId:t.id,title:f.get('title'),primaryGenre:f.get('genre'),subgenre:f.get('subgenre'),style:f.get('style'),energyLane:f.get('energy')})}} className="grid gap-3 sm:grid-cols-2">
+    <form key={[t.title,t.primary_genre,t.subgenre,t.style,t.energy_lane].join("|")} onSubmit={e=>{e.preventDefault();const f=new FormData(e.currentTarget);void save({action:'edit_metadata',trackId:t.id,title:f.get('title'),primaryGenre:f.get('genre'),subgenre:f.get('subgenre'),style:f.get('style'),energyLane:f.get('energy')})}} className="grid gap-3 sm:grid-cols-2">
      <label>Track title<input name="title" defaultValue={t.title} required maxLength={120} className="block w-full rounded border border-white/20 bg-black/30 p-2" /></label>
      <label>Genre<select name="genre" defaultValue={t.primary_genre} className="block w-full rounded bg-[#17141d] p-2">{genres.map(g=><option key={g}>{g}</option>)}</select></label>
      <label>Subgenre<input name="subgenre" defaultValue={t.subgenre ?? ''} maxLength={80} className="block w-full rounded border border-white/20 bg-black/30 p-2" /></label>
