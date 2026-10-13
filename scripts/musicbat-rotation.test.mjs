@@ -18,7 +18,10 @@ function database() {
 async function handlers(sqlite) {
   globalThis.musicbatRotationState = {
     user: { userId: 'artist-1', displayName: 'The Enucleators' },
-    env: { DB: { prepare(sql) {
+    env: { RADIO_SERVICE: { async fetch() {
+      const track = sqlite.prepare('SELECT track_id FROM listens WHERE listener_id=? ORDER BY rowid DESC LIMIT 1').get(globalThis.musicbatRotationState.user?.userId)?.track_id ?? 1;
+      return Response.json({snapshot:{simulation:false,status:'playing',channelId:'test-plus',category:{genre:'Rock'},performance:{trackId:String(track),authorityId:'test-authority'}}});
+    } }, DB: { prepare(sql) {
       const stmt = sqlite.prepare(sql);
       const bound = (...args) => ({ async first() { return stmt.get(...args) ?? null; }, async all() { return { results: stmt.all(...args) }; }, async run() { return stmt.run(...args); } });
       return { ...bound(), bind: bound };
@@ -40,7 +43,7 @@ test('existing uploads toggle ON/OFF persistently without changing eligibility, 
     const { tracks } = await (await route.GET(get())).json();
     assert.equal(tracks.length, 5);
     assert.equal(tracks.find((t) => t.id === 3).keep_in_rotation, Number(enabled));
-    assert.ok(tracks.every((t) => t.rotation_eligible));
+    assert.ok(tracks.every((t) => !t.rotation_eligible), "Upload consent alone does not grant Radio eligibility");
     assert.deepEqual(sqlite.prepare('SELECT id, audio_url, status, rights_attested FROM tracks').all(), before);
   }
   globalThis.musicbatRotationState.user = { userId: 'another-artist' };
@@ -95,14 +98,14 @@ test('insufficient/broken preferred tracks fall back; ineligible tracks never pl
 });
 test('MusicBat player omits native controls and Next; Buy and essential playback controls remain', () => {
   const player = readFileSync('app/musicbat-loop.tsx', 'utf8');
-  const controls = readFileSync('components/musicbat-player.tsx', 'utf8');
-  assert.match(player, /<MusicBatPlayer/);
+  const controls = readFileSync('components/shared-radio-player.tsx', 'utf8');
+  assert.match(player, /<SharedRadioPlayer/);
   assert.match(controls, /controlsList="nodownload noremoteplayback"/);
   assert.doesNotMatch(controls, /\bcontrols(?:\s|=)/);
-  assert.match(controls, /"Pause Radio" : "Play Radio"/);
-  assert.match(controls, /aria-label="Playback position"/);
+  assert.match(controls, /'Pause Radio':'Play Radio'/);
+  assert.doesNotMatch(controls, /type="range".*(?:seek|position)/);
   assert.match(controls, /aria-label="Volume"/);
-  assert.match(controls, /onEnded\(\); \}, 500\)/);
+  assert.match(controls, /onEnded.*update/);
   assert.match(player, /aria-label=\{`Buy \$\{current.title\}`\}/);
   assert.match(player, /aria-pressed=\{keepActive\}/);
   assert.match(player, /onEnded=\{\(\) => void completeListen\(\)\}/);
@@ -110,21 +113,21 @@ test('MusicBat player omits native controls and Next; Buy and essential playback
 });
 
 
-test('migration carries artist rotation preference and listener keeps, then removes Hangers', async () => {
+test('migration carries artist rotation preference and listener keeps, and preserves Hangers', async () => {
   const sqlite = new DatabaseSync(':memory:');
   for (const name of ['0000_wild_vapor.sql', '0001_quick_blizzard.sql']) sqlite.exec(readFileSync(`drizzle/${name}`, 'utf8'));
   sqlite.exec("INSERT INTO tracks(artist_id,artist_name,title,audio_url) VALUES ('artist-1','The Enucleators','Unity','/api/musicbat/audio/existing.mp3')");
   sqlite.exec("INSERT INTO hangers(track_id,listener_id,kind) VALUES (1,'artist-1','keep_in_rotation'), (1,'listener-2','keep_in_rotation')");
   sqlite.exec(readFileSync('drizzle/0002_third_elektra.sql','utf8'));
-  for (const name of ['0003_oval_dark_phoenix.sql', '0004_bat_radio_energy_feedback.sql']) sqlite.exec(readFileSync(`drizzle/${name}`, 'utf8'));
+  for (const name of ['0003_oval_dark_phoenix.sql', '0004_listener_choices.sql']) sqlite.exec(readFileSync(`drizzle/${name}`, 'utf8'));
   sqlite.exec("INSERT INTO listens(id,track_id,listener_id,qualified,qualified_at) VALUES ('legacy-listen',1,'listener-3',1,CURRENT_TIMESTAMP); INSERT INTO hangers(track_id,listener_id,kind) VALUES (1,'listener-3','standout');");
-  sqlite.exec(readFileSync('drizzle/0005_wandering_enchantress.sql', 'utf8'));
+  sqlite.exec(readFileSync('drizzle/0005_v13_signal_compatibility.sql', 'utf8'));
   assert.equal(sqlite.prepare('SELECT keep_in_rotation FROM tracks').get().keep_in_rotation,1);
   assert.equal(sqlite.prepare('SELECT count(*) AS n FROM track_keeps').get().n,1);
   assert.equal(sqlite.prepare('SELECT listener_id FROM track_keeps').get().listener_id,'listener-2');
   const migratedSignal = sqlite.prepare("SELECT listener_id,listen_id,signal FROM radio_feedback").get();
   assert.deepEqual({ ...migratedSignal }, { listener_id: 'listener-3', listen_id: 'legacy-listen', signal: 'up' });
-  assert.throws(() => sqlite.prepare('SELECT * FROM hangers').all(), /no such table/);
+  assert.equal(sqlite.prepare('SELECT count(*) AS n FROM hangers').get().n,3);
 });
 test('eligibility queries exclude moderated, removed, unpublished and unattested songs', async () => {
   const sqlite = database(), route = await handlers(sqlite);
@@ -171,20 +174,25 @@ test('triangle feedback is append-only and records listener, session, artist, ca
     { track_id: 2, artist_id: 'artist-1', listener_id: 'listener-1', listen_id: 'radio-session-1', energy_lane: 'medium', signal: 'down' },
   ]);
   assert.ok(rows.every((row) => row.created_at));
-  assert.equal((await route.POST(post({ action: 'radio_feedback', trackId: 3, listenId: 'radio-session-1', energyLane: 'hard', signal: 'up' }))).status, 409);
+  assert.equal((await route.POST(post({ action: 'radio_feedback', trackId: 3, listenId: 'radio-session-1', energyLane: 'hard', signal: 'up' }))).status, 403);
   assert.equal(sqlite.prepare('SELECT count(*) AS n FROM radio_feedback').get().n, 2);
+  const catalog = await (await route.GET(new Request('https://musicbat.audio/api/musicbat'))).json();
+  const track = catalog.tracks.find(t => t.id === 2);
+  assert.equal(track.up_count, 0);
+  assert.equal(track.down_count, 1);
 });
 
-test('Radio UI exposes compact energy lanes and triangle responses, and advances only in the selected lane', () => {
+test('Radio UI preserves catalog classification and responses while using authoritative shared playback', () => {
   const player = readFileSync('app/musicbat-loop.tsx', 'utf8');
-  assert.match(player, /track\.energy_lane === energyLane/);
-  assert.match(player, /selectNextTrack\(rotationTracks/);
+  assert.match(player, /value=\{track.energy_lane\}/);
+  assert.doesNotMatch(player, /selectNextTrack|src=\{current.audio_url\}/);
+  assert.match(player, /<SharedRadioPlayer/);
   assert.match(player, /More like this/);
   assert.match(player, /Less like this/);
   assert.match(player, /signal: \"up\" \| \"down\"/);
   assert.match(player, /action: \"radio_feedback\"/);
   assert.match(player, /action: \"set_energy_lane\"/);
-  assert.match(player, /track\.primary_genre === primaryGenre/);
+  assert.match(player, /value=\{track.primary_genre\}/);
   assert.match(player, /Shock Room/);
   assert.doesNotMatch(player, /Weight Room|Hanger/);
 });
@@ -223,8 +231,8 @@ test('Shock Room ranks listener behavior within genre and energy; exposure alone
   assert.equal((await route.POST(post({ action: 'complete_listen', trackId: 1, listenId: 'a2' }))).status, 200);
   const afterSignals = await (await getShockRoom()).json();
   const rankedOne = afterSignals.rows.find(row => row.track_id === 1);
-  assert.equal(rankedOne.up_count, 1);
+  assert.equal(rankedOne.up_count, 0);
   assert.equal(rankedOne.down_count, 1);
   assert.equal(rankedOne.completion_count, 2);
-  assert.equal(rankedOne.shock_score, 6);
+  assert.equal(rankedOne.shock_score, 5);
 });

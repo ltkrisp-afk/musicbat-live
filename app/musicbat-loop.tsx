@@ -1,16 +1,29 @@
 "use client";
+/* Full document navigation refreshes server-authenticated artist and sign-in pages. */
+/* eslint-disable @next/next/no-html-link-for-pages */
 
-import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { FormEvent, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { Activity, Disc3, Gauge, Radio, ShieldCheck, Sparkles, Upload } from "lucide-react";
-import { MusicBatPlayer } from "@/components/musicbat-player";
-import { selectNextTrack } from "./rotation";
+import { ArtistDiscovery, type Artist } from "@/components/artist-discovery";
+import { ArtistRotunda } from "@/components/artist-rotunda";
+import { SharedRadioPlayer } from "@/components/shared-radio-player";
+
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
+const subscribeLocation = (notify: () => void) => {
+  window.addEventListener("popstate", notify);
+  return () => window.removeEventListener("popstate", notify);
+};
+const readLocation = () => window.location.search;
+const serverLocation = () => "";
+
 type Track = {
   id: number;
+  artist_id: string;
+  artist_slug: string;
   title: string;
   artist_name: string;
   audio_url: string;
@@ -93,26 +106,45 @@ async function api<T>(path: string, init?: RequestInit): Promise<T> {
   return data;
 }
 
-export default function MusicBatLoop({ displayName }: { displayName: string }) {
-  const [tab, setTab] = useState("radio");
+export default function MusicBatLoop({ displayName, artistSlug, initialTab }: { displayName: string; artistSlug?:string;initialTab?:string }) {
+  const [tab, setTab] = useState(artistSlug ? "discover" : initialTab ?? "radio");
+  const [artists,setArtists]=useState<Artist[]>([]),[canManage,setCanManage]=useState(false),[followingOnly,setFollowingOnly]=useState(false),[search,setSearch]=useState('');
+  const [artistError,setArtistError]=useState(''),[artistLoading,setArtistLoading]=useState(true),[followBusy,setFollowBusy]=useState(false);
+  const followStartingRef=useRef(false);
+  const loadArtists=useCallback(async()=>{
+    setArtistLoading(true);
+    try {const d=await api<{artists:Artist[];canManage:boolean}>('/api/musicbat?view=artists');setArtists(d.artists);setCanManage(d.canManage);setArtistError('');}
+    catch(e){setArtistError(e instanceof Error?e.message:'Could not load artists.');throw e;}
+    finally{setArtistLoading(false);}
+  },[]);
+  useEffect(()=>{const task=setTimeout(()=>void loadArtists().catch(()=>{}),0);return()=>clearTimeout(task);},[loadArtists]);
+  async function followArtist(artist:Artist){
+    if(followStartingRef.current)return;
+    followStartingRef.current=true;setFollowBusy(true);
+    try{await api('/api/musicbat',{method:'POST',body:JSON.stringify({action:'follow_artist',artistId:artist.artist_id,enabled:!artist.following})});await loadArtists();setMessage(artist.following?'Artist unfollowed.':'Artist followed.');}
+    catch(e){setMessage(e instanceof Error?e.message:'Could not follow artist.');}
+    finally{followStartingRef.current=false;setFollowBusy(false);}
+  }
+
   const [tracks, setTracks] = useState<Track[]>([]);
-  const [energyLane, setEnergyLane] = useState<EnergyLane>("medium");
-  const [primaryGenre, setPrimaryGenre] = useState("All genres");
   const [shockRows, setShockRows] = useState<ShockRow[]>([]);
-  const [currentIndex, setCurrentIndex] = useState(0);
-  const [replay, setReplay] = useState(0);
-  const [autoPlay, setAutoPlay] = useState(false);
-  const creditsRef = useRef(new Map<number, number>());
-  const failedRef = useRef(new Set<number>());
+  const [sharedTrackId, setSharedTrackId] = useState<string | null>(null);
+  const [sharedPerformanceKey, setSharedPerformanceKey] = useState("");
   const currentTrackIdRef = useRef<number | null>(null);
   const activeSessionRef = useRef("");
   const signalStartingRef = useRef(false);
   const [listenId, setListenId] = useState<string | null>(null);
   const [qualified, setQualified] = useState(false);
+  const [interactive, setInteractive] = useState(false);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [purchaseBusy, setPurchaseBusy] = useState(false);
-  const [purchaseMessage, setPurchaseMessage] = useState("");
+  const [purchaseStatus, setPurchaseMessage] = useState("");
+  const returnSearch = useSyncExternalStore(subscribeLocation, readLocation, serverLocation);
+  const returnParams = new URLSearchParams(returnSearch);
+  const purchaseMessage = purchaseStatus || (returnParams.get("purchase") === "cancelled"
+    ? "Checkout cancelled. The track remains locked and you were not charged."
+    : returnParams.get("purchase") === "success" ? "Payment received by Stripe. Confirming it securely…" : "");
   const [purchaseDownloadUrl, setPurchaseDownloadUrl] = useState("");
   const purchaseStartingRef = useRef(false);
   const [message, setMessage] = useState("Loading rights-cleared Radio…");
@@ -128,6 +160,7 @@ export default function MusicBatLoop({ displayName }: { displayName: string }) {
   const [uploadEnergyLane, setUploadEnergyLane] = useState<EnergyLane>("medium");
   const [uploadGenre, setUploadGenre] = useState("");
   const [uploadSubgenre, setUploadSubgenre] = useState("");
+  const [uploadStyle, setUploadStyle] = useState("");
   const [uploadMoodTags, setUploadMoodTags] = useState("");
   const [saleRightsAttested, setSaleRightsAttested] = useState(false);
   const [saleDrafts, setSaleDrafts] = useState<Record<number, string>>({});
@@ -137,18 +170,30 @@ export default function MusicBatLoop({ displayName }: { displayName: string }) {
   const startingRef = useRef(false);
   const qualifyingRef = useRef(false);
 
-  const rotationTracks = useMemo(() => tracks.filter((track) => track.energy_lane === energyLane && (primaryGenre === "All genres" || track.primary_genre === primaryGenre)), [tracks, energyLane, primaryGenre]);
-  const current = tracks[currentIndex] ?? null;
-  currentTrackIdRef.current = current?.id ?? null;
-  activeSessionRef.current = `${current?.id}:${replay}`;
-  const canRespond = qualified;
+  const current = tracks.find(track => String(track.id) === sharedTrackId) ?? null;
+  const sessionKey = `${current?.id}:${sharedPerformanceKey}`;
+  const [previousSession, setPreviousSession] = useState(sessionKey);
+  // Reset render state when identity changes, before children commit the new audio.
+  if (previousSession !== sessionKey) {
+    setPreviousSession(sessionKey);
+    setListenId(null);
+    setQualified(false);
+  }
+  useLayoutEffect(() => {
+    currentTrackIdRef.current = current?.id ?? null;
+    activeSessionRef.current = sessionKey;
+    startingRef.current = false;
+    qualifyingRef.current = false;
+  }, [current?.id, sessionKey]);
+  const canRespond = interactive && qualified;
   const keepActive = Boolean(current?.viewer_keep_in_rotation);
 
-  const refresh = useCallback(async () => {
-    const [trackData, shockData] = await Promise.all([
+  const fetchRadio = useCallback(() => Promise.all([
       api<{ tracks: Track[] }>("/api/musicbat?view=tracks"),
       api<{ rows: ShockRow[] }>("/api/musicbat?view=shock-room"),
-    ]);
+    ]), []);
+
+  const applyRadio = useCallback(([trackData, shockData]: [{ tracks: Track[] }, { rows: ShockRow[] }]) => {
     const updated = trackData.tracks.map((track) => ({
       ...track,
       id: Number(track.id),
@@ -170,10 +215,7 @@ export default function MusicBatLoop({ displayName }: { displayName: string }) {
       for (const track of updated) if (!(track.id in next)) next[track.id] = ((track.sale_price_cents ?? 100) / 100).toFixed(2);
       return next;
     });
-    const selectedIndex = updated.findIndex((track) => track.id === currentTrackIdRef.current);
-    if (currentTrackIdRef.current === null && updated[0]) setPrimaryGenre(updated[0].primary_genre);
     setTracks(updated);
-    setCurrentIndex(Math.max(0, selectedIndex));
     setShockRows(shockData.rows.map((row) => ({
       ...row,
       track_id: Number(row.track_id),
@@ -186,34 +228,48 @@ export default function MusicBatLoop({ displayName }: { displayName: string }) {
       purchase_count: Number(row.purchase_count),
       position: Number(row.position),
     })));
-  }, []);
+  }, [setTracks,setShockRows]);
+
+  const refresh = useCallback(async () => Promise.all([fetchRadio(),loadArtists()]).then(([data])=>applyRadio(data)), [applyRadio, fetchRadio,loadArtists]);
 
   useEffect(() => {
-    refresh()
-      .then(() => setMessage("Choose a track and press play."))
-      .catch((error) => setMessage(error instanceof Error ? error.message : "Radio unavailable."))
-      .finally(() => setLoading(false));
-  }, [refresh]);
+    let cancelled = false;
+    fetchRadio()
+      .then((data) => { if (!cancelled) applyRadio(data); })
+      .then(() => { if (!cancelled) setMessage("Choose a musical category and press play."); })
+      .catch((error) => { if (!cancelled) setMessage(error instanceof Error ? error.message : "Radio unavailable."); })
+      .finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
+  }, [fetchRadio, applyRadio]);
 
   const refreshConnectStatus = useCallback(async () => {
     try {
-      setConnectStatus(await api<ConnectStatus>("/api/musicbat/stripe/connect"));
+      const status = await api<ConnectStatus>("/api/musicbat/stripe/connect");
+      setConnectStatus(status);
     } catch { setConnectStatus(null); }
   }, []);
 
-  useEffect(() => { void refreshConnectStatus(); }, [refreshConnectStatus]);
+  useEffect(() => {
+    let cancelled = false;
+    api<ConnectStatus>("/api/musicbat/stripe/connect")
+      .then(status => { if (!cancelled) setConnectStatus(status); })
+      .catch(() => { if (!cancelled) setConnectStatus(null); });
+    return () => { cancelled = true; };
+  }, []);
 
   useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
+    const params = new URLSearchParams(returnSearch);
     const state = params.get("purchase");
     const order = params.get("order");
     const stripeReturn = params.get("stripe");
     if (stripeReturn) {
-      void refreshConnectStatus().then(() => setMessage(stripeReturn === "return" ? "Stripe setup returned to MusicBat. Payout status refreshed." : "Restart Stripe onboarding to finish payout setup."));
+      void api<ConnectStatus>("/api/musicbat/stripe/connect").then(status => {
+        setConnectStatus(status);
+        setMessage(stripeReturn === "return" ? "Stripe setup returned to MusicBat. Payout status refreshed." : "Restart Stripe onboarding to finish payout setup.");
+      }).catch(() => setConnectStatus(null));
     }
-    if (state === "cancelled") setPurchaseMessage("Checkout cancelled. The track remains locked and you were not charged.");
     if (state === "success" && order) {
-      setPurchaseMessage("Payment received by Stripe. Confirming it securely…");
+
       void (async () => {
         for (let attempt = 0; attempt < 6; attempt += 1) {
           try {
@@ -231,15 +287,7 @@ export default function MusicBatLoop({ displayName }: { displayName: string }) {
       })();
     }
     if (state === "cancelled" || stripeReturn) window.history.replaceState({}, "", window.location.pathname);
-  }, [refreshConnectStatus]);
-
-  useEffect(() => {
-    setListenId(null);
-    setPurchaseMessage("");
-    setQualified(false);
-    startingRef.current = false;
-    qualifyingRef.current = false;
-  }, [current?.id, replay]);
+  }, [refreshConnectStatus, returnSearch]);
 
   useEffect(() => {
     const context = (document as Document & { modelContext?: ToolContext }).modelContext;
@@ -274,7 +322,7 @@ export default function MusicBatLoop({ displayName }: { displayName: string }) {
     try {
       const result = await api<{ listenId: string; minimumSeconds: number }>("/api/musicbat", {
         method: "POST",
-        body: JSON.stringify({ action: "start_listen", trackId: current.id }),
+        body: JSON.stringify({ action: "start_listen", trackId: current.id, performanceKey: sharedPerformanceKey }),
       });
       if (activeSessionRef.current !== session) return;
       setListenId(result.listenId);
@@ -288,7 +336,7 @@ export default function MusicBatLoop({ displayName }: { displayName: string }) {
   }
 
   async function qualifyListen(currentTime: number) {
-    if (!current || !listenId || qualified || qualifyingRef.current || currentTime < 12) return;
+    if (!interactive || !current || !listenId || qualified || qualifyingRef.current || currentTime < 12) return;
     qualifyingRef.current = true;
     const session = activeSessionRef.current;
     try {
@@ -310,12 +358,12 @@ export default function MusicBatLoop({ displayName }: { displayName: string }) {
   async function toggleKeep(track: Track) {
     if (signalStartingRef.current) return;
     const session = activeSessionRef.current;
-    const active = Boolean(track.can_manage ? track.keep_in_rotation : track.viewer_keep_in_rotation);
+    const active = Boolean(track.viewer_keep_in_rotation);
     signalStartingRef.current = true;
     setBusy(true);
     try {
       await api("/api/musicbat", { method: "POST", body: JSON.stringify({
-        action: track.can_manage ? "set_rotation_priority" : "toggle_keep",
+        action: "toggle_keep",
         trackId: track.id, enabled: !active,
       }) });
       await refresh();
@@ -325,16 +373,23 @@ export default function MusicBatLoop({ displayName }: { displayName: string }) {
     } finally { setBusy(false); signalStartingRef.current = false; }
   }
 
-  async function buyCurrentTrack() {
-    if (!current || purchaseStartingRef.current) return;
+  async function buyCurrentTrack(track: Track | null = current) {
+    if (!track || purchaseStartingRef.current) return;
     // Capture before awaiting: Radio can change without changing this purchase.
-    const selected = { id: current.id, title: current.title };
+    const selected = { id: track.id, title: track.title };
     purchaseStartingRef.current = true;
     setPurchaseBusy(true);
     setPurchaseMessage(`Selecting “${selected.title}”…`);
     try {
-      const result = await api<{ purchase: { id: string }; checkoutAvailable: true; checkoutUrl: string }>("/api/musicbat/purchase", {
-        method: "POST", body: JSON.stringify({ trackId: selected.id }),
+      const endpoint = "/api/musicbat/purchase";
+      const first = await fetch(endpoint, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ trackId: selected.id }) });
+      const quoteResponse = await first.json() as { confirmationRequired?: boolean; quote?: { baseCents: number; processingCents: number; totalCents: number }; error?: string };
+      if (!quoteResponse.confirmationRequired || !quoteResponse.quote) throw new Error(quoteResponse.error || "Checkout quote unavailable.");
+      const { baseCents, processingCents, totalCents } = quoteResponse.quote;
+      const usd = (cents: number) => `$${(cents / 100).toFixed(2)}`;
+      if (!window.confirm(`MusicBat purchase: ${selected.title}\nSong: ${usd(baseCents)}\nBuyer processing charge: ${usd(processingCents)}\nTotal charged: ${usd(totalCents)}\n\nArtist receives 85% of the song price. Continue to Stripe?`)) return;
+      const result = await api<{ purchase: { id: string }; checkoutAvailable: true; checkoutUrl: string }>(endpoint, {
+        method: "POST", body: JSON.stringify({ trackId: selected.id, confirmedTotalCents: totalCents }),
       });
       window.location.assign(result.checkoutUrl);
     } catch (error) {
@@ -363,6 +418,7 @@ export default function MusicBatLoop({ displayName }: { displayName: string }) {
       form.set("energyLane", uploadEnergyLane);
       form.set("primaryGenre", uploadGenre);
       form.set("subgenre", uploadSubgenre);
+      form.set("style", uploadStyle);
       form.set("moodTags", uploadMoodTags);
       await api("/api/musicbat", { method: "POST", body: form });
       setTitle("");
@@ -375,12 +431,12 @@ export default function MusicBatLoop({ displayName }: { displayName: string }) {
       setUploadEnergyLane("medium");
       setUploadGenre("");
       setUploadSubgenre("");
+      setUploadStyle("");
       setUploadMoodTags("");
       setSaleRightsAttested(false);
       await refresh();
-      setCurrentIndex(0);
-      setTab("radio");
-      setMessage("Track accepted. It is now live in MusicBat Radio.");
+      setTab("rotunda");
+      setMessage("Track accepted. Radio eligibility requires reviewed rights and category approval.");
     } catch (error) {
       const detail = error instanceof Error ? error.message : "Track could not be added.";
       setUploadError(detail);
@@ -422,32 +478,6 @@ export default function MusicBatLoop({ displayName }: { displayName: string }) {
     } finally { setBusy(false); }
   }
 
-  function nextTrack(continuePlaying = true) {
-    const next = selectNextTrack(rotationTracks, current?.id, creditsRef.current, failedRef.current);
-    if (!next) { setAutoPlay(false); setMessage(`No playable tracks are assigned to ${energyLanes.find((lane) => lane.id === energyLane)?.label}. Choose another lane or assign tracks in the catalog.`); return; }
-    setAutoPlay(continuePlaying);
-    setCurrentIndex(tracks.findIndex((track) => track.id === next.id));
-    setReplay((value) => value + 1);
-    setMessage(`Radio continues in ${primaryGenre === "All genres" ? "all genres" : primaryGenre} / ${energyCategory(energyLane)}.`);
-  }
-
-  function tuneEnergyLane(lane: EnergyLane) {
-    if (lane === energyLane) return;
-    setEnergyLane(lane);
-    creditsRef.current.clear();
-    const pool = tracks.filter((track) => track.energy_lane === lane && (primaryGenre === "All genres" || track.primary_genre === primaryGenre));
-    if (current && current.energy_lane === lane && (primaryGenre === "All genres" || current.primary_genre === primaryGenre)) return;
-    if (!pool.length) {
-      setAutoPlay(false);
-      setCurrentIndex(-1);
-      setReplay((value) => value + 1);
-      setMessage(`No tracks are assigned to ${lane} yet.`);
-      return;
-    }
-    setCurrentIndex(tracks.findIndex((track) => track.id === pool[0].id));
-    setReplay((value) => value + 1);
-  }
-
   async function sendRadioFeedback(signal: "up" | "down") {
     if (!current || !listenId || busy) return;
     const track = current;
@@ -474,18 +504,10 @@ export default function MusicBatLoop({ displayName }: { displayName: string }) {
       catch { /* Continue playback even if the completion signal cannot be saved. */ }
     }
     await refresh();
-    nextTrack(true);
   }
 
-  function tuneGenre(genre: string) {
-    if (genre === primaryGenre) return;
-    setPrimaryGenre(genre);
-    creditsRef.current.clear();
-    const pool = tracks.filter((track) => track.energy_lane === energyLane && (genre === "All genres" || track.primary_genre === genre));
-    if (current && current.energy_lane === energyLane && (genre === "All genres" || current.primary_genre === genre)) return;
-    setAutoPlay(false);
-    setCurrentIndex(pool.length ? tracks.findIndex((track) => track.id === pool[0].id) : -1);
-    setReplay((value) => value + 1);
+  function openRadio() {
+    setMessage("Use the Radio category controls to tune a shared channel.");
   }
 
   async function saveEnergyLane(track: Track, lane: EnergyLane) {
@@ -516,8 +538,8 @@ export default function MusicBatLoop({ displayName }: { displayName: string }) {
     if (!tracks.length) return "Catalog is waiting for its first track";
     if (canRespond) return "Listener response ready";
     if (listenId) return "Listen in progress";
-    return `${rotationTracks.length} track${rotationTracks.length === 1 ? "" : "s"} in ${energyLane} Radio`;
-  }, [listenId, canRespond, tracks.length, rotationTracks.length, energyLane]);
+    return sharedTrackId ? "Shared Radio performance" : "Radio is quiet or unavailable";
+  }, [listenId, canRespond, tracks.length, sharedTrackId]);
 
   return (
     <main className="min-h-screen bg-[#08070b] text-[#f7f4ed]">
@@ -527,7 +549,7 @@ export default function MusicBatLoop({ displayName }: { displayName: string }) {
             <div className="grid size-11 place-items-center rounded-full border border-[#ff3ea5]/40 bg-[#ff3ea5]/10 text-[#ff69bd] shadow-[0_0_34px_rgba(255,62,165,.18)]">
               <Activity className="size-5" />
             </div>
-            <div><div className="text-[0.72rem] font-black uppercase tracking-[0.24em] text-[#ff69bd]">MusicBat</div><div className="text-lg font-black tracking-tight">Minimum Working Loop</div></div>
+            <div><a href="/" className="text-[0.72rem] font-black uppercase tracking-[0.24em] text-[#ff69bd]">MusicBat</a><p className="mt-1 text-[0.6rem] tracking-wider text-white/55">YOUR MUSIC. YOUR RIGHTS. YOUR MONEY.</p></div>
           </div>
           <div className="text-right"><div className="text-sm font-semibold text-white/90">{displayName}</div><div className="text-xs text-white/45">{loopStatus}</div></div>
         </header>
@@ -537,26 +559,30 @@ export default function MusicBatLoop({ displayName }: { displayName: string }) {
         </div>
 
         <Tabs value={tab} onValueChange={setTab} className="gap-5">
-          <TabsList className="h-auto w-full justify-start gap-1 rounded-xl border border-white/10 bg-white/[0.035] p-1.5 sm:w-fit">
+          <TabsList className="h-auto w-full flex-wrap justify-start gap-1 rounded-xl border border-white/10 bg-white/[0.035] p-1.5 sm:w-fit">
             <TabsTrigger value="radio" className="h-10 rounded-lg px-4 text-white/55 data-[state=active]:bg-[#ff3ea5] data-[state=active]:text-white"><Radio /> Radio</TabsTrigger>
+            <TabsTrigger value="discover" className="h-10 rounded-lg px-4 text-white/55 data-[state=active]:bg-[#ff3ea5] data-[state=active]:text-white"><Disc3 /> Discover Artists</TabsTrigger>
             <TabsTrigger value="catalog" className="h-10 rounded-lg px-4 text-white/55 data-[state=active]:bg-[#ff3ea5] data-[state=active]:text-white"><Disc3 /> Add Track</TabsTrigger>
-            <TabsTrigger value="shock" className="h-10 rounded-lg px-4 text-white/55 data-[state=active]:bg-[#ff3ea5] data-[state=active]:text-white"><Gauge /> Shock Room</TabsTrigger>
-          </TabsList>
+            {canManage && <TabsTrigger value="shock" className="h-10 rounded-lg px-4 text-white/55 data-[state=active]:bg-[#ff3ea5] data-[state=active]:text-white"><Gauge /> Shock Room</TabsTrigger>}
+          {canManage && <TabsTrigger value="rotunda" className="h-10 rounded-lg px-4 text-white/55 data-[state=active]:bg-[#ff3ea5] data-[state=active]:text-white">Manage Songs</TabsTrigger>}</TabsList>
 
+          <TabsContent value="discover">
+            <ArtistDiscovery artists={artists} tracks={tracks} artistSlug={artistSlug} search={search} onSearch={setSearch}
+              followingOnly={followingOnly} onFollowingOnly={setFollowingOnly} loading={artistLoading} error={artistError}
+              onRetry={()=>void loadArtists().catch(()=>{})} followBusy={followBusy} onFollow={a=>void followArtist(a)}
+              purchaseBusy={purchaseBusy} onBuy={t=>void buyCurrentTrack(t as Track)}
+              onRadio={()=>{openRadio();setTab('radio');}} message={purchaseMessage || message} />
+          </TabsContent>
           <TabsContent value="radio">
             <section className="grid gap-5 lg:grid-cols-[minmax(0,1.55fr)_minmax(310px,.65fr)]">
               <div className="relative overflow-hidden rounded-[1.75rem] border border-white/10 bg-[#111018] p-6 shadow-[0_28px_90px_rgba(0,0,0,.45)] sm:p-9">
                 <div className="pointer-events-none absolute -right-24 -top-24 size-72 rounded-full bg-[#ff3ea5]/10 blur-3xl" />
                 <div className="relative">
-                  <div className="mb-10 flex items-center justify-between gap-4"><div className="flex items-center gap-2 text-xs font-black uppercase tracking-[0.18em] text-[#ff69bd]"><span className="size-2 rounded-full bg-[#ff3ea5] shadow-[0_0_14px_#ff3ea5]" /> Now in the cave</div><div className="rounded-full border border-white/10 px-3 py-1 text-xs text-white/45">{rotationTracks.length ? `${Math.max(0, rotationTracks.findIndex((track) => track.id === current?.id) + 1)} / ${rotationTracks.length}` : "0 / 0"}</div></div>
-                  <div role="group" aria-label="Tune Radio energy" className="mb-6 inline-flex rounded-full border border-white/10 bg-black/25 p-1">
-                    {energyLanes.map((lane) => <button key={lane.id} type="button" aria-pressed={energyLane === lane.id} onClick={() => tuneEnergyLane(lane.id)} className={`rounded-full px-3 py-1.5 text-xs font-bold transition ${energyLane === lane.id ? "bg-[#ff3ea5] text-white shadow-[0_0_14px_rgba(255,62,165,.25)]" : "text-white/50 hover:text-white"}`}>{lane.label}</button>)}
-                  </div>
-                  <label className="mb-6 block max-w-xs"><span className="mb-2 block text-xs font-bold text-white/50">Genre sequence</span><select aria-label="Radio genre" value={primaryGenre} onChange={(event) => tuneGenre(event.target.value)} className="h-10 w-full rounded-lg border border-white/12 bg-[#17141d] px-3 text-sm text-white"><option>All genres</option>{[...new Set(tracks.map((track) => track.primary_genre))].sort().map((genre) => <option key={genre}>{genre}</option>)}</select></label>
+                  <div className="mb-10 flex items-center justify-between gap-4"><div className="flex items-center gap-2 text-xs font-black uppercase tracking-[0.18em] text-[#ff69bd]"><span className="size-2 rounded-full bg-[#ff3ea5] shadow-[0_0_14px_#ff3ea5]" /> Now in the cave</div><div className="rounded-full border border-white/10 px-3 py-1 text-xs text-white/45">{sharedTrackId ? "Shared channel" : "Quiet"}</div></div>
+                  <SharedRadioPlayer onInteractive={setInteractive} onTrack={(id, key) => { setSharedTrackId(id); setSharedPerformanceKey(key); }} onError={setMessage} onPlay={() => void startListen()} onProgress={(seconds) => void qualifyListen(seconds)} onEnded={() => void completeListen()} />
                   {current ? <>
                     <div className="mb-8 min-h-36"><div className="mb-3 text-sm uppercase tracking-[0.16em] text-white/38">Independent signal · {current.primary_genre} / {energyCategory(current.energy_lane)}</div><h1 className="max-w-4xl text-4xl font-black leading-[0.98] tracking-[-0.045em] sm:text-6xl lg:text-7xl">{current.title}</h1><p className="mt-4 text-lg font-semibold text-white/58">{current.artist_name}</p></div>
                     <div className="flex flex-wrap items-center gap-3">
-                      <MusicBatPlayer src={current.audio_url} title={current.title} replay={replay} autoPlay={autoPlay} onPlay={() => { setAutoPlay(true); void startListen(); }} onProgress={(seconds) => void qualifyListen(seconds)} onEnded={() => void completeListen()} onError={setMessage} onUnavailable={() => { failedRef.current.add(current.id); nextTrack(autoPlay); }} />
                       <Button type="button" disabled={purchaseBusy} aria-busy={purchaseBusy} onClick={() => void buyCurrentTrack()} aria-label={`Buy ${current.title}`} data-track-id={current.id} className="h-12 shrink-0 rounded-full border border-[#ff3ea5]/50 bg-[#ff3ea5]/20 px-6 text-base font-black text-white disabled:opacity-60">{current.sale_enabled && current.sale_price_cents ? `Buy $${(current.sale_price_cents / 100).toFixed(2)}` : "Buy"}</Button>
                       <div className="flex shrink-0 items-center gap-1" role="group" aria-label="Radio feedback">
                         <Button type="button" variant="ghost" aria-label="More like this" title="More like this" disabled={busy || !canRespond} onClick={() => void sendRadioFeedback("up")} className="size-10 rounded-full px-0 text-lg font-black text-white/65 hover:bg-[#ff3ea5]/15 hover:text-[#ff69bd]">▲</Button>
@@ -565,14 +591,14 @@ export default function MusicBatLoop({ displayName }: { displayName: string }) {
                     </div>
                     {purchaseMessage && <p role="status" aria-live="polite" className="mt-3 text-sm leading-relaxed text-white/65">{purchaseMessage}{purchaseDownloadUrl && <> <a className="font-black text-[#ff69bd] underline" href={purchaseDownloadUrl}>Download track</a></>}</p>}
                     <div className="mt-6 flex flex-wrap gap-3">
-                      <Button aria-pressed={keepActive} disabled={busy || (!canRespond && !keepActive)} onClick={() => void toggleKeep(current)} title="Keep this track in rotation or remove your keep." className={keepActive ? "h-11 rounded-full border border-[#ff69bd] bg-[#ff3ea5] px-5 text-white" : "h-11 rounded-full border border-white/15 bg-white/[0.045] px-5 text-white"}>Keep in rotation</Button>
+                      <Button aria-pressed={keepActive} disabled={busy || !canRespond} onClick={() => void toggleKeep(current)} title="Keep this track in rotation or remove your keep." className={keepActive ? "h-11 rounded-full border border-[#ff69bd] bg-[#ff3ea5] px-5 text-white" : "h-11 rounded-full border border-white/15 bg-white/[0.045] px-5 text-white"}>Keep in rotation</Button>
                     </div>
-                  </> : <div className="grid min-h-[390px] place-items-center text-center"><div><Disc3 className="mx-auto mb-5 size-12 text-[#ff69bd]" /><h1 className="text-3xl font-black tracking-tight">{tracks.length ? "This category is quiet." : "Radio needs its first track."}</h1><p className="mx-auto mt-3 max-w-md text-white/52">{tracks.length ? "Choose another genre or energy lane, or classify a track in the catalog." : "Upload your music file, classify it, and confirm your rights to enter Radio."}</p><Button onClick={() => setTab("catalog")} className="mt-6 rounded-full bg-[#ff3ea5] px-6 text-white hover:bg-[#ff69bd]">{tracks.length ? "Open catalog" : "Add the first track"}</Button></div></div>}
+                  </> : <div className="grid min-h-[390px] place-items-center text-center"><div><Disc3 className="mx-auto mb-5 size-12 text-[#ff69bd]" /><h1 className="text-3xl font-black tracking-tight">{tracks.length ? "This category is quiet." : "Radio needs its first track."}</h1><p className="mx-auto mt-3 max-w-md text-white/52">{tracks.length ? "Use the shared Radio category controls or review the catalog." : "Upload your music file, classify it, and confirm your rights to enter Radio."}</p><Button onClick={() => setTab(tracks.length ? "discover" : "catalog")} className="mt-6 rounded-full bg-[#ff3ea5] px-6 text-white hover:bg-[#ff69bd]">{tracks.length ? "Open catalog" : "Add the first track"}</Button></div></div>}
                 </div>
               </div>
               <aside className="flex flex-col gap-5">
                 <div className="rounded-[1.5rem] border border-white/10 bg-white/[0.035] p-6"><div className="mb-5 flex items-center gap-2 text-xs font-black uppercase tracking-[0.16em] text-white/45"><Sparkles className="size-4 text-[#ff69bd]" /> Signal status</div><p className="text-lg font-semibold leading-snug">{loading ? "Loading the loop…" : message}</p>{message === "Sign in to use MusicBat." && <a href="/signin-with-chatgpt?return_to=%2F" className="mt-3 inline-block font-bold text-[#ff69bd] underline">Sign in to keep songs in rotation</a>}<div className="mt-6 h-1.5 overflow-hidden rounded-full bg-white/10"><div className={`h-full rounded-full bg-[#ff3ea5] transition-all ${canRespond ? "w-full" : listenId ? "w-2/3" : tracks.length ? "w-1/3" : "w-0"}`} /></div></div>
-                <div className="rounded-[1.5rem] border border-white/10 bg-[#15121b] p-6"><div className="text-xs font-black uppercase tracking-[0.16em] text-[#ff69bd]">Category signal</div><div className="mt-3 text-2xl font-black">Shock Score {current?.shock_score ?? 0}</div><div className="mt-2 text-sm text-white/50">▲ {current?.up_count ?? 0} · ▼ {current?.down_count ?? 0} · Keeps {current?.keep_count ?? 0}</div><div className="mt-1 text-xs text-white/38">Completions {current?.completion_count ?? 0} · Repeat listens {current?.repeat_count ?? 0} · Purchases {current?.purchase_count ?? 0}</div><div className="mt-2 text-sm text-white/50">Position: #{current?.position ?? "—"} — {current?.primary_genre ?? primaryGenre} / {current ? energyCategory(current.energy_lane) : energyCategory(energyLane)}</div></div>
+                <div className="rounded-[1.5rem] border border-white/10 bg-[#15121b] p-6"><div className="text-xs font-black uppercase tracking-[0.16em] text-[#ff69bd]">Category signal</div><div className="mt-3 text-2xl font-black">Shock Score {current?.shock_score ?? 0}</div><div className="mt-2 text-sm text-white/50">▲ {current?.up_count ?? 0} · ▼ {current?.down_count ?? 0} · Keeps {current?.keep_count ?? 0}</div><div className="mt-1 text-xs text-white/38">Completions {current?.completion_count ?? 0} · Repeat listens {current?.repeat_count ?? 0} · Purchases {current?.purchase_count ?? 0}</div><div className="mt-2 text-sm text-white/50">Position: #{current?.position ?? "—"} — {current?.primary_genre ?? "—"} / {current ? energyCategory(current.energy_lane) : "—"}</div></div>
               </aside>
             </section>
           </TabsContent>
@@ -584,13 +610,14 @@ export default function MusicBatLoop({ displayName }: { displayName: string }) {
                 <div className="space-y-4">
                   <div className="rounded-xl border border-white/10 bg-white/[0.03] p-4">
                     <div className="text-sm font-black text-white">Artist payouts</div>
-                    <p className="mt-1 text-sm text-white/50">{connectStatus?.ready ? "Stripe test payouts are ready." : connectStatus?.connected ? "Finish Stripe onboarding before buyers can check out." : "Connect a separate MusicBat Stripe Express account to receive 90% of each sale."}</p>
+                    <p className="mt-1 text-sm text-white/50">{connectStatus?.ready ? "Payout setup is ready. Checkout availability follows the configured payment mode." : connectStatus?.connected ? "Finish Stripe onboarding before buyers can check out." : "Connect a separate MusicBat Stripe Express account to receive 85% of the song price. Buyer processing fees are charged separately."}</p>
                     <Button type="button" disabled={connectBusy || Boolean(connectStatus?.ready)} onClick={() => void connectStripe()} className="mt-3 h-10 rounded-full border border-[#ff3ea5]/50 bg-[#ff3ea5]/15 px-4 text-white hover:bg-[#ff3ea5]/25">{connectBusy ? "Opening Stripe…" : connectStatus?.ready ? "Stripe connected" : connectStatus?.connected ? "Finish Stripe setup" : "Connect Stripe payouts"}</Button>
                   </div>
                   <label className="block"><span className="mb-2 block text-sm font-semibold text-white/65">Track title</span><Input value={title} onChange={(event) => setTitle(event.target.value)} required maxLength={120} className="h-12 rounded-xl border-white/12 bg-white/[0.045] px-4 text-white placeholder:text-white/25" placeholder="Track title" /></label>
                   <label className="block"><span className="mb-2 block text-sm font-semibold text-white/65">Artist or band name</span><Input value={artistName} onChange={(event) => setArtistName(event.target.value)} required maxLength={80} className="h-12 rounded-xl border-white/12 bg-white/[0.045] px-4 text-white placeholder:text-white/25" placeholder="Artist or band name" /></label>
                   <label className="block"><span className="mb-2 block text-sm font-semibold text-white/65">Primary genre</span><select value={uploadGenre} onChange={(event) => setUploadGenre(event.target.value)} required className="h-12 w-full rounded-xl border border-white/12 bg-[#17141d] px-4 text-white"><option value="">Choose a genre</option>{primaryGenres.map((genre) => <option key={genre}>{genre}</option>)}</select></label>
                   <label className="block"><span className="mb-2 block text-sm font-semibold text-white/65">Subgenre (optional)</span><Input value={uploadSubgenre} onChange={(event) => setUploadSubgenre(event.target.value)} maxLength={80} className="h-12 rounded-xl border-white/12 bg-white/[0.045] px-4 text-white" placeholder="e.g. post-punk" /></label>
+                  <label className="block"><span className="mb-2 block text-sm font-semibold text-white/65">Style (requires subgenre)</span><Input value={uploadStyle} onChange={(event) => setUploadStyle(event.target.value)} maxLength={80} className="h-12 rounded-xl border-white/12 bg-white/[0.045] px-4 text-white" /></label>
                   <label className="block"><span className="mb-2 block text-sm font-semibold text-white/65">Mood / feel tags (optional, comma separated)</span><Input value={uploadMoodTags} onChange={(event) => setUploadMoodTags(event.target.value)} maxLength={240} className="h-12 rounded-xl border-white/12 bg-white/[0.045] px-4 text-white" placeholder="urgent, hazy, defiant" /></label>
                   <label className="block"><span className="mb-2 block text-sm font-semibold text-white/65">Radio energy lane</span><select value={uploadEnergyLane} onChange={(event) => setUploadEnergyLane(event.target.value as EnergyLane)} className="h-12 w-full rounded-xl border border-white/12 bg-[#17141d] px-4 text-white">{energyLanes.map((lane) => <option key={lane.id} value={lane.id}>{lane.label}</option>)}</select></label>
                   <div className="block">
@@ -612,15 +639,15 @@ export default function MusicBatLoop({ displayName }: { displayName: string }) {
                     <label className="block"><span className="mb-2 block text-sm font-semibold text-white/65">Price in USD</span><Input value={salePrice} onChange={(event) => setSalePrice(event.target.value)} required min="0.50" max="1000" step="0.01" type="number" inputMode="decimal" className="h-11 rounded-xl border-white/12 bg-black/20 px-4 text-white" /></label>
                     <label className="flex cursor-pointer items-start gap-3"><Checkbox checked={saleRightsAttested} onCheckedChange={(value) => setSaleRightsAttested(value === true)} className="mt-0.5 border-white/25 data-[state=checked]:border-[#ff3ea5] data-[state=checked]:bg-[#ff3ea5]" /><span className="text-sm leading-relaxed text-white/62">I authorize MusicBat to sell and deliver this recording to buyers.</span></label>
                   </div>}
-                  <Button disabled={busy || !rightsAttested || !audioFile || !uploadGenre || (sellTrack && !saleRightsAttested)} type="submit" className="h-12 w-full rounded-xl bg-[#ff3ea5] text-base font-black text-white hover:bg-[#ff69bd]">{busy ? "Uploading your track…" : "Add to Radio"}</Button>
+                  <Button disabled={busy || !rightsAttested || !audioFile || !uploadGenre || (sellTrack && !saleRightsAttested)} type="submit" className="h-12 w-full rounded-xl bg-[#ff3ea5] text-base font-black text-white hover:bg-[#ff69bd]">{busy ? "Uploading your track…" : "Upload music"}</Button>
                   {uploadError && <p role="alert" className="text-sm text-[#ff9dcc]">{uploadError}{signInRequired && <> <a className="font-bold underline" href="/signin-with-chatgpt?return_to=%2F">Sign in to upload</a></>}</p>}
                 </div>
               </form>
               <div className="rounded-[1.75rem] border border-white/10 bg-white/[0.025] p-6 sm:p-8">
-                <div className="mb-5 flex items-center justify-between"><div><div className="text-xs font-black uppercase tracking-[0.18em] text-white/42">Rights-cleared catalog</div><h2 className="mt-2 text-2xl font-black">{tracks.length} active track{tracks.length === 1 ? "" : "s"}</h2></div><ShieldCheck className="size-7 text-[#ff69bd]" /></div>
+                <div className="mb-5 flex items-center justify-between"><div><div className="text-xs font-black uppercase tracking-[0.18em] text-white/42">Music catalog</div><h2 className="mt-2 text-2xl font-black">{tracks.length} active track{tracks.length === 1 ? "" : "s"}</h2></div><ShieldCheck className="size-7 text-[#ff69bd]" /></div>
                 <div className="space-y-3">{tracks.map((track) => <div key={track.id} className="rounded-xl border border-white/8 bg-white/[0.025] p-2">
                   <div className="flex flex-wrap items-center gap-2">
-                    <button type="button" onClick={() => { failedRef.current.delete(track.id); setEnergyLane(track.energy_lane); setAutoPlay(false); setCurrentIndex(tracks.findIndex((item) => item.id === track.id)); setReplay((cycle) => cycle + 1); setTab("radio"); }} className="flex min-w-0 flex-1 basis-[220px] items-center justify-between gap-4 rounded-xl bg-white/[0.025] p-3 text-left transition hover:bg-[#ff3ea5]/5"><div className="min-w-0"><div className="truncate font-bold">{track.title}</div><div className="truncate text-sm text-white/42">{track.artist_name}{track.sale_enabled && track.sale_price_cents ? ` · $${(track.sale_price_cents / 100).toFixed(2)}` : ""}</div></div><div className="shrink-0 text-xs font-black uppercase tracking-wider text-[#ff69bd]">Play</div></button>
+                    <button type="button" onClick={() => { openRadio(); setTab("radio"); }} className="flex min-w-0 flex-1 basis-[220px] items-center justify-between gap-4 rounded-xl bg-white/[0.025] p-3 text-left transition hover:bg-[#ff3ea5]/5"><div className="min-w-0"><div className="truncate font-bold">{track.title}</div><div className="truncate text-sm text-white/42">{track.artist_name}{track.sale_enabled && track.sale_price_cents ? ` · $${(track.sale_price_cents / 100).toFixed(2)}` : ""}</div></div><div className="shrink-0 text-xs font-black uppercase tracking-wider text-[#ff69bd]">Open Radio</div></button>
                   </div>
                   {Boolean(track.can_manage) && <div className="mt-2 rounded-lg border border-white/8 bg-black/15 p-3">
                     <div className="flex flex-wrap items-end gap-2">
@@ -630,19 +657,21 @@ export default function MusicBatLoop({ displayName }: { displayName: string }) {
                       <Button type="button" disabled={busy || !saleConsents[track.id]} onClick={() => void saveSale(track, true)} className="h-10 rounded-full bg-[#ff3ea5] px-4 text-white hover:bg-[#ff69bd]">{track.sale_enabled ? "Update sale" : "Enable sale"}</Button>
                       {Boolean(track.sale_enabled) && <Button type="button" disabled={busy} onClick={() => void saveSale(track, false)} className="h-10 rounded-full border border-white/15 bg-white/[0.045] px-4 text-white hover:bg-white/10">Stop sales</Button>}
                     </div>
-                    <label className="mt-3 flex cursor-pointer items-start gap-2"><Checkbox checked={Boolean(saleConsents[track.id])} onCheckedChange={(value) => setSaleConsents((consents) => ({ ...consents, [track.id]: value === true }))} className="mt-0.5 border-white/25 data-[state=checked]:border-[#ff3ea5] data-[state=checked]:bg-[#ff3ea5]" /><span className="text-xs leading-relaxed text-white/50">I authorize MusicBat to sell and deliver this recording. Artist receives 90%; MusicBat retains 10% before Stripe processing costs.</span></label>
-                    <div className="mt-2 text-xs text-white/40">{track.sale_enabled ? (track.seller_ready ? "Checkout ready in Stripe test mode." : "Sale saved; finish Stripe payout setup before checkout can open.") : "Not currently for sale."}</div>
+                    <label className="mt-3 flex cursor-pointer items-start gap-2"><Checkbox checked={Boolean(saleConsents[track.id])} onCheckedChange={(value) => setSaleConsents((consents) => ({ ...consents, [track.id]: value === true }))} className="mt-0.5 border-white/25 data-[state=checked]:border-[#ff3ea5] data-[state=checked]:bg-[#ff3ea5]" /><span className="text-xs leading-relaxed text-white/50">I authorize MusicBat to sell and deliver this recording. Artist receives 85% of the song price; MusicBat retains 15%. Buyer processing charge is displayed separately before checkout.</span></label>
+                    <div className="mt-2 text-xs text-white/40">{track.sale_enabled ? (track.seller_ready ? "Payout setup ready; checkout follows the configured payment mode." : "Sale saved; finish Stripe payout setup before checkout can open.") : "Not currently for sale."}</div>
                   </div>}
                 </div>)}</div>
               </div>
             </section>
           </TabsContent>
 
+          <TabsContent value="rotunda">{canManage && <ArtistRotunda onChange={refresh} onUpload={()=>setTab("catalog")} />}</TabsContent>
+
           <TabsContent value="shock">
-            <section className="overflow-hidden rounded-[1.75rem] border border-white/10 bg-[#111018]">
+            {canManage && <section className="overflow-hidden rounded-[1.75rem] border border-white/10 bg-[#111018]">
               <div className="border-b border-white/10 p-6 sm:p-8"><div className="text-xs font-black uppercase tracking-[0.18em] text-[#ff69bd]">Shock Room</div><h1 className="mt-2 text-3xl font-black tracking-[-0.04em]">Listening is exposure. Choice is signal.</h1><p className="mt-2 max-w-3xl text-sm text-white/48">Catalog genre and energy set the eligible category. Rotation creates exposure. Listener choices set position. Score = ▲ − ▼ + 2×Keeps + Completions + 2×Repeat listens + 3×Purchases. Plays alone add no points.</p></div>
               {shockRows.length ? <div>{shockRows.map((row) => <div key={row.track_id} className="grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-3 border-b border-white/8 px-5 py-4 last:border-0 sm:px-8"><div className="text-2xl font-black text-[#ff69bd]">#{row.position}</div><div className="min-w-0"><div className="truncate font-black">{row.title}</div><div className="truncate text-xs text-white/45">{row.artist_name} · {row.primary_genre} / {energyCategory(row.energy_lane)}</div><div className="mt-1 text-xs text-white/50">▲ {row.up_count} · ▼ {row.down_count} · Keeps {row.keep_count}</div></div><div className="text-right"><div className="text-xl font-black">{row.shock_score}</div><div className="text-[0.65rem] uppercase tracking-wider text-white/35">Shock Score</div></div></div>)}</div> : <div className="p-8 text-sm text-white/50">No eligible tracks are classified yet.</div>}
-            </section>
+            </section>}
           </TabsContent>
         </Tabs>
       </div>

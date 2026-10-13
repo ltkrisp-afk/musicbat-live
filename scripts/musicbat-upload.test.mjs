@@ -6,7 +6,9 @@ import ts from 'typescript';
 // Execute the real handlers with platform boundaries replaced by test doubles.
 async function loadRoute(path, state) {
   globalThis.musicbatTestState = state;
+  const policy = await readFile(new URL('../lib/playback-authorization.ts', import.meta.url), 'utf8');
   const source = (await readFile(new URL(path, import.meta.url), 'utf8'))
+    .replace(/import \{ authorizePlayback, type Permission \} from [^;]+;/, policy)
     .replace('import { env } from "cloudflare:workers";', 'const env = globalThis.musicbatTestState.env;')
     .replace('import { getChatGPTUser } from "../../chatgpt-auth";', 'const getChatGPTUser = async () => globalThis.musicbatTestState.user;');
   const { outputText } = ts.transpileModule(source, { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext } });
@@ -15,11 +17,13 @@ async function loadRoute(path, state) {
 function fixture() {
   const objects = new Map();
   const tracks = [];
+  const grant = {recording_basis:'direct', recording_evidence:'test-recording-contract', composition_evidence:'test-composition-contract', reviewed_by:'test-reviewer', reviewed_at:0, artist_authorized:1, free_allowed:1, plus_allowed:1, starts_at:0, expires_at:9999999999999, withdrawn_at:null, territory:'worldwide'};
   const state = { user: { userId: 'artist-1', displayName: 'Account name' }, failInsert: false, env: {
-    DB: { prepare(sql) { return { bind(...values) { return { async first() {
+    DB: { async batch(statements) { return Promise.all(statements.map(s=>s.execute())); }, prepare(sql) { return { bind(...values) { return { async run() { return {}; }, async execute() { return {results: sql.includes("INSERT INTO tracks") ? [await this.first()] : []}; }, async first() {
+      if (sql.includes('playback_permissions')) return grant;
       if (sql.includes('INSERT INTO tracks')) {
         if (state.failInsert) throw new Error('simulated catalog failure');
-        const track = { id: tracks.length + 1, artist_name: values[1], title: values[2], audio_url: values[3], energy_lane: values[4], primary_genre: values[5], subgenre: values[6], mood_tags: values[7] };
+        const track = { id: tracks.length + 1, artist_name: values[1], title: values[2], audio_url: values[3], energy_lane: values[4], primary_genre: values[5], subgenre: values[6], mood_tags: values[7], style: values[11] };
         tracks.push(track); return track;
       }
       return tracks.find(track => track.audio_url === values[0]) ?? null;
@@ -50,7 +54,7 @@ function upload(overrides = {}) {
   return new Request('https://musicbat.audio/api/musicbat', { method: 'POST', body: form });
 }
 
-test('uploaded bytes play intact and support mobile seeking, suffix ranges, and HEAD', async () => {
+test('uploaded bytes remain intact while standalone radio playback is closed', async () => {
   const { state, objects } = fixture();
   const api = await loadRoute('../app/api/musicbat/route.ts', state);
   const audio = await loadRoute('../app/api/musicbat/audio/[assetId]/route.ts', state);
@@ -61,20 +65,13 @@ test('uploaded bytes play intact and support mobile seeking, suffix ranges, and 
   assert.equal(track.title, 'Test song');
   assert.match(track.audio_url, /^\/api\/musicbat\/audio\/[0-9a-f-]+\.wav$/);
   assert.equal(objects.size, 1);
+  const object = [...objects.values()][0];
+  assert.deepEqual(new Uint8Array(object.bytes), wav);
   const url = 'https://musicbat.audio' + track.audio_url;
-  const full = await audio.GET(new Request(url));
-  assert.equal(full.status, 200); assert.equal(full.headers.get('content-type'), 'audio/wav');
-  assert.deepEqual(new Uint8Array(await full.arrayBuffer()), wav);
-  const partial = await audio.GET(new Request(url, { headers: { range: 'bytes=8-11' } }));
-  assert.equal(partial.status, 206); assert.equal(partial.headers.get('content-range'), `bytes 8-11/${wav.length}`);
-  assert.equal(await partial.text(), 'WAVE');
-  const suffix = await audio.GET(new Request(url, { headers: { range: 'bytes=-10' } }));
-  assert.equal(suffix.status, 206); assert.equal((await suffix.arrayBuffer()).byteLength, 10);
-  assert.equal((await audio.GET(new Request(url, { headers: { range: `bytes=${wav.length}-` } }))).status, 416);
-  assert.equal((await audio.GET(new Request(url, { headers: { range: 'bytes=-0' } }))).status, 416);
-  const head = await audio.HEAD(new Request(url, { method: 'HEAD' }));
-  assert.equal(head.headers.get('content-length'), String(wav.length)); assert.equal(await head.text(), '');
-  assert.equal((await audio.GET(new Request(url.replace(/[^/]+$/, 'unknown.wav')))).status, 404);
+  for (const range of [null,'bytes=8-11','bytes=-10']) {
+    assert.equal((await audio.GET(new Request(url,range?{headers:{range}}:{}))).status,410);
+  }
+  assert.equal((await audio.HEAD(new Request(url,{method:'HEAD'}))).status,410);
 });
 
 test('uploads store required genre and energy plus optional subgenre and mood tags', async () => {

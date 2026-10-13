@@ -33,15 +33,50 @@
     {
       "idx": 4,
       "version": "6",
-      "when": 1790493930207,
-      "tag": "0004_bat_radio_energy_feedback",
+      "when": 1790724323090,
+      "tag": "0004_listener_choices",
       "breakpoints": true
     },
     {
       "idx": 5,
       "version": "6",
-      "when": 1790580349906,
-      "tag": "0005_wandering_enchantress",
+      "when": 1790724324090,
+      "tag": "0005_v13_signal_compatibility",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "6",
+      "when": 1790724325090,
+      "tag": "0006_purchase_processing",
+      "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "6",
+      "when": 1790724326090,
+      "tag": "0007_playback_permissions",
+      "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "6",
+      "when": 1790724327090,
+      "tag": "0008_shared_radio_engine",
+      "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "6",
+      "when": 1790724328090,
+      "tag": "0009_artist_controls",
+      "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "6",
+      "when": 1790724329090,
+      "tag": "0010_artist_discovery",
       "breakpoints": true
     }
   ]

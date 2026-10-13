@@ -1,3 +1,0 @@
-# MusicBat recovery source
-
-The complete verified October 12 recovery archive is committed at `recovery/musicbat-live-experience-recovery-2026-10-12.zip` (SHA-256 `cd2220ae2b739604785272d9823ddc5d5f4d04928388c5823bcdaeae7680cd00`). The archive includes a Git bundle for commit `7f71f67d99c4e5467558723a444c16905e4faf10`, source tarball, reports, and restore instructions. This branch retains original source from `ed3c566`. The newer acceptance revision `664591b` is not included. Production untouched.

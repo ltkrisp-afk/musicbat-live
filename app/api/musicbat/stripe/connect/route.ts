@@ -49,6 +49,7 @@ function failure(error: unknown) {
 }
 
 export async function GET() {
+  if (env.MUSICBAT_RELEASE_PAUSED === "1") return Response.json({ error: "MusicBat is briefly paused for an update." }, { status: 503, headers: { "retry-after": "60", "cache-control": "no-store" } });
   try {
     const user = await requireArtist();
     const row = await rowFor(user.userId);
@@ -58,6 +59,7 @@ export async function GET() {
 }
 
 export async function POST(request: Request) {
+  if (env.MUSICBAT_RELEASE_PAUSED === "1") return Response.json({ error: "MusicBat is briefly paused for an update." }, { status: 503, headers: { "retry-after": "60", "cache-control": "no-store" } });
   try {
     const origin = request.headers.get("origin");
     if (origin && origin !== new URL(request.url).origin) return json({ error: "Open MusicBat to connect payouts." }, 403);

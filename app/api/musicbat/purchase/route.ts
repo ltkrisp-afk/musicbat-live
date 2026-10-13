@@ -1,6 +1,6 @@
 import { env } from "cloudflare:workers";
 import { buyerIdentity } from "./buyer";
-import { connectReady, musicBatOrigin, StripeAccount, StripeCheckoutSession, StripeConfigurationError, stripeGet, stripePost } from "../stripe/stripe";
+import { connectReady, musicBatOrigin, StripeAccount, StripeCheckoutSession, StripeConfigurationError, stripeGet, stripePost, stripeModeMatches } from "../stripe/stripe";
 
 type TrackForSale = {
   id: number;
@@ -29,23 +29,39 @@ function response(data: unknown, status = 200, cookie?: string | null) {
   return Response.json(data, { status, headers: { "cache-control": "no-store", ...(cookie ? { "set-cookie": cookie } : {}) } });
 }
 
+function processingSurcharge(amount: number) {
+  // Explicitly configured checkout rate; fail closed rather than invent a processor rate.
+  const bps = Number(env.MUSICBAT_PROCESSING_BPS);
+  const fixed = Number(env.MUSICBAT_PROCESSING_FIXED_CENTS);
+  if (!env.MUSICBAT_PROCESSING_BPS || !env.MUSICBAT_PROCESSING_FIXED_CENTS ||
+      !Number.isInteger(bps) || bps < 0 || bps >= 10000 ||
+      !Number.isInteger(fixed) || fixed < 0) {
+    throw new StripeConfigurationError("Buyer processing fee schedule is not configured.");
+  }
+  const numerator = amount * bps + fixed * 10000;
+  if (!Number.isSafeInteger(numerator)) throw new StripeConfigurationError("Processing fee exceeds the supported range.");
+  return Math.ceil(numerator / (10000 - bps));
+}
+
 function split(amount: number) {
-  const artistShare = Math.round(amount * 0.9);
+  const artistShare = Math.floor((amount * 85 + 50) / 100);
   return { artistShare, platformFee: amount - artistShare };
 }
 
 async function existingCheckout(purchase: PurchaseDraft) {
   if (!purchase.processor_session_id) return null;
   const session = await stripeGet<StripeCheckoutSession>(env, `/v1/checkout/sessions/${encodeURIComponent(purchase.processor_session_id)}`);
+  if (!stripeModeMatches(env, session.livemode)) throw new StripeConfigurationError("Stored Checkout Session mode does not match the configured mode.");
   return session.status === "open" && session.url ? session.url : null;
 }
 
 export async function POST(request: Request) {
+  if (env.MUSICBAT_RELEASE_PAUSED === "1") return Response.json({ error: "MusicBat is briefly paused for an update." }, { status: 503, headers: { "retry-after": "60", "cache-control": "no-store" } });
   try {
     const origin = request.headers.get("origin");
     if (origin && origin !== new URL(request.url).origin) return response({ error: "Open MusicBat to buy this song." }, 403);
     if (!env.DB || !env.BUCKET) return response({ error: "Purchases are temporarily unavailable." }, 503);
-    let body: { trackId?: unknown };
+    let body: { trackId?: unknown; confirmedTotalCents?: unknown };
     try { body = await request.json(); } catch { return response({ error: "Choose a valid song." }, 400); }
     const trackId = Number(body.trackId);
     if (!Number.isInteger(trackId) || trackId < 1) return response({ error: "Choose a valid song." }, 400);
@@ -57,6 +73,7 @@ export async function POST(request: Request) {
     `).bind(trackId).first<TrackForSale>();
     if (!track) return response({ error: "That song is unavailable." }, 404);
     if (!track.sale_enabled || !track.sale_rights_attested || !track.sale_price_cents) return response({ error: "This artist has not offered the track for sale yet." }, 409);
+    if (!Number.isSafeInteger(track.sale_price_cents) || track.sale_price_cents < 1 || track.sale_price_cents > 99999999) return response({ error: "This song has an invalid sale price." }, 409);
     if (track.sale_currency !== "usd") return response({ error: "This track's currency is not supported yet." }, 409);
     if (!track.stripe_account_id) {
       return response({ error: "This artist is still finishing Stripe payout setup." }, 409);
@@ -68,10 +85,19 @@ export async function POST(request: Request) {
     const assetId = /^\/api\/musicbat\/audio\/([0-9a-f-]{36}\.(?:mp3|wav|flac))$/.exec(track.audio_url)?.[1];
     if (!assetId || !(await env.BUCKET.head(`tracks/${assetId}`))) return response({ error: "This song needs its original music file before it can be sold." }, 409);
     const buyer = (await buyerIdentity(request, true))!;
+    const surcharge = processingSurcharge(track.sale_price_cents);
+    const total = track.sale_price_cents + surcharge;
+    if (body.confirmedTotalCents !== total) {
+      return response({ confirmationRequired: true, quote: {
+        trackId, title: track.title, baseCents: track.sale_price_cents,
+        processingCents: surcharge, totalCents: total, currency: "usd",
+        artistShareCents: split(track.sale_price_cents).artistShare,
+      } }, 409, buyer.cookie);
+    }
     let purchase = await env.DB.prepare(`SELECT id, title, artist_name, processor_session_id FROM purchases
-      WHERE buyer_hash = ? AND track_id = ? AND audio_path = ? AND status IN ('awaiting_checkout', 'pending')
+      WHERE buyer_hash = ? AND track_id = ? AND audio_path = ? AND amount_cents = ? AND processing_cents = ? AND status IN ('awaiting_checkout', 'pending')
       AND created_at > datetime('now', '-1 day') ORDER BY created_at DESC LIMIT 1`)
-      .bind(buyer.hash, trackId, track.audio_url).first<PurchaseDraft>();
+      .bind(buyer.hash, trackId, track.audio_url, track.sale_price_cents, surcharge).first<PurchaseDraft>();
     if (purchase) {
       const checkoutUrl = await existingCheckout(purchase);
       if (checkoutUrl) return response({ purchase: { ...purchase, trackId }, checkoutAvailable: true, checkoutUrl }, 200, buyer.cookie);
@@ -81,11 +107,12 @@ export async function POST(request: Request) {
     const id = crypto.randomUUID();
     const { artistShare, platformFee } = split(track.sale_price_cents);
     purchase = await env.DB.prepare(`INSERT INTO purchases
-      (id, buyer_hash, track_id, title, artist_name, artist_id, audio_path, status, amount_cents, artist_share_cents, platform_fee_cents, currency, processor_account_id)
-      VALUES (?, ?, ?, ?, ?, ?, ?, 'awaiting_checkout', ?, ?, ?, 'usd', ?)
+      (id, buyer_hash, track_id, title, artist_name, artist_id, audio_path, status, amount_cents, artist_share_cents, platform_fee_cents, currency, processor_account_id, processing_cents)
+      SELECT ?, ?, ?, ?, ?, ?, ?, 'awaiting_checkout', ?, ?, ?, 'usd', ?, ? FROM tracks
+      WHERE id=? AND status='active' AND sale_enabled=1 AND sale_rights_attested=1 AND artist_id=? AND audio_url=? AND sale_price_cents=?
       RETURNING id, title, artist_name, processor_session_id`)
-      .bind(id, buyer.hash, trackId, track.title, track.artist_name, track.artist_id, track.audio_url, track.sale_price_cents, artistShare, platformFee, track.stripe_account_id).first<PurchaseDraft>();
-    if (!purchase) throw new Error("Purchase draft could not be saved.");
+      .bind(id, buyer.hash, trackId, track.title, track.artist_name, track.artist_id, track.audio_url, track.sale_price_cents, artistShare, platformFee, track.stripe_account_id, surcharge,trackId,track.artist_id,track.audio_url,track.sale_price_cents).first<PurchaseDraft>();
+    if (!purchase) return response({error:"The artist changed this song’s sale permissions or price. Refresh the catalog."},409,buyer.cookie);
     const base = musicBatOrigin(env, request);
     let checkout: StripeCheckoutSession;
     try {
@@ -99,20 +126,25 @@ export async function POST(request: Request) {
         "line_items[0][price_data][product_data][name]": track.title,
         "line_items[0][price_data][product_data][description]": `Music download by ${track.artist_name}`,
         "line_items[0][quantity]": "1",
+        "line_items[1][price_data][currency]": "usd",
+        "line_items[1][price_data][unit_amount]": String(surcharge),
+        "line_items[1][price_data][product_data][name]": "Buyer processing charge",
+        "line_items[1][quantity]": "1",
         "payment_method_types[0]": "card",
-        "payment_intent_data[application_fee_amount]": String(platformFee),
+        "payment_intent_data[application_fee_amount]": String(platformFee + surcharge),
         "payment_intent_data[transfer_data][destination]": track.stripe_account_id,
         "payment_intent_data[metadata][musicbat_purchase_id]": id,
         "metadata[musicbat_purchase_id]": id,
         "metadata[musicbat_track_id]": String(track.id),
+        "metadata[musicbat_processing_cents]": String(surcharge),
       }, `musicbat-checkout-${id}`);
     } catch (error) {
       await env.DB.prepare("UPDATE purchases SET status = 'failed' WHERE id = ?").bind(id).run();
       throw error;
     }
-    if (!checkout.id || !checkout.url || checkout.livemode) {
+    if (!checkout.id || !checkout.url || !stripeModeMatches(env, checkout.livemode)) {
       await env.DB.prepare("UPDATE purchases SET status = 'failed' WHERE id = ?").bind(id).run();
-      throw new Error("Stripe returned an invalid test Checkout Session.");
+      throw new Error("Stripe returned an invalid Checkout Session.");
     }
     await env.DB.prepare("UPDATE purchases SET status = 'pending', processor_session_id = ? WHERE id = ?")
       .bind(checkout.id, id).run();

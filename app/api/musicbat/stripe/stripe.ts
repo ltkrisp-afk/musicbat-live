@@ -1,4 +1,5 @@
 export type StripeRuntime = {
+  MUSICBAT_STRIPE_MODE?: string;
   STRIPE_SECRET_KEY?: string;
   STRIPE_WEBHOOK_SECRET?: string;
   MUSICBAT_BASE_URL?: string;
@@ -37,10 +38,20 @@ export type StripeEvent = {
 export class StripeConfigurationError extends Error {}
 export class StripeRequestError extends Error {}
 
+export function stripeMode(runtime: StripeRuntime): "test" | "live" {
+  const mode = runtime.MUSICBAT_STRIPE_MODE ?? "test";
+  if (mode !== "test" && mode !== "live") throw new StripeConfigurationError("Stripe mode must be test or live.");
+  return mode;
+}
+
+export function stripeModeMatches(runtime: StripeRuntime, livemode: unknown) {
+  return typeof livemode === "boolean" && livemode === (stripeMode(runtime) === "live");
+}
+
 function secret(runtime: StripeRuntime) {
   const value = runtime.STRIPE_SECRET_KEY?.trim();
-  if (!value) throw new StripeConfigurationError("Stripe test checkout is not configured yet.");
-  if (!value.startsWith("sk_test_")) throw new StripeConfigurationError("MusicBat is locked to Stripe test mode.");
+  const mode = stripeMode(runtime);
+  if (!value || !value.startsWith(`sk_${mode}_`)) throw new StripeConfigurationError("Stripe credential does not match the configured mode.");
   return value;
 }
 
@@ -97,7 +108,7 @@ function sameSignature(left: string, right: string) {
   return difference === 0;
 }
 
-export async function verifyStripeWebhook(rawBody: string, signatureHeader: string | null, webhookSecret: string | undefined, nowSeconds = Math.floor(Date.now() / 1000)) {
+export async function verifyStripeWebhook(rawBody: string, signatureHeader: string | null, webhookSecret: string | undefined, nowSeconds = Math.floor(Date.now() / 1000), runtime: StripeRuntime = {}) {
   const signingSecret = webhookSecret?.trim();
   if (!signingSecret?.startsWith("whsec_")) throw new StripeConfigurationError("Stripe webhook verification is not configured yet.");
   if (!signatureHeader) throw new Error("Missing Stripe-Signature header.");
@@ -110,7 +121,7 @@ export async function verifyStripeWebhook(rawBody: string, signatureHeader: stri
   if (!signatures.some((candidate) => sameSignature(candidate, expected))) throw new Error("Stripe webhook signature does not match.");
   const event = JSON.parse(rawBody) as StripeEvent;
   if (!event.id || !event.type || !event.data?.object) throw new Error("Stripe webhook payload is invalid.");
-  if (event.livemode) throw new Error("Live Stripe events are disabled while MusicBat is in test mode.");
+  if (!stripeModeMatches(runtime, event.livemode) || !stripeModeMatches(runtime, event.data.object.livemode)) throw new Error("Stripe event mode does not match the configured mode.");
   return event;
 }
 

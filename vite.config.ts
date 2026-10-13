@@ -35,7 +35,7 @@ const localBindingConfig = {
     : [],
 };
 
-export default defineConfig(async () => {
+export default defineConfig(async ({ command }) => {
   // Use Miniflare's local Request.cf placeholder unless fetching is requested.
   process.env.CLOUDFLARE_CF_FETCH_ENABLED ??= "false";
   process.env.WRANGLER_SEND_METRICS ??= "false";
@@ -50,14 +50,20 @@ export default defineConfig(async () => {
   // Wrangler snapshots its log path while the Cloudflare plugin is imported.
   const { cloudflare } = await import("@cloudflare/vite-plugin");
 
+  const acceptance = process.env.MUSICBAT_LOCAL_ACCEPTANCE === "1";
+  if (acceptance && (process.env.NODE_ENV !== "development" || command !== "serve")) throw new Error("Offline acceptance is development only");
+  const localAcceptance = acceptance ? await import("./scripts/local-acceptance.mjs") : null;
+
   return {
     server: {
-      ...(managedLinux ? { host: "0.0.0.0", allowedHosts: ["terminal.local"] } : {}),
+      ...(acceptance ? { host: "127.0.0.1", strictPort: true } : {}),
+      ...(managedLinux && !acceptance ? { host: "0.0.0.0", allowedHosts: ["terminal.local"] } : {}),
       ...(isCodexSeatbeltSandbox ? { watch: { useFsEvents: false, usePolling: true } } : {}),
     },
     plugins: [
+      ...(localAcceptance ? [await localAcceptance.acceptancePlugin()] : []),
       vinext(),
-      sites({ mockAuth: !managedLinux }),
+      sites({ mockAuth: !managedLinux && !acceptance }),
       cloudflare({
         viteEnvironment: { name: "rsc", childEnvironments: ["ssr"] },
         inspectorPort: false,
