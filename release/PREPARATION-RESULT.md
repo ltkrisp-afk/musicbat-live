@@ -1,3 +1,5 @@
+> Superseded in part by `ARTIST-PATRON-VERIFICATION.md`: discovery migration 0010 is now pending; preserving rollback must append 0011. Previous completed verification below remains historical evidence. Authenticated browser acceptance is still required before Stripe.
+
 # Completed pre-Stripe preparation
 
 Starting source: `5fa1ad766a9c64af98c27eaf604547a478a0da51`. Existing production remains version 13.

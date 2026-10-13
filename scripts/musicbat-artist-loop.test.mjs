@@ -126,3 +126,26 @@ test('Free Radio and incomplete authority cannot qualify or count signals; withd
   assert.equal(f.sqlite.prepare('SELECT count(*) n FROM track_keeps').get().n,0);assert.equal(f.sqlite.prepare('SELECT count(*) n FROM radio_feedback').get().n,0);
  }finally{f.sqlite.close()}
 });
+test('patron follows persist independently; stable artist URLs and genuine owner activity survive edit and withdrawal',async()=>{
+ const f=await fixture();try{
+  await upload(f.route);
+  const directory=()=>f.route.GET(new Request('https://musicbat.audio/api/musicbat?view=artists'));
+  let d=await (await directory()).json();assert.equal(d.canManage,true);assert.equal(d.artists.length,1);const slug=d.artists[0].slug;
+  const initial=await (await mine(f.route)).json();assert.equal(initial.tracks[0].listener_count,0);assert.equal(initial.tracks[0].artist_slug,slug);
+  f.state.user={userId:'patron'};d=await (await directory()).json();assert.equal(d.canManage,false);assert.equal((await (await mine(f.route)).json()).tracks.length,0);
+  for(let i=0;i<2;i++)assert.equal((await f.route.POST(post({action:'follow_artist',artistId:'owner',enabled:true}))).status,200);
+  assert.equal(f.sqlite.prepare('SELECT COUNT(*) n FROM artist_follows').get().n,1);assert.equal((await (await directory()).json()).artists[0].following,1);
+  f.state.user={userId:'another-patron'};assert.equal((await (await directory()).json()).artists[0].following,0);
+  assert.equal((await f.route.POST(post({action:'follow_artist',artistId:'owner',enabled:false}))).status,200);assert.equal(f.sqlite.prepare('SELECT COUNT(*) n FROM artist_follows').get().n,1);
+  assert.equal((await f.route.POST(post({action:'follow_artist',artistId:'unknown',enabled:true}))).status,404);
+  f.sqlite.exec("INSERT INTO listens(id,track_id,listener_id,qualified) VALUES ('p1',1,'patron',1),('p2',1,'patron',1),('own',1,'owner',1),('unqualified',1,'other',0)");
+  f.state.user={userId:'owner'};assert.equal((await (await mine(f.route)).json()).tracks[0].listener_count,1);
+  assert.equal((await f.route.POST(post({action:'set_artist_identity',artistName:'Evolving name'}))).status,200);assert.equal((await (await directory()).json()).artists[0].slug,slug);
+  await upload(f.route,{title:'Second release'});assert.equal((await (await directory()).json()).artists.length,1);
+  assert.equal((await f.route.POST(post({action:'withdraw_track',trackId:1}))).status,200);
+  assert.equal((await (await directory()).json()).artists[0].track_count,1);
+  assert.equal((await (await mine(f.route)).json()).tracks.length,2);assert.equal(f.sqlite.prepare('SELECT COUNT(*) n FROM listens').get().n,4);assert.equal(f.sqlite.prepare('SELECT COUNT(*) n FROM artist_follows').get().n,1);
+  f.state.user={userId:'patron'};assert.equal((await f.route.POST(post({action:'follow_artist',artistId:'owner',enabled:false}))).status,200);assert.equal(f.sqlite.prepare('SELECT COUNT(*) n FROM artist_follows').get().n,0);
+  f.state.user=null;assert.equal((await f.route.POST(post({action:'follow_artist',artistId:'owner',enabled:true}))).status,401);
+ }finally{f.sqlite.close()}
+});

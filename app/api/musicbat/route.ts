@@ -3,6 +3,7 @@ import { getChatGPTUser } from "../../chatgpt-auth";
 
 type ActionBody = {
   action?: string;
+  artistId?: string;
   title?: string;
   artistName?: string;
   audioUrl?: string;
@@ -126,7 +127,9 @@ export async function GET(request: Request) {
 
     if (view === "rotunda") {
       const user = await requireUser();
-      const rows = await db.prepare(`SELECT t.*, 1 AS can_manage,
+      const rows = await db.prepare(`SELECT t.*, 1 AS can_manage, ${shockStatsSql},
+        (SELECT COUNT(DISTINCT l.listener_id) FROM listens l WHERE l.track_id=t.id AND l.qualified=1 AND l.listener_id!=t.artist_id) AS listener_count,
+        (SELECT slug FROM artist_pages WHERE account_id=t.artist_id) AS artist_slug,
         CASE WHEN t.status != 'active' OR t.radio_enabled = 0 THEN 'withdrawn'
           WHEN EXISTS(SELECT 1 FROM playback_permissions p WHERE p.track_id=t.id AND p.artist_authorized=1 AND p.recording_basis='direct' AND p.withdrawn_at IS NULL AND p.free_allowed=1 AND p.starts_at<=unixepoch('now')*1000 AND p.reviewed_at<=unixepoch('now')*1000 AND length(trim(p.recording_evidence))>0 AND length(trim(p.composition_evidence))>0 AND length(trim(p.reviewed_by))>0 AND p.expires_at > ?)
           THEN 'rights reviewed; runtime registration required' ELSE 'awaiting rights review' END AS radio_status
@@ -139,6 +142,17 @@ export async function GET(request: Request) {
       return Response.json({tracks:rows.results, profile, accountId:user.userId}, {headers:{'cache-control':'private, no-store'}});
     }
 
+    if (view === 'artists') {
+      const user=await getChatGPTUser();
+      const artists=await db.prepare(`SELECT p.account_id AS artist_id,p.slug,
+        COALESCE((SELECT artist_name FROM artist_profiles WHERE account_id=p.account_id),
+          (SELECT artist_name FROM tracks WHERE artist_id=p.account_id ORDER BY id DESC LIMIT 1)) AS artist_name,
+        (SELECT COUNT(*) FROM tracks WHERE artist_id=p.account_id AND status='active' AND rights_attested=1) AS track_count,
+        EXISTS(SELECT 1 FROM artist_follows WHERE artist_id=p.account_id AND listener_id=?) AS following
+        FROM artist_pages p ORDER BY artist_name COLLATE NOCASE`).bind(user?.userId ?? '').all();
+      const managed=user ? await db.prepare(`SELECT 1 FROM artist_profiles WHERE account_id=? UNION SELECT 1 FROM tracks WHERE artist_id=? UNION SELECT 1 FROM track_authority WHERE account_id=? AND revoked_at IS NULL LIMIT 1`).bind(user.userId,user.userId,user.userId).first() : null;
+      return Response.json({artists:artists.results,canManage:Boolean(managed),signedIn:Boolean(user)}, {headers:{'cache-control':'private, no-store','vary':'Cookie'}});
+    }
     if (view === "shock-room") {
       const rows = await db.prepare(`
         SELECT t.id AS track_id, t.title, t.artist_name, t.primary_genre, t.energy_lane,
@@ -153,7 +167,7 @@ export async function GET(request: Request) {
 
     const viewer = await getChatGPTUser();
     const rows = await db.prepare(`
-      SELECT t.id, t.artist_id, t.title, t.artist_name, t.audio_url, t.created_at, t.keep_in_rotation, t.energy_lane,
+      SELECT t.id, t.artist_id, (SELECT slug FROM artist_pages WHERE account_id=t.artist_id) AS artist_slug, t.title, t.artist_name, t.audio_url, t.created_at, t.keep_in_rotation, t.energy_lane,
         t.primary_genre, t.subgenre, t.style, t.radio_enabled, t.status, t.mood_tags,
         t.sale_enabled, t.sale_price_cents, t.sale_currency,
         EXISTS(SELECT 1 FROM playback_permissions p WHERE p.track_id=t.id AND p.recording_basis='direct' AND p.artist_authorized=1 AND p.free_allowed=1 AND p.withdrawn_at IS NULL AND p.starts_at<=unixepoch('now')*1000 AND p.expires_at>unixepoch('now')*1000 AND length(trim(p.recording_evidence))>0 AND length(trim(p.composition_evidence))>0 AND length(trim(p.reviewed_by))>0) AS radio_rights_reviewed,
@@ -250,6 +264,7 @@ export async function POST(request: Request) {
             VALUES (?,?,?,?,1,?,?,?,?,?,?,?,'usd','active',?) RETURNING *`)
             .bind(user.userId,artistName,title,audioUrl,energyLane,primaryGenre,subgenre,JSON.stringify(moodTags),saleEnabled?1:0,saleEnabled?1:0,saleEnabled?salePriceCents:null,style||null),
           db.prepare('INSERT INTO artist_profiles VALUES (?,?,?,?) ON CONFLICT(account_id) DO UPDATE SET artist_name=excluded.artist_name,updated_at=excluded.updated_at').bind(user.userId,artistName,now,now),
+          db.prepare("INSERT OR IGNORE INTO artist_pages VALUES (?,'artist-' || lower(hex(?)))").bind(user.userId,user.userId),
           db.prepare('INSERT INTO artist_track_audit SELECT ?,id,?,?,?,? FROM tracks WHERE audio_url=? AND artist_id=?').bind(crypto.randomUUID(),user.userId,'upload',JSON.stringify({artistName,primaryGenre,subgenre,style,rightsAttested:true,saleEnabled}),now,audioUrl,user.userId),
         ]);
         track=result[0].results[0];
@@ -264,10 +279,18 @@ export async function POST(request: Request) {
     if (!body || Array.isArray(body) || typeof body !== "object") return fail("A valid action is required.");
     for (const key of ["title","artistName","primaryGenre","subgenre","style","energyLane","representativeId"] as const) if (body[key] !== undefined && typeof body[key] !== "string") return fail("Metadata fields must be text.");
 
+    if (body.action === 'follow_artist') {
+      if(typeof body.artistId!=='string' || typeof body.enabled!=='boolean') return fail('Choose an artist and follow state.');
+      if(!await db.prepare('SELECT 1 FROM artist_pages WHERE account_id=?').bind(body.artistId).first()) return fail('Artist not found.',404);
+      if(body.enabled) await db.prepare('INSERT OR IGNORE INTO artist_follows(listener_id,artist_id) VALUES (?,?)').bind(user.userId,body.artistId).run();
+      else await db.prepare('DELETE FROM artist_follows WHERE listener_id=? AND artist_id=?').bind(user.userId,body.artistId).run();
+      return Response.json({following:body.enabled});
+    }
     if (body.action === 'set_artist_identity') {
       const name=body.artistName?.trim();
       if (!name || name.length>80) return fail('Choose an artist or band name, up to 80 characters.');
       await db.prepare('INSERT INTO artist_profiles VALUES (?,?,?,?) ON CONFLICT(account_id) DO UPDATE SET artist_name=excluded.artist_name,updated_at=excluded.updated_at').bind(user.userId,name,Date.now(),Date.now()).run();
+      await db.prepare("INSERT OR IGNORE INTO artist_pages VALUES (?,'artist-' || lower(hex(?)))").bind(user.userId,user.userId).run();
       return Response.json({saved:true});
     }
     if (['edit_metadata','set_radio','withdraw_track','delete_track','grant_representative','revoke_representative'].includes(body.action ?? '')) {

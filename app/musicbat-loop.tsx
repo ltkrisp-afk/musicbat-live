@@ -19,6 +19,8 @@ const serverLocation = () => "";
 
 type Track = {
   id: number;
+  artist_id: string;
+  artist_slug: string;
   title: string;
   artist_name: string;
   audio_url: string;
@@ -101,8 +103,14 @@ async function api<T>(path: string, init?: RequestInit): Promise<T> {
   return data;
 }
 
-export default function MusicBatLoop({ displayName }: { displayName: string }) {
-  const [tab, setTab] = useState("radio");
+type Artist = {artist_id:string;slug:string;artist_name:string;track_count:number;following:number};
+export default function MusicBatLoop({ displayName, artistSlug, initialTab }: { displayName: string; artistSlug?:string;initialTab?:string }) {
+  const [tab, setTab] = useState(artistSlug ? "discover" : initialTab ?? "radio");
+  const [artists,setArtists]=useState<Artist[]>([]),[canManage,setCanManage]=useState(false),[followingOnly,setFollowingOnly]=useState(false),[search,setSearch]=useState('');
+  const loadArtists=useCallback(async()=>{const d=await api<{artists:Artist[];canManage:boolean}>('/api/musicbat?view=artists');setArtists(d.artists);setCanManage(d.canManage);},[]);
+  useEffect(()=>{void loadArtists().catch(()=>{});},[loadArtists]);
+  async function followArtist(artist:Artist){try{await api('/api/musicbat',{method:'POST',body:JSON.stringify({action:'follow_artist',artistId:artist.artist_id,enabled:!artist.following})});await loadArtists();}catch(e){setMessage(e instanceof Error?e.message:'Could not follow artist.');}}
+
   const [tracks, setTracks] = useState<Track[]>([]);
   const [shockRows, setShockRows] = useState<ShockRow[]>([]);
   const [sharedTrackId, setSharedTrackId] = useState<string | null>(null);
@@ -207,7 +215,7 @@ export default function MusicBatLoop({ displayName }: { displayName: string }) {
     })));
   }, []);
 
-  const refresh = useCallback(async () => applyRadio(await fetchRadio()), [applyRadio, fetchRadio]);
+  const refresh = useCallback(async () => Promise.all([fetchRadio(),loadArtists()]).then(([data])=>applyRadio(data)), [applyRadio, fetchRadio,loadArtists]);
 
   useEffect(() => {
     let cancelled = false;
@@ -350,10 +358,10 @@ export default function MusicBatLoop({ displayName }: { displayName: string }) {
     } finally { setBusy(false); signalStartingRef.current = false; }
   }
 
-  async function buyCurrentTrack() {
-    if (!current || purchaseStartingRef.current) return;
+  async function buyCurrentTrack(track: Track | null = current) {
+    if (!track || purchaseStartingRef.current) return;
     // Capture before awaiting: Radio can change without changing this purchase.
-    const selected = { id: current.id, title: current.title };
+    const selected = { id: track.id, title: track.title };
     purchaseStartingRef.current = true;
     setPurchaseBusy(true);
     setPurchaseMessage(`Selecting “${selected.title}”…`);
@@ -526,7 +534,7 @@ export default function MusicBatLoop({ displayName }: { displayName: string }) {
             <div className="grid size-11 place-items-center rounded-full border border-[#ff3ea5]/40 bg-[#ff3ea5]/10 text-[#ff69bd] shadow-[0_0_34px_rgba(255,62,165,.18)]">
               <Activity className="size-5" />
             </div>
-            <div><div className="text-[0.72rem] font-black uppercase tracking-[0.24em] text-[#ff69bd]">MusicBat</div></div>
+            <div><a href="/" className="text-[0.72rem] font-black uppercase tracking-[0.24em] text-[#ff69bd]">MusicBat</a><p className="mt-1 text-[0.6rem] tracking-wider text-white/55">YOUR MUSIC. YOUR RIGHTS. YOUR MONEY.</p></div>
           </div>
           <div className="text-right"><div className="text-sm font-semibold text-white/90">{displayName}</div><div className="text-xs text-white/45">{loopStatus}</div></div>
         </header>
@@ -538,10 +546,25 @@ export default function MusicBatLoop({ displayName }: { displayName: string }) {
         <Tabs value={tab} onValueChange={setTab} className="gap-5">
           <TabsList className="h-auto w-full flex-wrap justify-start gap-1 rounded-xl border border-white/10 bg-white/[0.035] p-1.5 sm:w-fit">
             <TabsTrigger value="radio" className="h-10 rounded-lg px-4 text-white/55 data-[state=active]:bg-[#ff3ea5] data-[state=active]:text-white"><Radio /> Radio</TabsTrigger>
+            <TabsTrigger value="discover" className="h-10 rounded-lg px-4 text-white/55 data-[state=active]:bg-[#ff3ea5] data-[state=active]:text-white"><Disc3 /> Discover Artists</TabsTrigger>
             <TabsTrigger value="catalog" className="h-10 rounded-lg px-4 text-white/55 data-[state=active]:bg-[#ff3ea5] data-[state=active]:text-white"><Disc3 /> Add Track</TabsTrigger>
-            <TabsTrigger value="shock" className="h-10 rounded-lg px-4 text-white/55 data-[state=active]:bg-[#ff3ea5] data-[state=active]:text-white"><Gauge /> Shock Room</TabsTrigger>
-          <TabsTrigger value="rotunda" className="h-10 rounded-lg px-4 text-white/55 data-[state=active]:bg-[#ff3ea5] data-[state=active]:text-white">My Music</TabsTrigger></TabsList>
+            {canManage && <TabsTrigger value="shock" className="h-10 rounded-lg px-4 text-white/55 data-[state=active]:bg-[#ff3ea5] data-[state=active]:text-white"><Gauge /> Shock Room</TabsTrigger>}
+          {canManage && <TabsTrigger value="rotunda" className="h-10 rounded-lg px-4 text-white/55 data-[state=active]:bg-[#ff3ea5] data-[state=active]:text-white">Manage Songs</TabsTrigger>}</TabsList>
 
+          <TabsContent value="discover">
+            <section className="space-y-5 rounded-[1.75rem] border border-white/10 bg-[#111018] p-6 sm:p-8">
+              <div><p className="text-xs uppercase tracking-widest text-[#ff3ea5]">The patron follows the music</p><h1 className="mt-2 text-3xl font-bold">{artistSlug ? artists.find(a=>a.slug===artistSlug)?.artist_name ?? 'Artist' : 'Discover Artists'}</h1><p className="mt-2 text-sm text-white/60">Browse releases, follow artists, and buy authorized recordings. Bat Radio provides shared discovery; Radio Plus unlocks eligible tuning and listener feedback.</p></div>
+              {artistSlug && <a href="/?view=discover" className="inline-block text-sm text-[#ff69bd] underline">Browse all artists</a>}
+              {!artistSlug && <div className="flex flex-wrap gap-3"><Input aria-label="Search artists" placeholder="Search artists" value={search} onChange={e=>setSearch(e.target.value)} /><button onClick={()=>setFollowingOnly(!followingOnly)} className="rounded border border-white/20 p-2">{followingOnly?'Show all artists':'Following'}</button></div>}
+              {artists.filter(a=>(!artistSlug || a.slug===artistSlug)&&(!followingOnly||Boolean(a.following))&&a.artist_name.toLowerCase().includes(search.toLowerCase())).map(a=><article key={a.artist_id} className="space-y-3 rounded-xl border border-white/10 p-4"><div className="flex flex-wrap justify-between gap-3"><a href={'/'+a.slug} className="text-xl font-bold text-[#ff69bd]">{a.artist_name}</a><button onClick={()=>void followArtist(a)} className="rounded border border-white/20 px-3 py-2">{a.following?'Unfollow artist':'Follow artist'}</button></div>
+                {tracks.filter(t=>t.artist_id===a.artist_id).map(t=><div key={t.id} className="flex flex-wrap items-center justify-between gap-3 border-t border-white/10 pt-3"><div><h2 className="font-bold">{t.title}</h2><p className="text-xs text-white/60">{t.primary_genre}{t.subgenre?' / '+t.subgenre:''}</p></div>{Boolean(t.sale_enabled)&&t.sale_price_cents && <button disabled={purchaseBusy||!t.seller_ready} onClick={()=>void buyCurrentTrack(t)} className="rounded border border-[#ff3ea5]/40 px-3 py-2">{t.seller_ready ? `Buy $${(t.sale_price_cents/100).toFixed(2)} + processing` : 'Sales awaiting payout setup'}</button>}</div>)}
+                {!Number(a.track_count)&&<p className="text-sm text-white/60">No active releases. Follow this artist and return for future music.</p>}
+              </article>)}
+              {!artists.filter(a=>(!artistSlug||a.slug===artistSlug)&&(!followingOnly||a.following)&&a.artist_name.toLowerCase().includes(search.toLowerCase())).length&&<p>No artists found.</p>}
+              <button onClick={()=>{openRadio();setTab('radio');}} className="rounded border border-[#ff3ea5]/40 px-4 py-2">Listen through Bat Radio</button>
+              <p role="status" className="text-sm text-white/60">{purchaseMessage || message}</p>
+            </section>
+          </TabsContent>
           <TabsContent value="radio">
             <section className="grid gap-5 lg:grid-cols-[minmax(0,1.55fr)_minmax(310px,.65fr)]">
               <div className="relative overflow-hidden rounded-[1.75rem] border border-white/10 bg-[#111018] p-6 shadow-[0_28px_90px_rgba(0,0,0,.45)] sm:p-9">
@@ -562,7 +585,7 @@ export default function MusicBatLoop({ displayName }: { displayName: string }) {
                     <div className="mt-6 flex flex-wrap gap-3">
                       <Button aria-pressed={keepActive} disabled={busy || !canRespond} onClick={() => void toggleKeep(current)} title="Keep this track in rotation or remove your keep." className={keepActive ? "h-11 rounded-full border border-[#ff69bd] bg-[#ff3ea5] px-5 text-white" : "h-11 rounded-full border border-white/15 bg-white/[0.045] px-5 text-white"}>Keep in rotation</Button>
                     </div>
-                  </> : <div className="grid min-h-[390px] place-items-center text-center"><div><Disc3 className="mx-auto mb-5 size-12 text-[#ff69bd]" /><h1 className="text-3xl font-black tracking-tight">{tracks.length ? "This category is quiet." : "Radio needs its first track."}</h1><p className="mx-auto mt-3 max-w-md text-white/52">{tracks.length ? "Use the shared Radio category controls or review the catalog." : "Upload your music file, classify it, and confirm your rights to enter Radio."}</p><Button onClick={() => setTab("catalog")} className="mt-6 rounded-full bg-[#ff3ea5] px-6 text-white hover:bg-[#ff69bd]">{tracks.length ? "Open catalog" : "Add the first track"}</Button></div></div>}
+                  </> : <div className="grid min-h-[390px] place-items-center text-center"><div><Disc3 className="mx-auto mb-5 size-12 text-[#ff69bd]" /><h1 className="text-3xl font-black tracking-tight">{tracks.length ? "This category is quiet." : "Radio needs its first track."}</h1><p className="mx-auto mt-3 max-w-md text-white/52">{tracks.length ? "Use the shared Radio category controls or review the catalog." : "Upload your music file, classify it, and confirm your rights to enter Radio."}</p><Button onClick={() => setTab(tracks.length ? "discover" : "catalog")} className="mt-6 rounded-full bg-[#ff3ea5] px-6 text-white hover:bg-[#ff69bd]">{tracks.length ? "Open catalog" : "Add the first track"}</Button></div></div>}
                 </div>
               </div>
               <aside className="flex flex-col gap-5">
@@ -579,7 +602,7 @@ export default function MusicBatLoop({ displayName }: { displayName: string }) {
                 <div className="space-y-4">
                   <div className="rounded-xl border border-white/10 bg-white/[0.03] p-4">
                     <div className="text-sm font-black text-white">Artist payouts</div>
-                    <p className="mt-1 text-sm text-white/50">{connectStatus?.ready ? "Stripe test payouts are ready." : connectStatus?.connected ? "Finish Stripe onboarding before buyers can check out." : "Connect a separate MusicBat Stripe Express account to receive 85% of the song price. Buyer processing fees are charged separately."}</p>
+                    <p className="mt-1 text-sm text-white/50">{connectStatus?.ready ? "Payout setup is ready. Checkout availability follows the configured payment mode." : connectStatus?.connected ? "Finish Stripe onboarding before buyers can check out." : "Connect a separate MusicBat Stripe Express account to receive 85% of the song price. Buyer processing fees are charged separately."}</p>
                     <Button type="button" disabled={connectBusy || Boolean(connectStatus?.ready)} onClick={() => void connectStripe()} className="mt-3 h-10 rounded-full border border-[#ff3ea5]/50 bg-[#ff3ea5]/15 px-4 text-white hover:bg-[#ff3ea5]/25">{connectBusy ? "Opening Stripe…" : connectStatus?.ready ? "Stripe connected" : connectStatus?.connected ? "Finish Stripe setup" : "Connect Stripe payouts"}</Button>
                   </div>
                   <label className="block"><span className="mb-2 block text-sm font-semibold text-white/65">Track title</span><Input value={title} onChange={(event) => setTitle(event.target.value)} required maxLength={120} className="h-12 rounded-xl border-white/12 bg-white/[0.045] px-4 text-white placeholder:text-white/25" placeholder="Track title" /></label>
@@ -627,14 +650,14 @@ export default function MusicBatLoop({ displayName }: { displayName: string }) {
                       {Boolean(track.sale_enabled) && <Button type="button" disabled={busy} onClick={() => void saveSale(track, false)} className="h-10 rounded-full border border-white/15 bg-white/[0.045] px-4 text-white hover:bg-white/10">Stop sales</Button>}
                     </div>
                     <label className="mt-3 flex cursor-pointer items-start gap-2"><Checkbox checked={Boolean(saleConsents[track.id])} onCheckedChange={(value) => setSaleConsents((consents) => ({ ...consents, [track.id]: value === true }))} className="mt-0.5 border-white/25 data-[state=checked]:border-[#ff3ea5] data-[state=checked]:bg-[#ff3ea5]" /><span className="text-xs leading-relaxed text-white/50">I authorize MusicBat to sell and deliver this recording. Artist receives 85% of the song price; MusicBat retains 15%. Buyer processing charge is displayed separately before checkout.</span></label>
-                    <div className="mt-2 text-xs text-white/40">{track.sale_enabled ? (track.seller_ready ? "Checkout ready in Stripe test mode." : "Sale saved; finish Stripe payout setup before checkout can open.") : "Not currently for sale."}</div>
+                    <div className="mt-2 text-xs text-white/40">{track.sale_enabled ? (track.seller_ready ? "Payout setup ready; checkout follows the configured payment mode." : "Sale saved; finish Stripe payout setup before checkout can open.") : "Not currently for sale."}</div>
                   </div>}
                 </div>)}</div>
               </div>
             </section>
           </TabsContent>
 
-          <TabsContent value="rotunda"><ArtistRotunda onChange={async () => { applyRadio(await fetchRadio()); }} /></TabsContent>
+          <TabsContent value="rotunda">{canManage && <ArtistRotunda onChange={refresh} />}</TabsContent>
 
           <TabsContent value="shock">
             <section className="overflow-hidden rounded-[1.75rem] border border-white/10 bg-[#111018]">

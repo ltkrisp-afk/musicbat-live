@@ -20,9 +20,9 @@ function fixture(){const db=new DatabaseSync(':memory:');for(let i=0;i<5;i++)exe
 test('version 13 immutable history, all pending migrations registered and compatibility preserves data',()=>{
  assert.deepEqual(journal.entries.slice(0,5),old.entries);
  for(let i=0;i<5;i++)assert.equal(readFileSync(`drizzle/${old.entries[i].tag}.sql`,'utf8'),readFileSync(`release/v13/baseline/${old.entries[i].tag}.sql`,'utf8'));
- assert.equal(migrations.length,10);assert.deepEqual(journal.entries.slice(6).map(e=>e.tag.slice(0,4)),['0006','0007','0008','0009']);
+ assert.equal(migrations.length,11);assert.deepEqual(journal.entries.slice(6).map(e=>e.tag.slice(0,4)),['0006','0007','0008','0009','0010']);
  const db=fixture(),before={};for(const t of ['purchases','artist_accounts','stripe_events','hangers','radio_feedback','track_keeps'])before[t]=rows(db,t);
- db.exec('BEGIN IMMEDIATE');for(let i=5;i<10;i++)execute(db,migrations[i]);db.exec('COMMIT');
+ db.exec('BEGIN IMMEDIATE');for(let i=5;i<migrations.length;i++)execute(db,migrations[i]);db.exec('COMMIT');
  for(const t of ['artist_accounts','stripe_events','hangers'])assert.deepEqual(rows(db,t),before[t]);
  assert.deepEqual(rows(db,'purchases').map(({processing_cents,...r})=>r),before.purchases);assert.equal(rows(db,'purchases')[0].processing_cents,0);
  assert.deepEqual(rows(db,'v13_radio_feedback_archive'),before.radio_feedback);assert.deepEqual(rows(db,'v13_track_keeps_archive'),before.track_keeps);
@@ -35,8 +35,11 @@ test('version 13 immutable history, all pending migrations registered and compat
  INSERT INTO radio_feedback VALUES('new',1,'owner','up','listen-up','medium','down','2026-10-12');
  INSERT INTO radio_feedback VALUES('tie',1,'owner','up','listen-up','medium','up','2026-10-12');
  DELETE FROM track_keeps WHERE listener_id='keep'; INSERT INTO track_keeps VALUES(1,'new-keep','2026-10-12');`);
+ db.exec("INSERT INTO artist_follows(listener_id,artist_id) VALUES ('follower','owner')");
+ const discovery=rows(db,'artist_pages'),follows=rows(db,'artist_follows');
  const financial=rows(db,'purchases'),events=rows(db,'stripe_events');
  db.exec('BEGIN IMMEDIATE');db.exec(readFileSync('release/v13/rollback-signals.sql','utf8'));db.exec('COMMIT');
+ assert.deepEqual(rows(db,'artist_pages'),discovery);assert.deepEqual(rows(db,'artist_follows'),follows);
  assert.deepEqual(rows(db,'purchases'),financial);assert.deepEqual(rows(db,'stripe_events'),events);
  assert.equal(db.prepare("SELECT signal FROM radio_feedback WHERE listener_id='up'").get().signal,'up');
  assert.equal(db.prepare("SELECT updated_at FROM radio_feedback WHERE listener_id='up'").get().updated_at,'2026-10-12');

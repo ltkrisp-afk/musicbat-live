@@ -16,9 +16,10 @@ if(mode==='rollback'){
  rmSync(join(out,'drizzle'),{recursive:true,force:true});
  cpSync(join(root,'drizzle'),join(out,'drizzle'),{recursive:true});
  const j=JSON.parse(readFileSync(join(out,'drizzle/meta/_journal.json'),'utf8'));
- j.entries.push({idx:10,version:'6',when:j.entries[9].when+1000,tag:'0010_v13_preserving_rollback',breakpoints:true});
+ const index=j.entries.length,tag=String(index).padStart(4,'0')+'_v13_preserving_rollback';
+ j.entries.push({idx:index,version:'6',when:j.entries.at(-1).when+1000,tag,breakpoints:true});
  writeFileSync(join(out,'drizzle/meta/_journal.json'),JSON.stringify(j,null,2)+'\n');
- writeFileSync(join(out,'drizzle/0010_v13_preserving_rollback.sql'),readFileSync(join(root,'release/v13/rollback-signals.sql'),'utf8').replaceAll(';\n',';\n--> statement-breakpoint\n'));
+ writeFileSync(join(out,'drizzle/'+tag+'.sql'),readFileSync(join(root,'release/v13/rollback-signals.sql'),'utf8').replaceAll(';\n',';\n--> statement-breakpoint\n'));
 }
 execFileSync('git',['add','app','cloudflare-env.d.ts','drizzle'],{cwd:out});
 execFileSync('git',['commit','-m',mode==='maintenance'?'Prepare version 13 release write pause':'Prepare preserving version 13 rollback'],{cwd:out,stdio:'inherit'});
