@@ -1,6 +1,7 @@
 "use client";
 
-import { useRef, useState } from 'react';
+import { useState } from 'react';
+import { RadioPlusMembership } from './radio-plus-membership';
 import { backDial, dialChoices, exploreDial, rotateDial, type DialState } from '../lib/radio-dial';
 import type { Category } from '../lib/radio-category';
 import type { ChannelOption, ChannelSnapshot } from '../lib/shared-radio-engine';
@@ -13,7 +14,6 @@ export function RetrofuturaRadio({options,snapshot,onTune}: {
 }) {
  const [dial,setDial]=useState<DialState>({parent:null,index:0});
  const [pending,setPending]=useState(false);
- const plusDialog=useRef<HTMLDialogElement>(null);
  const [message,setMessage]=useState('Turn to browse. Push to tune and explore.');
  const choices=dialChoices(options,dial);
  const selected=choices[dial.index%Math.max(choices.length,1)];
@@ -70,17 +70,10 @@ export function RetrofuturaRadio({options,snapshot,onTune}: {
    <div style={{display:'flex',gap:12,marginTop:20,flexWrap:'wrap',color:'#17201c'}}>
     <button type="button" onClick={()=>setDial(backDial(dial))} disabled={pending||!dial.parent}>Back one level</button>
     <button type="button" onClick={()=>void tune(null,false)} disabled={pending||!options.some(o=>o.category===null&&!o.dormant)}>Free Radio · continuous discovery</button>
-    <button type="button" onClick={()=>plusDialog.current?.showModal()} style={{fontSize:12,minHeight:44,padding:'10px 16px',borderRadius:22,border:'1px solid #ff3ea5',background:'#171a19',color:'#ff69bd',cursor:'pointer'}}>Join Radio Plus · $3/month</button>
+    <RadioPlusMembership />
    </div>
    <p role="status" style={{color:'#17201c',fontSize:12,marginBottom:0}}>{message}</p>
-   <dialog ref={plusDialog} aria-labelledby="radio-plus-title" style={{maxWidth:420,width:'calc(100% - 32px)',padding:24,borderRadius:18,border:'1px solid #ff3ea5',background:'#111018',color:'#eee'}}>
-    <h2 id="radio-plus-title" style={{fontSize:24,margin:'0 0 12px'}}>Radio Plus</h2>
-    <p>Optional $3/month membership.</p>
-    <p>Explore eligible genre, subgenre and style stations. Vote on the music and Keep favorites in rotation after listening.</p>
-    <p>Free Radio and artist participation remain free. Music purchases are separate.</p>
-    <p role="status" style={{color:'#ff69bd'}}>Subscription checkout is not connected in this development preview. No payment will be collected here.</p>
-    <form method="dialog"><button type="submit" style={{minHeight:44,padding:'10px 20px',marginTop:12,borderRadius:22,border:'1px solid #ff3ea5',background:'#ff3ea522',color:'#fff',cursor:'pointer'}}>Back to Radio</button></form>
-   </dialog>
+
   </div>
  </section>;
 }

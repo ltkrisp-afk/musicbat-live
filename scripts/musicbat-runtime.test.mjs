@@ -24,7 +24,7 @@ test('private runtime authenticates gateway, autojoins first Play, rejects liste
   for(const body of [{category:null,plusUntil:Number.MAX_SAFE_INTEGER},{category:{genre:'Rock',trackId:'a'}}]) {
    const r=await f.runtime.fetch(request('/channel',{method:'POST',body:JSON.stringify(body)}));assert.ok([400,503].includes(r.status));
   }
-  const r=await f.runtime.fetch(request('/channel',{method:'POST',body:JSON.stringify({category:{genre:'Rock'}})},'free-user'));assert.equal(r.status,503);
+  const r=await f.runtime.fetch(request('/channel',{method:'POST',body:JSON.stringify({category:{genre:'Rock'}})},'free-user'));assert.equal(r.status,403);
  }finally{await f.close()}
 });
 test('real immutable audio, ranges, suffix, If-Range and HEAD verify bytes and current performance',async()=>{
@@ -47,7 +47,7 @@ test('withdrawals, missing grants, damaged assets, changed metadata and expired 
   await writeFile(join(f.dir,'b.wav'),'corrupt');assert.equal((await f.runtime.fetch(request(mediaPath(d)))).status,403);
   f.runtime.db.prepare("UPDATE radio_sources SET status='withdrawn' WHERE id='b'").run();assert.equal((await f.runtime.fetch(request(mediaPath(d)))).status,403);
   f.runtime.setMembership('listener-one',f.now-1,'expired test');
-  assert.equal((await f.runtime.fetch(request('/channel',{method:'POST',body:JSON.stringify({category:{genre:'Rock'}})}))).status,503);
+  assert.equal((await f.runtime.fetch(request('/channel',{method:'POST',body:JSON.stringify({category:{genre:'Rock'}})}))).status,403);
  }finally{await f.close()}
 });
 test('runtime restart preserves ledger, shared listener assignment and server offset; silent catalog never bypasses rights',async()=>{

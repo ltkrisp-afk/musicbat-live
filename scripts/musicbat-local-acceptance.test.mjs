@@ -14,6 +14,10 @@ test('offline identities, catalog Radio, settlement, history and withdrawal use 
   for(const action of ['withdraw_track','delete_track','edit_metadata','set_sale_settings','set_radio'])assert.equal((await call('/api/musicbat',patron,{action,trackId:1,enabled:false,title:'forged'})).status,403);
   assert.equal((await call('/api/musicbat',musician,{action:'edit_metadata',trackId:1,title:'Corrected title',primaryGenre:'Rock',subgenre:'Punk',style:'Hardcore',energyLane:'hard'})).status,200);
   const free=await call('/api/musicbat/channel',patron);assert.equal(free.status,200);assert.equal((await free.json()).snapshot.category,null);
+  assert.equal((await call('/api/musicbat/channel',patron,{category:{genre:'Rock'}})).status,403);
+  const membership=await call('/api/musicbat/subscription',patron,{action:'join',recurringConsent:true,confirmedPriceCents:300});assert.equal(membership.status,200);
+  const membershipUrl=(await membership.json()).checkoutUrl;
+  assert.equal((await app.handle(new Request(origin+membershipUrl,{method:'POST',headers:{cookie:patron,origin},body:new URLSearchParams({action:'pay'})}))).status,303);
   const tuned=await call('/api/musicbat/channel',patron,{category:{genre:'Rock'}});assert.equal(tuned.status,200);const radio=await tuned.json();assert.equal(radio.snapshot.category.genre,'Rock');
   assert.equal((await call(radio.mediaUrl,patron)).status,200);
   const quote=await call('/api/musicbat/purchase',patron,{trackId:1});assert.equal(quote.status,409);const buyer=quote.headers.get('set-cookie').split(';')[0];const q=(await quote.json()).quote;assert.equal(q.artistShareCents,170);

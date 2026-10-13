@@ -89,6 +89,8 @@ async function syncArtistRadio(id: number) {
 async function assignedPerformance(userId: string, request: Request) {
   const headers=new Headers({'x-musicbat-listener':userId,'x-musicbat-territory':(request as Request & {cf?:{country?:string}}).cf?.country ?? 'unknown','authorization':'Bearer '+(env.RADIO_RUNTIME_TOKEN ?? '')});
   try {
+    const membership=await database().prepare('SELECT paid_until,status FROM radio_plus_enrollments WHERE user_id=?').bind(userId).first<{paid_until:number;status:string}>();
+    headers.set('x-musicbat-plus-until',String(env.MUSICBAT_RADIO_PLUS_ENABLED==='test' && env.MUSICBAT_STRIPE_MODE!=='live' && membership && ['active','past_due'].includes(membership.status) && Number.isSafeInteger(membership.paid_until) && membership.paid_until>Date.now()?membership.paid_until:0));
     let response;
     if (env.RADIO_SERVICE) response=await env.RADIO_SERVICE.fetch(new Request('https://radio.internal/channel',{headers}));
     else if (env.RADIO_RUNTIME_ORIGIN && env.RADIO_RUNTIME_TOKEN) {

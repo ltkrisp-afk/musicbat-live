@@ -55,7 +55,8 @@ test('connected upload → review → concurrent shared playback → response �
   let audio=new Request(new URL(a.mediaUrl.replace('/api/musicbat',''),'https://radio.internal'),{headers:channel().headers});assert.equal((await service.fetch(audio)).status,200);
   assert.equal((await f.route.POST(post({action:'radio_feedback',trackId:row.id,listenId:'forged',signal:'up'}))).status,403);
   assert.equal((await f.route.POST(post({action:'toggle_keep',trackId:row.id,enabled:true}))).status,403);
-  runtime.setMembership('patron',now+86400000,'GENERATED TEST ONLY membership');
+  f.state.env.MUSICBAT_RADIO_PLUS_ENABLED='test';runtime.setMembership('patron',now+86400000,'GENERATED TEST ONLY membership');
+  f.sqlite.prepare("INSERT INTO radio_plus_enrollments(id,user_id,status,paid_until) VALUES ('test-member','patron','active',?)").run(now+86400000);
   const tuned=await service.fetch(new Request('https://radio.internal/channel',{method:'POST',headers:channel().headers,body:JSON.stringify({category:{genre:'Rock'}})}));assert.equal(tuned.status,200);const plus=await tuned.json();
   f.state.user={userId:'patron'};
   assert.equal((await f.route.POST(post({action:'follow_artist',artistId:'owner',enabled:true}))).status,200);
@@ -67,7 +68,7 @@ const listen=f.sqlite.prepare('SELECT id FROM listens').get().id;f.sqlite.prepar
   assert.equal((await f.route.POST(post({action:'radio_feedback',trackId:row.id,listenId:listen,signal:'up'}))).status,200);
   assert.equal((await f.route.POST(post({action:'toggle_keep',trackId:row.id,enabled:true}))).status,200);assert.equal((await f.route.POST(post({action:'toggle_keep',trackId:row.id,enabled:true}))).status,200);
   const shock=await (await f.route.GET(new Request('https://musicbat.audio/api/musicbat?view=shock-room'))).json();assert.equal(shock.rows[0].up_count,1);assert.equal(shock.rows[0].keep_count,1);assert.equal(shock.rows[0].shock_score,3);
-  runtime.setMembership('patron',null,'GENERATED TEST ONLY expired');assert.equal((await f.route.POST(post({action:'radio_feedback',trackId:row.id,listenId:listen,signal:'down'}))).status,403);runtime.setMembership('patron',now+86400000,'GENERATED TEST ONLY renewed');
+  runtime.setMembership('patron',null,'GENERATED TEST ONLY expired');f.sqlite.prepare("UPDATE radio_plus_enrollments SET paid_until=0 WHERE user_id='patron'").run();assert.equal((await f.route.POST(post({action:'radio_feedback',trackId:row.id,listenId:listen,signal:'down'}))).status,403);runtime.setMembership('patron',now+86400000,'GENERATED TEST ONLY renewed');f.sqlite.prepare("UPDATE radio_plus_enrollments SET paid_until=? WHERE user_id='patron'").run(now+86400000);
   f.state.user={userId:'owner'};
   assert.equal((await f.route.POST(post({action:'edit_metadata',trackId:row.id,title:'Generated correction',primaryGenre:'Rock',subgenre:'Punk',style:'Art Punk',energyLane:'hard'}))).status,200);
   assert.equal(JSON.parse(runtime.db.prepare('SELECT track_json FROM radio_sources').get().track_json).category.style,'Art Punk');

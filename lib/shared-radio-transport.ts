@@ -57,7 +57,9 @@ export function createRadioTransport(engine: SharedRadioEngine, dependencies: {
       const navigation = engine.navigation(listener);
       return Response.json({snapshot,navigation,mediaUrl:snapshot.performance ?
         `/api/musicbat/channel/audio?channel=${encodeURIComponent(snapshot.channelId)}&sequence=${encodeURIComponent(snapshot.performance.authorityId)}` : null},{headers});
-    } catch {
+    } catch (error) {
+      if(error instanceof Error && error.message==='radio-plus-entitlement-required')
+        return Response.json({error:'Radio Plus membership is required for this station.'},{status:403,headers});
       return Response.json({error:'Radio is temporarily unavailable.'},{status:503,headers});
     }
   };

@@ -7,19 +7,22 @@ import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import ts from 'typescript';
 import { fixture, upload, post } from './website-fixture.mjs';
+import { plusFixture } from './radio-plus-fixture.mjs';
+import { handlePlus } from '../lib/radio-plus.ts';
 import { RadioRuntime } from '../radio/runtime.ts';
 import { publishCatalogRecording } from '../radio/catalog-import.ts';
 import { readHttpRequest, writeHttpResponse } from '../radio/server.ts';
 
 export async function createAcceptance() {
   if (process.env.NODE_ENV !== 'development') throw new Error('Offline acceptance requires NODE_ENV=development');
-  if (process.env.STRIPE_SECRET_KEY || process.env.STRIPE_WEBHOOK_SECRET) throw new Error('Remove payment credentials before offline acceptance');
+  if (process.env.STRIPE_SECRET_KEY || process.env.STRIPE_WEBHOOK_SECRET || process.env.STRIPE_RADIO_PLUS_WEBHOOK_SECRET) throw new Error('Remove payment credentials before offline acceptance');
   const f = await fixture(), context = new AsyncLocalStorage(), sessions = new Map(), checkouts = new Map(), buyers = new Map();
   const dir = await mkdtemp(join(tmpdir(), 'musicbat-acceptance-'));
   const token = randomBytes(32).toString('hex');
   const runtime = new RadioRuntime({databasePath:join(dir,'radio.sqlite'),assetRoot:dir,gatewayToken:token});
   f.state.env.RADIO_SERVICE = {async fetch(input) {const r=new Request(input);const h=new Headers(r.headers);h.set('authorization','Bearer '+token);return runtime.fetch(new Request(r,{headers:h}));}};
   delete f.state.env.MUSICBAT_BASE_URL;
+  const plus=plusFixture(f.state.env,()=>context.getStore()?.session);
   const adapter = {env:f.state.env,get user(){return context.getStore()?.user ?? null;}, fetch:processor};
   const key = 'acceptance'+randomBytes(12).toString('hex'); globalThis[key]=adapter;
   async function load(path) {
@@ -67,7 +70,7 @@ export async function createAcceptance() {
   }
   f.sqlite.prepare("INSERT INTO artist_accounts(artist_id,stripe_account_id,charges_enabled,payouts_enabled,details_submitted) VALUES ('local_musician','acct_test_local',1,1,1)").run();
   for(const [id,category] of [['free',null],['rock',{genre:'Rock'}],['punk',{genre:'Rock',subgenre:'Punk'}],['hardcore',{genre:'Rock',subgenre:'Punk',style:'Hardcore'}],['jazz',{genre:'Jazz'}]]) runtime.establishChannel(id,{category,mode:category?'radio-plus':'free-radio',territory:'worldwide',minimumArtists:1,review:{reference:'Generated fixture channel only',verifiedAt:now-1,expiresAt:expiry},gate:null});
-  for(const id of ['local_musician','local_patron'])runtime.setMembership(id,expiry,'Test-only Radio Plus entitlement');
+  // Membership now starts as Free; only verified fixture invoices unlock Plus.
   runtime.start();
   async function handle(request) {
     const url=new URL(request.url),path=url.pathname;
@@ -104,6 +107,28 @@ export async function createAcceptance() {
           return new Response(null,{status:303,headers:{location:entry.success.replace('{CHECKOUT_SESSION_ID}',entry.session.id)}});
         }
         return new Response(`<h1>Offline purchase simulation</h1><p>No card information or money is collected.</p><p>Fixture total: $${(entry.session.amount_total/100).toFixed(2)}. Artist gets $1.70 of the $2 song; platform gets $0.30. Processing uses test-only 290 bps + 30 cents.</p><form method="post"><button name="action" value="pay">Simulate successful payment</button> <button name="action" value="cancel">Cancel</button></form>`,{headers:{'content-type':'text/html','cache-control':'no-store'}});
+      }
+      if(path==='/api/musicbat/subscription')return handlePlus(f.state.env,request,user?.userId??null);
+      if(path==='/api/musicbat/subscription/webhook')return new Response(null,{status:503});
+      if(path.startsWith('/__local/plus-checkout/')) {
+        const id=path.split('/').at(-1),entry=plus.sessions.get(id);
+        if(!entry||!user||entry.owner!==cookie)return new Response(null,{status:404});
+        if(request.method==='POST') {
+          const action=(await request.formData()).get('action');
+          if(action==='cancel')return new Response(null,{status:303,headers:{location:entry.cancel}});
+          if(action!=='pay')return new Response(null,{status:400});
+          return new Response(null,{status:303,headers:{location:await plus.pay(id)}});
+        }
+        return new Response('<h1>Radio Plus offline subscription simulation</h1><p>$3/month recurring membership. No real money is collected. Cancellation stops renewal; access lasts through the paid period.</p><form method="post"><button name="action" value="pay">Simulate successful subscription payment</button> <button name="action" value="cancel">Cancel checkout</button></form>',{headers:{'content-type':'text/html','cache-control':'no-store'}});
+      }
+      if(path==='/__local/plus-control') {
+        if(!user)return new Response(null,{status:401});
+        if(request.method==='POST') {
+          try{await plus.lifecycle(user.userId,(await request.formData()).get('action'));}
+          catch(error){return new Response(String(error),{status:400});}
+          return new Response(null,{status:303,headers:{location:'/__local/plus-control'}});
+        }
+        return new Response('<h1>Test-only subscription lifecycle</h1><p>These buttons simulate processor events only in this isolated preview.</p><form method="post"><button name="action" value="renew">Simulate renewal</button> <button name="action" value="fail">Simulate failed renewal</button> <button name="action" value="expire">Simulate subscription ending</button></form><a href="/">Back to Radio</a>',{headers:{'content-type':'text/html','cache-control':'no-store'}});
       }
       if(path==='/api/musicbat/stripe/webhook')return new Response(null,{status:503});
       const route=routes.get(path) ?? (path.startsWith('/api/musicbat/audio/')?routes.get('legacyAudio'):null) ?? (/^\/api\/musicbat\/purchase\/[^/]+\/download$/.test(path)?routes.get('download'):null);

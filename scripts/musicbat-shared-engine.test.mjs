@@ -192,13 +192,12 @@ test('engine options integrate with dial traversal, wraparound, and category-onl
 test('Retrofutura renders engine-provided hierarchy and authoritative snapshot without an audio transport',async()=>{
  const {createRequire}=await import('node:module');const require=createRequire(import.meta.url);
  const {renderToStaticMarkup}=require('react-dom/server');const React=require('react');
- let source=await readFile(new URL('../components/retrofutura-radio.tsx',import.meta.url),'utf8');
- const compiled=ts.transpileModule(source,{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022,jsx:ts.JsxEmit.ReactJSX}}).outputText;
- const exports={};new Function('require','exports',compiled)(name=>name==='../lib/radio-dial'?{backDial,dialChoices,exploreDial,rotateDial}:require(name),exports);
+ await import('./register-components.mjs');
+ const exports=await import('../components/retrofutura-radio.tsx');
  const f=fixture();try {
   const snapshot=f.engine.tune(listener,path);
   const html=renderToStaticMarkup(React.createElement(exports.RetrofuturaRadio,{options:f.engine.navigation(listener),snapshot,onTune:async()=>{}}));
-  for(const text of ['Rock','GENRE','SUBGENRE','STYLE','Push dial to tune category','optional $3/month','Turn to hear. Push to explore.','SHARED SIGNAL']) assert.ok(html.includes(text),text);
+  for(const text of ['Rock','GENRE','SUBGENRE','STYLE','Push dial to tune category','planned $3/month','Turn to hear. Push to explore.','SHARED SIGNAL']) assert.ok(html.includes(text),text);
   assert.ok(!html.includes('<audio'));assert.ok(!html.includes('audio_url'));
   assert.ok(html.includes('#ff3ea5'));assert.ok(html.includes('#b6ff32'));
  }finally{f.close()}
@@ -281,7 +280,7 @@ test('live channel switches and reconnect retain server timeline for simultaneou
 test('live authority, Plus entitlement, territory and storage failure never deliver bytes',async()=>{
  const f=liveFixture();try{
   f.setAuthority(null);assert.equal((await f.handler(tuneRequest())).status,401);
-  f.setAuthority({id:'free',plusUntil:null,territory:'US'});assert.equal((await f.handler(tuneRequest(path))).status,503);
+  f.setAuthority({id:'free',plusUntil:null,territory:'US'});assert.equal((await f.handler(tuneRequest(path))).status,403);
   f.setAuthority({...listener,territory:'CA'});assert.equal((await f.handler(tuneRequest())).status,403);
   f.setAuthority({...listener,territory:'US'});f.db.exec('DROP TABLE radio_engine_decisions');
   assert.equal((await f.handler(tuneRequest())).status,503);assert.equal(f.delivered.length,0);
@@ -322,6 +321,6 @@ test('private transport rechecks current membership after asynchronous media ret
   const handler=createRadioTransport(f.engine,{authority:async()=>({...listener,id:'member',territory:'US',plusUntil:active?999999999:null}),
     territory:()=> 'US',sourceEligible:async()=>true,media:async()=>{active=false;return new Response('fixture')}});
   const tuned=await(await handler(new Request('https://radio.internal/channel',{method:'POST',body:JSON.stringify({category:{genre:'Rock'}})}))).json();
-  assert.equal((await handler(audioRequest(tuned.snapshot))).status,503);
+  assert.equal((await handler(audioRequest(tuned.snapshot))).status,403);
  }finally{f.close()}
 });
