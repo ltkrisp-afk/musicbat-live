@@ -38,7 +38,9 @@ function processingSurcharge(amount: number) {
       !Number.isInteger(fixed) || fixed < 0) {
     throw new StripeConfigurationError("Buyer processing fee schedule is not configured.");
   }
-  return Math.ceil((amount * bps / 10000 + fixed) / (1 - bps / 10000));
+  const numerator = amount * bps + fixed * 10000;
+  if (!Number.isSafeInteger(numerator)) throw new StripeConfigurationError("Processing fee exceeds the supported range.");
+  return Math.ceil(numerator / (10000 - bps));
 }
 
 function split(amount: number) {
@@ -69,6 +71,7 @@ export async function POST(request: Request) {
     `).bind(trackId).first<TrackForSale>();
     if (!track) return response({ error: "That song is unavailable." }, 404);
     if (!track.sale_enabled || !track.sale_rights_attested || !track.sale_price_cents) return response({ error: "This artist has not offered the track for sale yet." }, 409);
+    if (!Number.isSafeInteger(track.sale_price_cents) || track.sale_price_cents < 1 || track.sale_price_cents > 99999999) return response({ error: "This song has an invalid sale price." }, 409);
     if (track.sale_currency !== "usd") return response({ error: "This track's currency is not supported yet." }, 409);
     if (!track.stripe_account_id) {
       return response({ error: "This artist is still finishing Stripe payout setup." }, 409);

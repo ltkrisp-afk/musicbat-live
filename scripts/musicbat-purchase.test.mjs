@@ -270,3 +270,67 @@ test("quoted prices reach Checkout with 85/15 base allocation and buyer-funded p
     sqlite.close();
   }
 });
+
+test("verified full refunds revoke access permanently; partial refunds and replay preserve ledger", async () => {
+  const { sqlite, state, purchase, download } = await fixture();
+  const checkout = await purchase.POST(post());
+  const cookie = checkout.headers.get('set-cookie').split(';')[0];
+  const { purchase: draft } = await checkout.json();
+  sqlite.prepare("UPDATE purchases SET status='paid', payment_intent_id='pi_refund' WHERE id=?").run(draft.id);
+  const original = sqlite.prepare('SELECT amount_cents, artist_share_cents, platform_fee_cents, processing_cents FROM purchases WHERE id=?').get(draft.id);
+  let charge = { id:'ch_refund', livemode:false, payment_intent:'pi_refund', currency:'usd', amount:1061, amount_refunded:100, refunded:false };
+  globalThis.fetch = async (url) => Response.json(String(url).includes("/charges/") ? charge : { id:"cs_test_musicbat", livemode:false });
+  const webhook = await load('../app/api/musicbat/stripe/webhook/route.ts',state);
+  const send = async (id, type='charge.refunded') => {
+    const raw=JSON.stringify({id,type,livemode:false,data:{object:{id:type==='charge.refunded'?'ch_refund':'cs_test_musicbat'}}});
+    return webhook.POST(new Request('https://musicbat.audio/api/musicbat/stripe/webhook',{method:'POST',headers:{'stripe-signature':await sign(raw,state.env.STRIPE_WEBHOOK_SECRET)},body:raw}));
+  };
+  assert.equal((await send('evt_partial')).status,200);
+  assert.equal((await download.GET(get(draft.id,cookie,true))).status,200);
+  charge={...charge,amount_refunded:1061,refunded:true};
+  assert.equal((await send('evt_full')).status,200);
+  assert.equal((await send('evt_full')).status,200);
+  assert.equal((await download.GET(get(draft.id,cookie,true))).status,402);
+  assert.equal((await send('evt_expired','checkout.session.expired')).status,200);
+  assert.equal(sqlite.prepare('SELECT status FROM purchases WHERE id=?').get(draft.id).status,'refunded');
+  globalThis.fetch=async()=>Response.json({id:'cs_test_musicbat',livemode:false,payment_status:'paid',amount_total:1061,currency:'usd',metadata:{musicbat_purchase_id:draft.id,musicbat_processing_cents:'61'},payment_intent:{id:'pi_refund',application_fee_amount:211,transfer_data:{destination:'acct_test_artist'}}});
+  assert.equal((await send('evt_late_paid','checkout.session.completed')).status,200);
+  assert.equal(sqlite.prepare('SELECT status FROM purchases WHERE id=?').get(draft.id).status,'refunded');
+  assert.deepEqual(sqlite.prepare('SELECT amount_cents, artist_share_cents, platform_fee_cents, processing_cents FROM purchases WHERE id=?').get(draft.id),original);
+  sqlite.close();
+});
+
+test("mismatched authenticated refunds cannot revoke purchases", async () => {
+  const {sqlite,state,purchase}=await fixture();
+  const {purchase:draft}=await (await purchase.POST(post())).json();
+  sqlite.prepare("UPDATE purchases SET status='paid', payment_intent_id='pi_refund' WHERE id=?").run(draft.id);
+  globalThis.fetch=async()=>Response.json({id:'ch_refund',livemode:false,payment_intent:'pi_refund',currency:'usd',amount:1000,amount_refunded:1000,refunded:true});
+  const webhook=await load('../app/api/musicbat/stripe/webhook/route.ts',state);
+  const raw=JSON.stringify({id:'evt_wrong_refund',type:'charge.refunded',livemode:false,data:{object:{id:'ch_refund'}}});
+  assert.equal((await webhook.POST(new Request('https://musicbat.audio/api/musicbat/stripe/webhook',{method:'POST',headers:{'stripe-signature':await sign(raw,state.env.STRIPE_WEBHOOK_SECRET)},body:raw}))).status,400);
+  assert.equal(sqlite.prepare('SELECT status FROM purchases WHERE id=?').get(draft.id).status,'paid');
+  sqlite.close();
+});
+
+test("payment confirmation rejects wrong amount, fee and destination; concurrent webhook retries settle once", async () => {
+  const {sqlite,state,purchase}=await fixture();
+  const {purchase:draft}=await (await purchase.POST(post())).json();
+  const correct={id:'cs_test_musicbat',livemode:false,payment_status:'paid',amount_total:1061,currency:'usd',metadata:{musicbat_purchase_id:draft.id,musicbat_processing_cents:'61'},payment_intent:{id:'pi_retry',application_fee_amount:211,transfer_data:{destination:'acct_test_artist'}}};
+  let session=correct;
+  globalThis.fetch=async()=>Response.json(session);
+  const webhook=await load('../app/api/musicbat/stripe/webhook/route.ts',state);
+  const raw=JSON.stringify({id:'evt_retry',type:'checkout.session.completed',livemode:false,data:{object:{id:correct.id}}});
+  const send=async()=>webhook.POST(new Request('https://musicbat.audio/api/musicbat/stripe/webhook',{method:'POST',headers:{'stripe-signature':await sign(raw,state.env.STRIPE_WEBHOOK_SECRET)},body:raw}));
+  const errors=console.error;console.error=()=>{};
+  try {
+    for(const invalid of [{...correct,amount_total:1060},{...correct,payment_intent:{...correct.payment_intent,application_fee_amount:210}},{...correct,payment_intent:{...correct.payment_intent,transfer_data:{destination:'acct_wrong'}}}]) {
+      session=invalid;assert.equal((await send()).status,400);
+      assert.equal(sqlite.prepare('SELECT status FROM purchases WHERE id=?').get(draft.id).status,'pending');
+    }
+  } finally {console.error=errors;}
+  session=correct;
+  assert.deepEqual((await Promise.all([send(),send()])).map(r=>r.status),[200,200]);
+  assert.equal(sqlite.prepare("SELECT count(*) AS n FROM stripe_events WHERE event_id='evt_retry'").get().n,1);
+  assert.equal(sqlite.prepare('SELECT status FROM purchases WHERE id=?').get(draft.id).status,'paid');
+  sqlite.close();
+});
