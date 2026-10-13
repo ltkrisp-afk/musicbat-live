@@ -113,21 +113,21 @@ test('MusicBat player omits native controls and Next; Buy and essential playback
 });
 
 
-test('migration carries artist rotation preference and listener keeps, then removes Hangers', async () => {
+test('migration carries artist rotation preference and listener keeps, and preserves Hangers', async () => {
   const sqlite = new DatabaseSync(':memory:');
   for (const name of ['0000_wild_vapor.sql', '0001_quick_blizzard.sql']) sqlite.exec(readFileSync(`drizzle/${name}`, 'utf8'));
   sqlite.exec("INSERT INTO tracks(artist_id,artist_name,title,audio_url) VALUES ('artist-1','The Enucleators','Unity','/api/musicbat/audio/existing.mp3')");
   sqlite.exec("INSERT INTO hangers(track_id,listener_id,kind) VALUES (1,'artist-1','keep_in_rotation'), (1,'listener-2','keep_in_rotation')");
   sqlite.exec(readFileSync('drizzle/0002_third_elektra.sql','utf8'));
-  for (const name of ['0003_oval_dark_phoenix.sql', '0004_bat_radio_energy_feedback.sql']) sqlite.exec(readFileSync(`drizzle/${name}`, 'utf8'));
+  for (const name of ['0003_oval_dark_phoenix.sql', '0004_listener_choices.sql']) sqlite.exec(readFileSync(`drizzle/${name}`, 'utf8'));
   sqlite.exec("INSERT INTO listens(id,track_id,listener_id,qualified,qualified_at) VALUES ('legacy-listen',1,'listener-3',1,CURRENT_TIMESTAMP); INSERT INTO hangers(track_id,listener_id,kind) VALUES (1,'listener-3','standout');");
-  sqlite.exec(readFileSync('drizzle/0005_wandering_enchantress.sql', 'utf8'));
+  sqlite.exec(readFileSync('drizzle/0005_v13_signal_compatibility.sql', 'utf8'));
   assert.equal(sqlite.prepare('SELECT keep_in_rotation FROM tracks').get().keep_in_rotation,1);
   assert.equal(sqlite.prepare('SELECT count(*) AS n FROM track_keeps').get().n,1);
   assert.equal(sqlite.prepare('SELECT listener_id FROM track_keeps').get().listener_id,'listener-2');
   const migratedSignal = sqlite.prepare("SELECT listener_id,listen_id,signal FROM radio_feedback").get();
   assert.deepEqual({ ...migratedSignal }, { listener_id: 'listener-3', listen_id: 'legacy-listen', signal: 'up' });
-  assert.throws(() => sqlite.prepare('SELECT * FROM hangers').all(), /no such table/);
+  assert.equal(sqlite.prepare('SELECT count(*) AS n FROM hangers').get().n,3);
 });
 test('eligibility queries exclude moderated, removed, unpublished and unattested songs', async () => {
   const sqlite = database(), route = await handlers(sqlite);

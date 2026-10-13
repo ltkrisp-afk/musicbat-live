@@ -1,6 +1,6 @@
 import { env } from "cloudflare:workers";
 import { buyerIdentity } from "./buyer";
-import { connectReady, musicBatOrigin, StripeAccount, StripeCheckoutSession, StripeConfigurationError, stripeGet, stripePost } from "../stripe/stripe";
+import { connectReady, musicBatOrigin, StripeAccount, StripeCheckoutSession, StripeConfigurationError, stripeGet, stripePost, stripeModeMatches } from "../stripe/stripe";
 
 type TrackForSale = {
   id: number;
@@ -30,7 +30,7 @@ function response(data: unknown, status = 200, cookie?: string | null) {
 }
 
 function processingSurcharge(amount: number) {
-  // Explicitly configured TEST checkout rate; fail closed rather than invent a processor rate.
+  // Explicitly configured checkout rate; fail closed rather than invent a processor rate.
   const bps = Number(env.MUSICBAT_PROCESSING_BPS);
   const fixed = Number(env.MUSICBAT_PROCESSING_FIXED_CENTS);
   if (!env.MUSICBAT_PROCESSING_BPS || !env.MUSICBAT_PROCESSING_FIXED_CENTS ||
@@ -51,10 +51,12 @@ function split(amount: number) {
 async function existingCheckout(purchase: PurchaseDraft) {
   if (!purchase.processor_session_id) return null;
   const session = await stripeGet<StripeCheckoutSession>(env, `/v1/checkout/sessions/${encodeURIComponent(purchase.processor_session_id)}`);
+  if (!stripeModeMatches(env, session.livemode)) throw new StripeConfigurationError("Stored Checkout Session mode does not match the configured mode.");
   return session.status === "open" && session.url ? session.url : null;
 }
 
 export async function POST(request: Request) {
+  if (env.MUSICBAT_RELEASE_PAUSED === "1") return Response.json({ error: "MusicBat is briefly paused for an update." }, { status: 503, headers: { "retry-after": "60", "cache-control": "no-store" } });
   try {
     const origin = request.headers.get("origin");
     if (origin && origin !== new URL(request.url).origin) return response({ error: "Open MusicBat to buy this song." }, 403);
@@ -140,9 +142,9 @@ export async function POST(request: Request) {
       await env.DB.prepare("UPDATE purchases SET status = 'failed' WHERE id = ?").bind(id).run();
       throw error;
     }
-    if (!checkout.id || !checkout.url || checkout.livemode) {
+    if (!checkout.id || !checkout.url || !stripeModeMatches(env, checkout.livemode)) {
       await env.DB.prepare("UPDATE purchases SET status = 'failed' WHERE id = ?").bind(id).run();
-      throw new Error("Stripe returned an invalid test Checkout Session.");
+      throw new Error("Stripe returned an invalid Checkout Session.");
     }
     await env.DB.prepare("UPDATE purchases SET status = 'pending', processor_session_id = ? WHERE id = ?")
       .bind(checkout.id, id).run();

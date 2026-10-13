@@ -1,5 +1,5 @@
 import { env } from "cloudflare:workers";
-import { StripeCheckoutSession, StripeConfigurationError, stripeGet, verifyStripeWebhook } from "../stripe";
+import { StripeCheckoutSession, StripeConfigurationError, stripeGet, stripeModeMatches, verifyStripeWebhook } from "../stripe";
 
 type Purchase = {
   id: string;
@@ -22,10 +22,11 @@ function paymentIntentId(session: StripeCheckoutSession) {
 }
 
 export async function POST(request: Request) {
+  if (env.MUSICBAT_RELEASE_PAUSED === "1") return Response.json({ error: "MusicBat is briefly paused for an update." }, { status: 503, headers: { "retry-after": "60", "cache-control": "no-store" } });
   try {
     if (!env.DB) return Response.json({ error: "MusicBat storage is unavailable." }, { status: 503 });
     const rawBody = await request.text();
-    const event = await verifyStripeWebhook(rawBody, request.headers.get("stripe-signature"), env.STRIPE_WEBHOOK_SECRET);
+    const event = await verifyStripeWebhook(rawBody, request.headers.get("stripe-signature"), env.STRIPE_WEBHOOK_SECRET, undefined, env);
     const supported = new Set(["checkout.session.completed", "checkout.session.async_payment_succeeded", "checkout.session.async_payment_failed", "checkout.session.expired", "charge.refunded"]);
     if (!supported.has(event.type)) return Response.json({ received: true });
     const sessionId = event.data.object.id;
@@ -33,7 +34,7 @@ export async function POST(request: Request) {
     if (already) return Response.json({ received: true, duplicate: true });
     if (event.type === "charge.refunded") {
       const charge = await stripeGet<{ id: string; livemode: boolean; payment_intent: string | null; amount: number; amount_refunded: number; refunded: boolean; currency: string }>(env, `/v1/charges/${encodeURIComponent(sessionId)}`);
-      if (charge.id !== sessionId || charge.livemode || !charge.payment_intent) return Response.json({ error: "Refund verification failed." }, { status: 400 });
+      if (charge.id !== sessionId || !stripeModeMatches(env, charge.livemode) || !charge.payment_intent) return Response.json({ error: "Refund verification failed." }, { status: 400 });
       const purchase = await env.DB.prepare("SELECT id, amount_cents, processing_cents FROM purchases WHERE payment_intent_id = ?")
         .bind(charge.payment_intent).first<Purchase>();
       if (!purchase) return Response.json({ error: "Purchase not found." }, { status: 404 });
@@ -50,7 +51,7 @@ export async function POST(request: Request) {
       return Response.json({ received: true });
     }
     const session = await stripeGet<StripeCheckoutSession>(env, `/v1/checkout/sessions/${encodeURIComponent(sessionId)}`, { "expand[]": "payment_intent" });
-    if (session.livemode) return Response.json({ error: "Live Stripe events are disabled." }, { status: 400 });
+    if (session.id !== sessionId || !stripeModeMatches(env, session.livemode)) return Response.json({ error: "Stripe session mode or identity mismatch." }, { status: 400 });
     const purchase = await env.DB.prepare(`SELECT id, amount_cents, processing_cents, platform_fee_cents, processor_account_id, processor_session_id, status FROM purchases WHERE processor_session_id = ?`)
       .bind(session.id).first<Purchase>();
     if (!purchase) return Response.json({ error: "Purchase not found." }, { status: 404 });

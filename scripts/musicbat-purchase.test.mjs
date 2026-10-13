@@ -37,7 +37,7 @@ async function load(path, state) {
   return import(`data:text/javascript;base64,${Buffer.from(outputText + "\n//" + Math.random()).toString("base64")}`);
 }
 
-async function fixture() {
+async function fixture(mode = "test") {
   const sqlite = new DatabaseSync(":memory:");
   for (const filename of (await readdir(new URL("../drizzle", import.meta.url))).filter((name) => name.endsWith(".sql")).sort()) {
     sqlite.exec(await readFile(new URL(`../drizzle/${filename}`, import.meta.url), "utf8"));
@@ -55,7 +55,8 @@ async function fixture() {
         async head(key) { return key === `tracks/${asset}` ? { size: bytes.length } : null; },
         async get(key) { return key === `tracks/${asset}` ? { body: bytes, size: bytes.length, httpMetadata: { contentType: "audio/wav" } } : null; },
       },
-      STRIPE_SECRET_KEY: "sk_test_musicbat",
+      MUSICBAT_STRIPE_MODE: mode,
+      STRIPE_SECRET_KEY: `sk_${mode}_musicbat_fixture`,
       STRIPE_WEBHOOK_SECRET: "whsec_musicbat_test",
       MUSICBAT_BASE_URL: "https://musicbat.audio",
       MUSICBAT_PROCESSING_BPS: "290",
@@ -69,10 +70,10 @@ async function fixture() {
       return Response.json({ id: "acct_test_artist", charges_enabled: Boolean(account.charges_enabled), payouts_enabled: Boolean(account.payouts_enabled), details_submitted: Boolean(account.details_submitted) });
     }
     if (String(url).includes("/v1/checkout/sessions/") && init.method === "GET") {
-      return Response.json({ id: "cs_test_musicbat", url: "https://checkout.stripe.com/c/pay/test", status: "open", livemode: false });
+      return Response.json({ id: "cs_test_musicbat", url: "https://checkout.stripe.com/c/pay/test", status: "open", livemode: mode === "live" });
     }
     if (String(url).endsWith("/v1/checkout/sessions") && init.method === "POST") {
-      return Response.json({ id: "cs_test_musicbat", url: "https://checkout.stripe.com/c/pay/test", status: "open", livemode: false });
+      return Response.json({ id: "cs_test_musicbat", url: "https://checkout.stripe.com/c/pay/test", status: "open", livemode: mode === "live" });
     }
     throw new Error(`Unexpected Stripe request: ${url}`);
   };
@@ -155,7 +156,7 @@ test("valid signed webhook alone confirms payment and unlocks captured download"
   };
   globalThis.fetch = async () => Response.json(session);
   const webhook = await load("../app/api/musicbat/stripe/webhook/route.ts", state);
-  const event = JSON.stringify({ id: "evt_test_paid", type: "checkout.session.completed", livemode: false, data: { object: { id: session.id } } });
+  const event = JSON.stringify({ id: "evt_test_paid", type: "checkout.session.completed", livemode: false, data: { object: { id: session.id, livemode: false } } });
   const originalConsoleError = console.error;
   console.error = () => {};
   let bad;
@@ -185,11 +186,11 @@ test("3DS-style unpaid completion remains locked until later authenticated succe
   let session = { id: "cs_test_musicbat", livemode: false, status: "open", payment_status: "unpaid", amount_total: 1061, currency: "usd", metadata: { musicbat_purchase_id: draft.id, musicbat_processing_cents: "61" }, payment_intent: { id: "pi_3ds", application_fee_amount: 211, transfer_data: { destination: "acct_test_artist" } } };
   globalThis.fetch = async () => Response.json(session);
   const webhook = await load("../app/api/musicbat/stripe/webhook/route.ts", state);
-  const pendingEvent = JSON.stringify({ id: "evt_3ds_pending", type: "checkout.session.completed", livemode: false, data: { object: { id: session.id } } });
+  const pendingEvent = JSON.stringify({ id: "evt_3ds_pending", type: "checkout.session.completed", livemode: false, data: { object: { id: session.id, livemode: false } } });
   await webhook.POST(new Request("https://musicbat.audio/api/musicbat/stripe/webhook", { method: "POST", headers: { "stripe-signature": await sign(pendingEvent, state.env.STRIPE_WEBHOOK_SECRET) }, body: pendingEvent }));
   assert.equal((await download.GET(get(draft.id, cookie, true))).status, 402);
   session = { ...session, status: "complete", payment_status: "paid" };
-  const paidEvent = JSON.stringify({ id: "evt_3ds_paid", type: "checkout.session.async_payment_succeeded", livemode: false, data: { object: { id: session.id } } });
+  const paidEvent = JSON.stringify({ id: "evt_3ds_paid", type: "checkout.session.async_payment_succeeded", livemode: false, data: { object: { id: session.id, livemode: false } } });
   await webhook.POST(new Request("https://musicbat.audio/api/musicbat/stripe/webhook", { method: "POST", headers: { "stripe-signature": await sign(paidEvent, state.env.STRIPE_WEBHOOK_SECRET) }, body: paidEvent }));
   assert.equal((await download.GET(get(draft.id, cookie, true))).status, 200);
   sqlite.close();
@@ -236,7 +237,7 @@ test("legacy purchase snapshot still accepts historical fee and total", async ()
   const session={id:'cs_test_musicbat',livemode:false,payment_status:'paid',amount_total:1000,currency:'usd',metadata:{musicbat_purchase_id:draft.id},payment_intent:{id:'pi_legacy',application_fee_amount:100,transfer_data:{destination:'acct_test_artist'}}};
   globalThis.fetch=async()=>Response.json(session);
   const webhook=await load('../app/api/musicbat/stripe/webhook/route.ts',state);
-  const event=JSON.stringify({id:'evt_legacy',type:'checkout.session.completed',livemode:false,data:{object:{id:session.id}}});
+  const event=JSON.stringify({id:'evt_legacy',type:'checkout.session.completed',livemode:false,data:{object:{id:session.id,livemode:false}}});
   assert.equal((await webhook.POST(new Request('https://musicbat.audio/api/musicbat/stripe/webhook',{method:'POST',headers:{'stripe-signature':await sign(event,state.env.STRIPE_WEBHOOK_SECRET)},body:event}))).status,200);
   assert.equal(sqlite.prepare('SELECT artist_share_cents FROM purchases WHERE id=?').get(draft.id).artist_share_cents,900);
   sqlite.close();
@@ -282,7 +283,7 @@ test("verified full refunds revoke access permanently; partial refunds and repla
   globalThis.fetch = async (url) => Response.json(String(url).includes("/charges/") ? charge : { id:"cs_test_musicbat", livemode:false });
   const webhook = await load('../app/api/musicbat/stripe/webhook/route.ts',state);
   const send = async (id, type='charge.refunded') => {
-    const raw=JSON.stringify({id,type,livemode:false,data:{object:{id:type==='charge.refunded'?'ch_refund':'cs_test_musicbat'}}});
+    const raw=JSON.stringify({id,type,livemode:false,data:{object:{id:type==='charge.refunded'?'ch_refund':'cs_test_musicbat',livemode:false}}});
     return webhook.POST(new Request('https://musicbat.audio/api/musicbat/stripe/webhook',{method:'POST',headers:{'stripe-signature':await sign(raw,state.env.STRIPE_WEBHOOK_SECRET)},body:raw}));
   };
   assert.equal((await send('evt_partial')).status,200);
@@ -306,7 +307,7 @@ test("mismatched authenticated refunds cannot revoke purchases", async () => {
   sqlite.prepare("UPDATE purchases SET status='paid', payment_intent_id='pi_refund' WHERE id=?").run(draft.id);
   globalThis.fetch=async()=>Response.json({id:'ch_refund',livemode:false,payment_intent:'pi_refund',currency:'usd',amount:1000,amount_refunded:1000,refunded:true});
   const webhook=await load('../app/api/musicbat/stripe/webhook/route.ts',state);
-  const raw=JSON.stringify({id:'evt_wrong_refund',type:'charge.refunded',livemode:false,data:{object:{id:'ch_refund'}}});
+  const raw=JSON.stringify({id:'evt_wrong_refund',type:'charge.refunded',livemode:false,data:{object:{id:'ch_refund',livemode:false}}});
   assert.equal((await webhook.POST(new Request('https://musicbat.audio/api/musicbat/stripe/webhook',{method:'POST',headers:{'stripe-signature':await sign(raw,state.env.STRIPE_WEBHOOK_SECRET)},body:raw}))).status,400);
   assert.equal(sqlite.prepare('SELECT status FROM purchases WHERE id=?').get(draft.id).status,'paid');
   sqlite.close();
@@ -319,7 +320,7 @@ test("payment confirmation rejects wrong amount, fee and destination; concurrent
   let session=correct;
   globalThis.fetch=async()=>Response.json(session);
   const webhook=await load('../app/api/musicbat/stripe/webhook/route.ts',state);
-  const raw=JSON.stringify({id:'evt_retry',type:'checkout.session.completed',livemode:false,data:{object:{id:correct.id}}});
+  const raw=JSON.stringify({id:'evt_retry',type:'checkout.session.completed',livemode:false,data:{object:{id:correct.id,livemode:false}}});
   const send=async()=>webhook.POST(new Request('https://musicbat.audio/api/musicbat/stripe/webhook',{method:'POST',headers:{'stripe-signature':await sign(raw,state.env.STRIPE_WEBHOOK_SECRET)},body:raw}));
   const errors=console.error;console.error=()=>{};
   try {
@@ -333,4 +334,49 @@ test("payment confirmation rejects wrong amount, fee and destination; concurrent
   assert.equal(sqlite.prepare("SELECT count(*) AS n FROM stripe_events WHERE event_id='evt_retry'").get().n,1);
   assert.equal(sqlite.prepare('SELECT status FROM purchases WHERE id=?').get(draft.id).status,'paid');
   sqlite.close();
+});
+
+
+test("mock live checkout and signed settlement preserve 85/15 and replay protection", async () => {
+ const {sqlite,state,purchase}=await fixture('live');
+ const response=await purchase.POST(post());assert.equal(response.status,201);
+ const {purchase:draft}=await response.json();
+ const session={id:'cs_test_musicbat',livemode:true,payment_status:'paid',amount_total:1061,currency:'usd',metadata:{musicbat_purchase_id:draft.id,musicbat_processing_cents:'61'},payment_intent:{id:'pi_live_fixture',application_fee_amount:211,transfer_data:{destination:'acct_test_artist'}}};
+ globalThis.fetch=async()=>Response.json(session);
+ const webhook=await load('../app/api/musicbat/stripe/webhook/route.ts',state);
+ async function send(mode,objectMode=mode,id='evt_live_fixture'){
+  const raw=JSON.stringify({id,type:'checkout.session.completed',livemode:mode,data:{object:{id:session.id,livemode:objectMode}}});
+  return webhook.POST(new Request('https://musicbat.audio/api/musicbat/stripe/webhook',{method:'POST',headers:{'stripe-signature':await sign(raw,state.env.STRIPE_WEBHOOK_SECRET)},body:raw}));
+ }
+ const saved=console.error;console.error=()=>{};
+ try {
+  for(const mode of [false,undefined,'true',1])assert.equal((await send(mode)).status,400);
+  assert.equal((await send(true,false)).status,400);
+  session.livemode=false;assert.equal((await send(true)).status,400);session.livemode=true;
+ }finally{console.error=saved}
+ assert.equal(sqlite.prepare('SELECT status FROM purchases').get().status,'pending');
+ assert.equal(sqlite.prepare('SELECT count(*) n FROM stripe_events').get().n,0);
+ assert.equal((await send(true)).status,200);assert.equal((await send(true)).status,200);
+ assert.equal(sqlite.prepare('SELECT count(*) n FROM stripe_events').get().n,1);
+ assert.deepEqual({...sqlite.prepare('SELECT artist_share_cents,platform_fee_cents,processing_cents,status FROM purchases').get()},{artist_share_cents:850,platform_fee_cents:150,processing_cents:61,status:'paid'});
+ // A refund is verified in the selected mode; no refund request is initiated.
+ let chargeMode=false;
+ globalThis.fetch=async()=>Response.json({id:'ch_live_fixture',livemode:chargeMode,payment_intent:'pi_live_fixture',amount:1061,amount_refunded:1061,refunded:true,currency:'usd'});
+ const raw=JSON.stringify({id:'evt_live_refund',type:'charge.refunded',livemode:true,data:{object:{id:'ch_live_fixture',livemode:true}}});
+ const refund=async()=>webhook.POST(new Request('https://musicbat.audio/api/musicbat/stripe/webhook',{method:'POST',headers:{'stripe-signature':await sign(raw,state.env.STRIPE_WEBHOOK_SECRET)},body:raw}));
+ assert.equal((await refund()).status,400);chargeMode=true;assert.equal((await refund()).status,200);
+ assert.equal(sqlite.prepare('SELECT status FROM purchases').get().status,'refunded');sqlite.close();
+});
+
+test("test checkout rejects missing, live and nonboolean returned Session modes including reuse", async()=>{
+ for(const mode of [undefined,true,0,'false']){
+  const {sqlite,purchase}=await fixture();const mock=globalThis.fetch;
+  globalThis.fetch=async(url,init)=>{const result=await mock(url,init);if(String(url).includes('/checkout/sessions')){const obj=await result.json();obj.livemode=mode;return Response.json(obj)}return result};
+  const saved=console.error;console.error=()=>{};try{assert.equal((await purchase.POST(post())).status,503)}finally{console.error=saved}
+  assert.equal(sqlite.prepare('SELECT status FROM purchases').get().status,'failed');sqlite.close();
+ }
+ const {sqlite,state,purchase}=await fixture();const first=await purchase.POST(post());const cookie=first.headers.get('set-cookie').split(';')[0];
+ state.env.MUSICBAT_STRIPE_MODE='live';state.env.STRIPE_SECRET_KEY='sk_live_fixture';
+ const saved=console.error;console.error=()=>{};try{assert.equal((await purchase.POST(post(1,cookie))).status,503)}finally{console.error=saved}
+ assert.equal(sqlite.prepare('SELECT count(*) n FROM purchases').get().n,1);sqlite.close();
 });

@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "3a20b21e-4951-40c3-9e0a-4c10183a1d1e",
+  "id": "0bea9d36-e0f0-474e-b3af-f688af138659",
   "prevId": "5b72f6e6-e968-41f6-a9fa-7c0952e0333d",
   "tables": {
     "artist_accounts": {
@@ -345,13 +345,6 @@
     "radio_feedback": {
       "name": "radio_feedback",
       "columns": {
-        "id": {
-          "name": "id",
-          "type": "text",
-          "primaryKey": true,
-          "notNull": true,
-          "autoincrement": false
-        },
         "track_id": {
           "name": "track_id",
           "type": "integer",
@@ -359,29 +352,8 @@
           "notNull": true,
           "autoincrement": false
         },
-        "artist_id": {
-          "name": "artist_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
         "listener_id": {
           "name": "listener_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "listen_id": {
-          "name": "listen_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "energy_lane": {
-          "name": "energy_lane",
           "type": "text",
           "primaryKey": false,
           "notNull": true,
@@ -401,37 +373,35 @@
           "notNull": true,
           "autoincrement": false,
           "default": "CURRENT_TIMESTAMP"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "CURRENT_TIMESTAMP"
         }
       },
       "indexes": {
-        "idx_radio_feedback_lane_track": {
-          "name": "idx_radio_feedback_lane_track",
+        "idx_radio_feedback_track_listener": {
+          "name": "idx_radio_feedback_track_listener",
           "columns": [
-            "energy_lane",
-            "track_id"
+            "track_id",
+            "listener_id"
           ],
-          "isUnique": false
-        },
-        "idx_radio_feedback_listener_lane": {
-          "name": "idx_radio_feedback_listener_lane",
-          "columns": [
-            "listener_id",
-            "energy_lane"
-          ],
-          "isUnique": false
-        },
-        "idx_radio_feedback_listen": {
-          "name": "idx_radio_feedback_listen",
-          "columns": [
-            "listen_id"
-          ],
-          "isUnique": false
+          "isUnique": true
         }
       },
       "foreignKeys": {},
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
-      "checkConstraints": {}
+      "checkConstraints": {
+        "radio_feedback_signal": {
+          "name": "radio_feedback_signal",
+          "value": "\"radio_feedback\".\"signal\" IN ('up', 'down')"
+        }
+      }
     },
     "stripe_events": {
       "name": "stripe_events",
@@ -464,6 +434,68 @@
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
       "checkConstraints": {}
+    },
+    "track_keeps": {
+      "name": "track_keeps",
+      "columns": {
+        "track_id": {
+          "name": "track_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "listener_id": {
+          "name": "listener_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "enabled": {
+          "name": "enabled",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": true
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "CURRENT_TIMESTAMP"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "CURRENT_TIMESTAMP"
+        }
+      },
+      "indexes": {
+        "idx_track_keeps_track_listener": {
+          "name": "idx_track_keeps_track_listener",
+          "columns": [
+            "track_id",
+            "listener_id"
+          ],
+          "isUnique": true
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {
+        "track_keeps_enabled": {
+          "name": "track_keeps_enabled",
+          "value": "\"track_keeps\".\"enabled\" IN (0, 1)"
+        }
+      }
     },
     "tracks": {
       "name": "tracks",
@@ -518,14 +550,6 @@
           "notNull": true,
           "autoincrement": false,
           "default": false
-        },
-        "energy_lane": {
-          "name": "energy_lane",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": "'medium'"
         },
         "sale_enabled": {
           "name": "sale_enabled",

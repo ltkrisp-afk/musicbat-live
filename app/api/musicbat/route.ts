@@ -174,6 +174,7 @@ export async function GET(request: Request) {
 }
 
 export async function POST(request: Request) {
+  if (env.MUSICBAT_RELEASE_PAUSED === "1") return Response.json({ error: "MusicBat is briefly paused for an update." }, { status: 503, headers: { "retry-after": "60", "cache-control": "no-store" } });
   try {
     const user = await requireUser();
     if (request.headers.get("origin") && request.headers.get("origin") !== new URL(request.url).origin) return fail("Cross-origin changes are not allowed.",403);
