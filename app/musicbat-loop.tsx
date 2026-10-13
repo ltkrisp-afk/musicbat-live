@@ -186,6 +186,9 @@ export default function MusicBatLoop({ displayName, artistSlug, initialTab }: { 
     qualifyingRef.current = false;
   }, [current?.id, sessionKey]);
   const canRespond = interactive && qualified;
+  const feedbackHint = !interactive
+    ? "Free Radio is for listening. Voting and Keep require Radio Plus on a Plus station."
+    : !qualified ? "Play this station for at least 12 seconds to unlock voting and Keep for this track." : null;
   const keepActive = Boolean(current?.viewer_keep_in_rotation);
 
   const fetchRadio = useCallback(() => Promise.all([
@@ -584,14 +587,15 @@ export default function MusicBatLoop({ displayName, artistSlug, initialTab }: { 
                     <div className="mb-8 min-h-36"><div className="mb-3 text-sm uppercase tracking-[0.16em] text-white/38">Independent signal · {current.primary_genre} / {energyCategory(current.energy_lane)}</div><h1 className="max-w-4xl text-4xl font-black leading-[0.98] tracking-[-0.045em] sm:text-6xl lg:text-7xl">{current.title}</h1><p className="mt-4 text-lg font-semibold text-white/58">{current.artist_name}</p></div>
                     <div className="flex flex-wrap items-center gap-3">
                       <Button type="button" disabled={purchaseBusy} aria-busy={purchaseBusy} onClick={() => void buyCurrentTrack()} aria-label={`Buy ${current.title}`} data-track-id={current.id} className="h-12 shrink-0 rounded-full border border-[#ff3ea5]/50 bg-[#ff3ea5]/20 px-6 text-base font-black text-white disabled:opacity-60">{current.sale_enabled && current.sale_price_cents ? `Buy $${(current.sale_price_cents / 100).toFixed(2)}` : "Buy"}</Button>
-                      <div className="flex shrink-0 items-center gap-1" role="group" aria-label="Radio feedback">
+                      <div className="flex shrink-0 items-center gap-1" role="group" aria-label="Radio feedback" aria-describedby={feedbackHint ? "radio-feedback-help" : undefined} style={!canRespond ? {opacity:0.45} : undefined}>
                         <Button type="button" variant="ghost" aria-label="More like this" title="More like this" disabled={busy || !canRespond} onClick={() => void sendRadioFeedback("up")} className="size-10 rounded-full px-0 text-lg font-black text-white/65 hover:bg-[#ff3ea5]/15 hover:text-[#ff69bd]">▲</Button>
                         <Button type="button" variant="ghost" aria-label="Less like this" title="Less like this" disabled={busy || !canRespond} onClick={() => void sendRadioFeedback("down")} className="size-10 rounded-full px-0 text-lg font-black text-white/65 hover:bg-[#ff3ea5]/15 hover:text-[#ff69bd]">▼</Button>
                       </div>
                     </div>
+                    {feedbackHint && <p id="radio-feedback-help" role="status" aria-live="polite" className="mt-3 text-sm leading-relaxed text-white/65">{feedbackHint}</p>}
                     {purchaseMessage && <p role="status" aria-live="polite" className="mt-3 text-sm leading-relaxed text-white/65">{purchaseMessage}{purchaseDownloadUrl && <> <a className="font-black text-[#ff69bd] underline" href={purchaseDownloadUrl}>Download track</a></>}</p>}
                     <div className="mt-6 flex flex-wrap gap-3">
-                      <Button aria-pressed={keepActive} disabled={busy || !canRespond} onClick={() => void toggleKeep(current)} title="Keep this track in rotation or remove your keep." className={keepActive ? "h-11 rounded-full border border-[#ff69bd] bg-[#ff3ea5] px-5 text-white" : "h-11 rounded-full border border-white/15 bg-white/[0.045] px-5 text-white"}>Keep in rotation</Button>
+                      <Button aria-pressed={keepActive} aria-describedby={feedbackHint ? "radio-feedback-help" : undefined} style={!canRespond ? {opacity:0.45,cursor:'not-allowed'} : undefined} disabled={busy || !canRespond} onClick={() => void toggleKeep(current)} title={feedbackHint ?? "Keep this track in rotation or remove your keep."} className={keepActive ? "h-11 rounded-full border border-[#ff69bd] bg-[#ff3ea5] px-5 text-white" : "h-11 rounded-full border border-white/15 bg-white/[0.045] px-5 text-white"}>Keep in rotation</Button>
                     </div>
                   </> : <div className="grid min-h-[390px] place-items-center text-center"><div><Disc3 className="mx-auto mb-5 size-12 text-[#ff69bd]" /><h1 className="text-3xl font-black tracking-tight">{tracks.length ? "This category is quiet." : "Radio needs its first track."}</h1><p className="mx-auto mt-3 max-w-md text-white/52">{tracks.length ? "Use the shared Radio category controls or review the catalog." : "Upload your music file, classify it, and confirm your rights to enter Radio."}</p><Button onClick={() => setTab(tracks.length ? "discover" : "catalog")} className="mt-6 rounded-full bg-[#ff3ea5] px-6 text-white hover:bg-[#ff69bd]">{tracks.length ? "Open catalog" : "Add the first track"}</Button></div></div>}
                 </div>

@@ -25,7 +25,7 @@ test('real HTTP gateway → private runtime → disk authority → immutable aud
   assert.ok(reconnect.snapshot.performance.offsetMs>tuned.snapshot.performance.offsetMs);
   const old=reconnect.mediaUrl;stack.runtime.withdraw(reconnect.snapshot.performance.trackId,'HTTP integration withdrawal');
   assert.equal((await call(old.replace('/api/musicbat',''))).status,409);const next=await (await call()).json();assert.notEqual(next.snapshot.performance.trackId,reconnect.snapshot.performance.trackId);
-  assert.equal((await call('/channel',{category:{genre:'Rock'}},'free')).status,503);
+  assert.equal((await call('/channel',{category:{genre:'Rock'}},'free')).status,403);
   assert.equal((await call('/channel',undefined,'foreign')).status,403);
   assert.equal((await call('/channel',{category:null},'one',{origin:'https://evil.invalid'})).status,403);
   assert.equal((await fetch(stack.origin+'/api/musicbat/channel',{headers:{'oai-authenticated-user-id':'listener-one','x-musicbat-listener':'listener-one'}})).status,401);

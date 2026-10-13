@@ -61,6 +61,13 @@ export class RadioRuntime {
     if (presented.length !== this.token.length || !timingSafeEqual(presented, this.token)) return null;
     const id = request.headers.get('x-musicbat-listener'), territory = request.headers.get('x-musicbat-territory');
     if (!id?.trim() || id.length > 200 || !territory || !/^([A-Z]{2}|unknown)$/.test(territory)) return null;
+    // Only the bearer-authenticated private gateway can supply current D1 invoice
+    // authority. Explicit zero overrides any older imported local membership.
+    const verifiedUntil=request.headers.get('x-musicbat-plus-until');
+    if(verifiedUntil!==null) {
+      if(!/^\d{1,16}$/.test(verifiedUntil) || !Number.isSafeInteger(Number(verifiedUntil)))return null;
+      return {id,territory,plusUntil:Number(verifiedUntil)>this.clock()?Number(verifiedUntil):null};
+    }
     const member = this.db.prepare('SELECT plus_until,withdrawn_at,evidence FROM radio_memberships WHERE listener_id=?').get(id) as { plus_until: number | null; withdrawn_at: number | null; evidence: string } | undefined;
     return { id, territory, plusUntil: member && member.withdrawn_at === null && member.evidence.trim() ? member.plus_until : null };
   }

@@ -75,27 +75,44 @@ export function SharedRadioPlayer({onTrack,onError,onPlay,onProgress,onEnded,onI
   }
   return <div className="mb-6 space-y-3">
     <RetrofuturaRadio options={options} snapshot={delivery?.snapshot ?? null} onTune={update} />
+    <div aria-label="Radio category controls" style={{display:'flex',alignItems:'center',flexWrap:'wrap',gap:16}}>
     <button type="button" disabled={busy} onClick={()=>void update(null).catch(()=>undefined)}>Free Radio</button>
     {(['genre','subgenre','style'] as const).map(depth=>{
       if(depth==='subgenre'&&!category?.genre || depth==='style'&&!category?.subgenre)return null;
       const choices=options.filter(o=>o.category && (depth==='genre'? !o.category.subgenre :
         depth==='subgenre'?o.category.genre===category?.genre && !!o.category.subgenre && !o.category.style:
         o.category.genre===category?.genre && o.category.subgenre===category?.subgenre && !!o.category.style));
-      return <label key={depth} className="mr-3 inline-block">{depth} <select disabled={busy} aria-label={`Radio ${depth}`} value={category?.[depth]??''} onChange={e=>choose(depth,e.target.value)}>
+      return <label key={depth} style={{display:'flex',alignItems:'center',gap:8}}>{depth} <select disabled={busy} aria-label={`Radio ${depth}`} value={category?.[depth]??''} onChange={e=>choose(depth,e.target.value)}>
         <option value="">{depth==='genre'?'All music':'Broader category'}</option>
         {choices.map(o=><option key={JSON.stringify(o.category)} value={o.category![depth]} disabled={o.locked||o.dormant}>{o.category![depth]}{o.locked?' · Radio Plus':o.dormant?' · Quiet':''}</option>)}
       </select></label>
     })}
+    </div>
     <audio ref={audio} preload="none" controlsList="nodownload noremoteplayback" onLoadedMetadata={synchronize}
       onPlay={()=>{setPlaying(true);heard.current.last=performance.now();callbacks.current.onPlay()}} onPause={()=>{setPlaying(false);heard.current.last=0}} onTimeUpdate={()=>{
         synchronize();const a=audio.current,now=performance.now();
         if(a&&!a.paused&&authority.current){if(heard.current.last)heard.current.seconds+=Math.min(1,(now-heard.current.last)/1000);heard.current.last=now;callbacks.current.onPlay();callbacks.current.onProgress(heard.current.seconds)}
       }}
       onEnded={()=>{callbacks.current.onEnded();void update()}} onError={()=>{silence();callbacks.current.onError('Audio unavailable. Radio will reconnect.')}} />
-    <button type="button" disabled={!delivery?.mediaUrl} aria-label={playing?'Pause Radio':'Play Radio'} onClick={()=>{
-      wanted.current=!playing;if(playing)audio.current?.pause();else{synchronize();void update()}
+    <div aria-label="Radio playback controls" style={{display:'flex',alignItems:'center',flexWrap:'wrap',gap:24,padding:'12px 0'}}>
+    <button type="button" disabled={!delivery?.mediaUrl} aria-label={playing?'Pause Radio':'Play Radio'} style={{minWidth:96,minHeight:44,padding:'10px 20px',border:'1px solid #ff3ea5',borderRadius:24,background:'#ff3ea522',color:'#fff',flexShrink:0,cursor:'pointer'}} onClick={()=>{
+      wanted.current=!playing;
+      if(playing)audio.current?.pause();else{
+        synchronize();
+        // Start existing authorized media in the click gesture. Waiting for a
+        // channel fetch can lose browser playback permission (notably Firefox).
+        const element=audio.current;
+        if(element?.getAttribute('src'))void element.play().catch(()=>{
+          wanted.current=false;callbacks.current.onError('Radio could not start. Press Play to try again.');
+        });
+        void update();
+      }
     }}>{playing?'Pause':'Play'}</button>
-    <input aria-label="Volume" type="range" min="0" max="1" step="0.05" defaultValue="1" onChange={e=>{if(audio.current)audio.current.volume=Number(e.target.value)}} />
+    <label style={{display:'flex',alignItems:'center',gap:12,minHeight:44,maxWidth:'100%',color:'#eee'}}>
+      <span>Volume</span>
+      <input aria-label="Volume" style={{width:180,maxWidth:'100%',minWidth:0,accentColor:'#ff3ea5'}} type="range" min="0" max="1" step="0.05" defaultValue="1" onChange={e=>{if(audio.current)audio.current.volume=Number(e.target.value)}} />
+    </label>
+    </div>
     {!delivery?.mediaUrl&&<p role="status">This channel is quiet or unavailable.</p>}
   </div>;
 }

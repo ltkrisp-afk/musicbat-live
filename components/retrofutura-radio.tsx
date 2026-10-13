@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from 'react';
+import { RadioPlusMembership } from './radio-plus-membership';
 import { backDial, dialChoices, exploreDial, rotateDial, type DialState } from '../lib/radio-dial';
 import type { Category } from '../lib/radio-category';
 import type { ChannelOption, ChannelSnapshot } from '../lib/shared-radio-engine';
@@ -69,9 +70,10 @@ export function RetrofuturaRadio({options,snapshot,onTune}: {
    <div style={{display:'flex',gap:12,marginTop:20,flexWrap:'wrap',color:'#17201c'}}>
     <button type="button" onClick={()=>setDial(backDial(dial))} disabled={pending||!dial.parent}>Back one level</button>
     <button type="button" onClick={()=>void tune(null,false)} disabled={pending||!options.some(o=>o.category===null&&!o.dormant)}>Free Radio · continuous discovery</button>
-    <span style={{fontSize:12,alignSelf:'center'}}>Radio Plus · optional $3/month</span>
+    <RadioPlusMembership />
    </div>
    <p role="status" style={{color:'#17201c',fontSize:12,marginBottom:0}}>{message}</p>
+
   </div>
  </section>;
 }
