@@ -579,7 +579,7 @@ export default function MusicBatLoop({ displayName }: { displayName: string }) {
                 <div className="space-y-4">
                   <div className="rounded-xl border border-white/10 bg-white/[0.03] p-4">
                     <div className="text-sm font-black text-white">Artist payouts</div>
-                    <p className="mt-1 text-sm text-white/50">{connectStatus?.ready ? "Stripe test payouts are ready." : connectStatus?.connected ? "Finish Stripe onboarding before buyers can check out." : "Connect a separate MusicBat Stripe Express account to receive 85% of each sale."}</p>
+                    <p className="mt-1 text-sm text-white/50">{connectStatus?.ready ? "Stripe test payouts are ready." : connectStatus?.connected ? "Finish Stripe onboarding before buyers can check out." : "Connect a separate MusicBat Stripe Express account to receive 85% of the song price. Buyer processing fees are charged separately."}</p>
                     <Button type="button" disabled={connectBusy || Boolean(connectStatus?.ready)} onClick={() => void connectStripe()} className="mt-3 h-10 rounded-full border border-[#ff3ea5]/50 bg-[#ff3ea5]/15 px-4 text-white hover:bg-[#ff3ea5]/25">{connectBusy ? "Opening Stripe…" : connectStatus?.ready ? "Stripe connected" : connectStatus?.connected ? "Finish Stripe setup" : "Connect Stripe payouts"}</Button>
                   </div>
                   <label className="block"><span className="mb-2 block text-sm font-semibold text-white/65">Track title</span><Input value={title} onChange={(event) => setTitle(event.target.value)} required maxLength={120} className="h-12 rounded-xl border-white/12 bg-white/[0.045] px-4 text-white placeholder:text-white/25" placeholder="Track title" /></label>

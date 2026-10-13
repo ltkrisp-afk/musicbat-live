@@ -241,3 +241,32 @@ test("legacy purchase snapshot still accepts historical fee and total", async ()
   assert.equal(sqlite.prepare('SELECT artist_share_cents FROM purchases WHERE id=?').get(draft.id).artist_share_cents,900);
   sqlite.close();
 });
+
+test("quoted prices reach Checkout with 85/15 base allocation and buyer-funded processing", async () => {
+  for (const base of [1, 10, 99, 100, 199, 200, 500, 999, 1000, 1999, 10000]) {
+    const { sqlite, state, purchase } = await fixture();
+    sqlite.prepare('UPDATE tracks SET sale_price_cents=?').run(base);
+    const quoteResponse = await purchase.POST(post(1, null, { confirmedTotalCents: undefined }));
+    assert.equal(quoteResponse.status, 409);
+    const { quote } = await quoteResponse.json();
+    const artist = Math.round(base * 85 / 100);
+    const processing = Math.ceil((base * 0.029 + 30) / 0.971);
+    assert.deepEqual([quote.baseCents, quote.artistShareCents, quote.processingCents, quote.totalCents],
+      [base, artist, processing, base + processing]);
+    assert.equal((await purchase.POST(post(1, null, { confirmedTotalCents: quote.totalCents - 1 }))).status, 409);
+    const checkout = await purchase.POST(post(1, null, { confirmedTotalCents: quote.totalCents }));
+    assert.equal(checkout.status, 201);
+    const { purchase: draft } = await checkout.json();
+    const row = sqlite.prepare('SELECT * FROM purchases WHERE id=?').get(draft.id);
+    const form = state.requests.filter(x => x.init.method === 'POST' && x.url.endsWith('/v1/checkout/sessions')).at(-1).init.body;
+    const fee = Number(form.get('payment_intent_data[application_fee_amount]'));
+    assert.deepEqual([row.amount_cents, row.artist_share_cents, row.platform_fee_cents, row.processing_cents],
+      [base, artist, base - artist, processing]);
+    assert.equal(Number(form.get('line_items[0][price_data][unit_amount]')), base);
+    assert.equal(Number(form.get('line_items[1][price_data][unit_amount]')), processing);
+    assert.equal(fee, base - artist + processing);
+    assert.equal(quote.totalCents - fee, artist);
+    assert.equal(form.get('payment_intent_data[transfer_data][destination]'), 'acct_test_artist');
+    sqlite.close();
+  }
+});
