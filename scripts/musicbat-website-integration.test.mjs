@@ -58,3 +58,14 @@ test('membership-specific qualification rejects Free Radio, records one choice, 
   assert.equal((await (await get(f,'shock-room')).json()).rows[0].shock_score,1);
  }finally{f.sqlite.close()}
 });
+
+test('owner outcome counts include Free starts, exclude self exposure and follows, and retain withdrawal history',async()=>{
+ const f=await fixture();try{
+  await upload(f.route);
+  f.sqlite.exec("INSERT INTO listens(id,track_id,listener_id,qualified) VALUES ('free',1,'free-patron',0),('plus',1,'plus-patron',1),('again',1,'plus-patron',1),('self',1,'owner',1)");
+  f.sqlite.exec("INSERT INTO artist_follows(listener_id,artist_id) VALUES ('owner','owner'),('free-patron','owner')");
+  const t=(await (await mine(f.route)).json()).tracks[0];assert.equal(t.discovery_listener_count,2);assert.equal(t.listener_count,1);assert.equal(t.follower_count,1);assert.equal(t.repeat_count,1);assert.equal(t.checkout_count,0);assert.equal(t.purchase_count,0);
+  await f.route.POST(post({action:'withdraw_track',trackId:1}));const withdrawn=(await (await mine(f.route)).json()).tracks[0];assert.equal(withdrawn.discovery_listener_count,2);assert.equal(withdrawn.follower_count,1);
+  f.state.user={userId:'patron'};assert.equal((await (await mine(f.route)).json()).tracks.length,0);
+ }finally{f.sqlite.close()}
+});

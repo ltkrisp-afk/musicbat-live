@@ -50,13 +50,15 @@ test('connected upload → review → concurrent shared playback → response �
   runtime.establishChannel('hardcore',{category:{genre:'Rock',subgenre:'Punk',style:'Hardcore'},mode:'radio-plus',territory:'worldwide',minimumArtists:1,review,gate:null});runtime.tick();
   f.state.env.RADIO_SERVICE={fetch:request=>{const h=new Headers(request.headers);h.set('authorization','Bearer '+token);return runtime.fetch(new Request(request,{headers:h}))}};
   const service=catalogBoundRadio(f.state.env.RADIO_SERVICE,f.state.env.DB);
-  const channel=(id='owner')=>new Request('https://radio.internal/channel',{headers:{'x-musicbat-listener':id,'x-musicbat-territory':'US'}});
+  const channel=(id='patron')=>new Request('https://radio.internal/channel',{headers:{'x-musicbat-listener':id,'x-musicbat-territory':'US'}});
   const [one,two]=await Promise.all([service.fetch(channel()),service.fetch(channel('listener-two'))]);assert.equal(one.status,200);assert.equal(two.status,200);const a=await one.json(),b=await two.json();assert.equal(a.snapshot.performance.authorityId,b.snapshot.performance.authorityId);assert.equal(a.snapshot.performance.trackId,String(row.id));
   let audio=new Request(new URL(a.mediaUrl.replace('/api/musicbat',''),'https://radio.internal'),{headers:channel().headers});assert.equal((await service.fetch(audio)).status,200);
   assert.equal((await f.route.POST(post({action:'radio_feedback',trackId:row.id,listenId:'forged',signal:'up'}))).status,403);
   assert.equal((await f.route.POST(post({action:'toggle_keep',trackId:row.id,enabled:true}))).status,403);
-  runtime.setMembership('owner',now+86400000,'GENERATED TEST ONLY membership');
+  runtime.setMembership('patron',now+86400000,'GENERATED TEST ONLY membership');
   const tuned=await service.fetch(new Request('https://radio.internal/channel',{method:'POST',headers:channel().headers,body:JSON.stringify({category:{genre:'Rock'}})}));assert.equal(tuned.status,200);const plus=await tuned.json();
+  f.state.user={userId:'patron'};
+  assert.equal((await f.route.POST(post({action:'follow_artist',artistId:'owner',enabled:true}))).status,200);
   const listenRequest=()=>post({action:'start_listen',trackId:row.id,performanceKey:plus.snapshot.channelId+':'+plus.snapshot.performance.authorityId});
   const starts=await Promise.all([f.route.POST(listenRequest()),f.route.POST(listenRequest()),f.route.POST(listenRequest())]);assert.ok(starts.every(r=>r.status===200));
   const startIds=await Promise.all(starts.map(r=>r.json()));assert.equal(new Set(startIds.map(r=>r.listenId)).size,1);
@@ -65,7 +67,8 @@ const listen=f.sqlite.prepare('SELECT id FROM listens').get().id;f.sqlite.prepar
   assert.equal((await f.route.POST(post({action:'radio_feedback',trackId:row.id,listenId:listen,signal:'up'}))).status,200);
   assert.equal((await f.route.POST(post({action:'toggle_keep',trackId:row.id,enabled:true}))).status,200);assert.equal((await f.route.POST(post({action:'toggle_keep',trackId:row.id,enabled:true}))).status,200);
   const shock=await (await f.route.GET(new Request('https://musicbat.audio/api/musicbat?view=shock-room'))).json();assert.equal(shock.rows[0].up_count,1);assert.equal(shock.rows[0].keep_count,1);assert.equal(shock.rows[0].shock_score,3);
-  runtime.setMembership('owner',null,'GENERATED TEST ONLY expired');assert.equal((await f.route.POST(post({action:'radio_feedback',trackId:row.id,listenId:listen,signal:'down'}))).status,403);runtime.setMembership('owner',now+86400000,'GENERATED TEST ONLY renewed');
+  runtime.setMembership('patron',null,'GENERATED TEST ONLY expired');assert.equal((await f.route.POST(post({action:'radio_feedback',trackId:row.id,listenId:listen,signal:'down'}))).status,403);runtime.setMembership('patron',now+86400000,'GENERATED TEST ONLY renewed');
+  f.state.user={userId:'owner'};
   assert.equal((await f.route.POST(post({action:'edit_metadata',trackId:row.id,title:'Generated correction',primaryGenre:'Rock',subgenre:'Punk',style:'Art Punk',energyLane:'hard'}))).status,200);
   assert.equal(JSON.parse(runtime.db.prepare('SELECT track_json FROM radio_sources').get().track_json).category.style,'Art Punk');
   assert.notEqual((await service.fetch(audio)).status,200);
@@ -76,11 +79,15 @@ const listen=f.sqlite.prepare('SELECT id FROM listens').get().id;f.sqlite.prepar
   let session={id:'cs_test_loop',url:'https://checkout.stripe.com/test',livemode:false,status:'open'};
   globalThis.fetch=async url=>Response.json(String(url).includes('/accounts/')?{id:'acct_test_loop',charges_enabled:true,payouts_enabled:true,details_submitted:true}:session);
   const purchase=await load('app/api/musicbat/purchase/route.ts',f.state);const request=body=>new Request('https://musicbat.audio/api/musicbat/purchase',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(body)});
+  f.state.user={userId:'patron'};
   const quote=await purchase.POST(request({trackId:row.id}));assert.equal(quote.status,409);const q=(await quote.json()).quote;assert.equal(q.artistShareCents,170);const checkout=await purchase.POST(request({trackId:row.id,confirmedTotalCents:q.totalCents}));assert.equal(checkout.status,201);const cookie=checkout.headers.get('set-cookie').split(';')[0],draft=(await checkout.json()).purchase;
   const saved=f.sqlite.prepare('SELECT * FROM purchases').get();assert.equal(saved.artist_share_cents,170);assert.equal(saved.platform_fee_cents,30);
   session={...session,status:'complete',payment_status:'paid',amount_total:q.totalCents,currency:'usd',metadata:{musicbat_purchase_id:draft.id,musicbat_processing_cents:String(q.processingCents)},payment_intent:{id:'pi_test_loop',application_fee_amount:30+q.processingCents,transfer_data:{destination:'acct_test_loop'}}};
   const event=JSON.stringify({id:'evt_test_loop',type:'checkout.session.completed',livemode:false,data:{object:{id:session.id,livemode:false}}}),stamp=Math.floor(Date.now()/1000);const key=await crypto.subtle.importKey('raw',new TextEncoder().encode(f.state.env.STRIPE_WEBHOOK_SECRET),{name:'HMAC',hash:'SHA-256'},false,['sign']);const sig=Buffer.from(await crypto.subtle.sign('HMAC',key,new TextEncoder().encode(stamp+'.'+event))).toString('hex');
   const webhook=await load('app/api/musicbat/stripe/webhook/route.ts',f.state);assert.equal((await webhook.POST(new Request('https://musicbat.audio/api/musicbat/stripe/webhook',{method:'POST',headers:{'stripe-signature':`t=${stamp},v1=${sig}`},body:event}))).status,200);
+  f.state.user={userId:'owner'};
+  const outcomes=(await (await mine(f.route)).json()).tracks[0];
+  assert.equal(outcomes.discovery_listener_count,1);assert.equal(outcomes.follower_count,1);assert.equal(outcomes.checkout_count,1);assert.equal(outcomes.purchase_count,1);
   assert.equal((await f.route.POST(post({action:'withdraw_track',trackId:row.id}))).status,200);assert.notEqual((await service.fetch(audio)).status,200);assert.notEqual((await service.fetch(new Request(audio,{headers:channel('listener-two').headers}))).status,200);assert.equal(runtime.db.prepare('SELECT count(*) n FROM radio_engine_catalog').get().n,0);assert.equal((await purchase.POST(request({trackId:row.id,confirmedTotalCents:q.totalCents}))).status,404);
   const download=await load('app/api/musicbat/purchase/[purchaseId]/download/route.ts',f.state);const delivered=await download.GET(new Request(`https://musicbat.audio/api/musicbat/purchase/${draft.id}/download`,{headers:{cookie}}));assert.equal(delivered.status,200);assert.deepEqual(new Uint8Array(await delivered.arrayBuffer()),object.bytes);assert.equal(f.sqlite.prepare('SELECT status FROM purchases').get().status,'paid');
  } finally {globalThis.fetch=originalFetch;runtime?.close();f.sqlite.close();await rm(dir,{recursive:true,force:true})}

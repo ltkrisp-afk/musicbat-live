@@ -5,7 +5,7 @@ import {createElement} from 'react';
 import {renderToStaticMarkup} from 'react-dom/server';
 const {ArtistDiscovery}=await import('../components/artist-discovery.tsx');
 const {default:MusicBatLoop}=await import('../app/musicbat-loop.tsx');
-const {ArtistRotunda}=await import('../components/artist-rotunda.tsx');
+const {ArtistRotunda,ArtistOutcomes}=await import('../components/artist-rotunda.tsx');
 const {RetrofuturaRadio}=await import('../components/retrofutura-radio.tsx');
 const artists=[{artist_id:'a',slug:'stable-a',artist_name:'Alpha Band',track_count:1,following:1},{artist_id:'b',slug:'stable-b',artist_name:'Beta Band',track_count:0,following:0}];
 const tracks=[{id:42,artist_id:'a',title:'Alpha release',primary_genre:'Rock',subgenre:'Punk',sale_enabled:0,sale_price_cents:null,seller_ready:0}];
@@ -46,4 +46,10 @@ test('Retrofutura locks ineligible Plus channels while preserving Free Radio and
  assert.equal(buttons.find(e=>e.props.children==='Free Radio · continuous discovery').props.disabled,false);
  assert.equal(buttons.find(e=>e.props['aria-label']==='Turn dial forward').props.disabled,false);
  assert.match(rendered,/BAT RADIO/);assert.match(rendered,/Radio Plus required/);
+});
+
+test('artist outcomes distinguish observed exposure, artist follows and checkout conversion without invented attribution',()=>{
+ const render=t=>renderToStaticMarkup(createElement(ArtistOutcomes,{track:t}));
+ assert.match(render({discovery_listener_count:0,follower_count:0,checkout_count:0,purchase_count:0}),/No checkouts yet/);
+ const view=render({discovery_listener_count:4,follower_count:2,checkout_count:4,purchase_count:1});assert.match(view,/25.0%/);assert.match(view,/including Free Radio/);assert.match(view,/not listener-to-buyer attribution/);
 });

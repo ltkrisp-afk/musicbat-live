@@ -2,9 +2,13 @@
 /* Full document navigation refreshes server-authenticated artist and sign-in pages. */
 /* eslint-disable @next/next/no-html-link-for-pages */
 import { useCallback, useEffect, useState } from 'react';
-type ArtistTrack={id:number;title:string;artist_name:string;primary_genre:string;subgenre:string|null;style:string|null;energy_lane:string;status:string;radio_enabled:number;radio_status:string;sale_enabled:number;sale_price_cents:number|null;artist_id:string;created_at:string;artist_slug:string;listener_count:number;up_count:number;down_count:number;keep_count:number;completion_count:number;repeat_count:number;purchase_count:number};
+type ArtistTrack={id:number;title:string;artist_name:string;primary_genre:string;subgenre:string|null;style:string|null;energy_lane:string;status:string;radio_enabled:number;radio_status:string;sale_enabled:number;sale_price_cents:number|null;artist_id:string;created_at:string;artist_slug:string;listener_count:number;discovery_listener_count:number;follower_count:number;checkout_count:number;up_count:number;down_count:number;keep_count:number;completion_count:number;repeat_count:number;purchase_count:number};
 const genres=['Alternative','Blues','Classical','Country','Electronic','Experimental','Folk','Hip-Hop','Jazz','Metal','Other','Punk','Pop','Rock'];
 async function request(path:string,body?:unknown){const r=await fetch(path,{cache:'no-store',...(body?{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(body)}:{})});const data=await r.json() as {error?:string;tracks:ArtistTrack[];accountId:string;profile?:{artist_name:string}};if(!r.ok)throw new Error(data.error ?? 'Could not save.');return data;}
+export function ArtistOutcomes({track}:{track:Pick<ArtistTrack,'discovery_listener_count'|'follower_count'|'checkout_count'|'purchase_count'>}) {
+ const conversion=track.checkout_count>0 ? `${(100*track.purchase_count/track.checkout_count).toFixed(1)}%` : 'No checkouts yet';
+ return <p className="text-xs text-white/60">Discovery listeners {track.discovery_listener_count} · Artist followers {track.follower_count} · Paid purchases / checkout attempts {track.purchase_count} / {track.checkout_count} · Checkout conversion {conversion}. Discovery counts recorded Radio starts, including Free Radio; it does not prove listening duration. Followers are artist-wide. Conversion measures paid checkouts, not listener-to-buyer attribution.</p>;
+}
 export function ArtistRotunda({onChange,onUpload}:{onChange:()=>Promise<void>;onUpload:()=>void}) {
  const [observedAt,setObservedAt]=useState(0);
  const [tracks,setTracks]=useState<ArtistTrack[]>([]),[account,setAccount]=useState(''),[name,setName]=useState(''),[error,setError]=useState(''),[busy,setBusy]=useState(false);
@@ -23,6 +27,7 @@ export function ArtistRotunda({onChange,onUpload}:{onChange:()=>Promise<void>;on
    <div><h2 className="text-lg font-bold">{t.title}</h2><p className="text-sm text-white/60">{t.artist_name} · {t.status} · Radio: {t.radio_status} · {t.sale_enabled?'Sales enabled':'Sales stopped'}</p></div>
    <p className="text-sm text-white/60">{t.artist_slug && <a className="underline" href={'/'+t.artist_slug}>View artist page</a>} · Released {t.created_at.slice(0,10)} · {new Date(t.created_at.replace(' ','T')+'Z').getTime() > observedAt-14*86400000 ? 'Initial Discovery' : 'Ongoing discovery'}</p>
    <p className="text-sm">{Number(t.listener_count)<2 ? 'Not enough listener activity yet.' : `${t.listener_count} distinct qualified listeners. These are observed counts, not a statistical verdict.`}</p>
+   <ArtistOutcomes track={t} />
    <p className="text-xs text-white/60">Like {t.up_count} · Not for Me {t.down_count} · Keeps {t.keep_count} · Completions {t.completion_count} · Repeat listens {t.repeat_count} · Purchases {t.purchase_count}</p>
    {t.status!=='deleted' && <>
     <details><summary className="cursor-pointer font-bold text-[#ff3ea5]">Edit Song</summary>

@@ -129,6 +129,9 @@ export async function GET(request: Request) {
       const user = await requireUser();
       const rows = await db.prepare(`SELECT t.*, 1 AS can_manage, ${shockStatsSql},
         (SELECT COUNT(DISTINCT l.listener_id) FROM listens l WHERE l.track_id=t.id AND l.qualified=1 AND l.listener_id!=t.artist_id) AS listener_count,
+        (SELECT COUNT(DISTINCT l.listener_id) FROM listens l WHERE l.track_id=t.id AND l.listener_id!=t.artist_id) AS discovery_listener_count,
+        (SELECT COUNT(*) FROM artist_follows f WHERE f.artist_id=t.artist_id AND f.listener_id!=t.artist_id) AS follower_count,
+        (SELECT COUNT(*) FROM purchases p WHERE p.track_id=t.id) AS checkout_count,
         (SELECT slug FROM artist_pages WHERE account_id=t.artist_id) AS artist_slug,
         CASE WHEN t.status != 'active' OR t.radio_enabled = 0 THEN 'withdrawn'
           WHEN EXISTS(SELECT 1 FROM playback_permissions p WHERE p.track_id=t.id AND p.artist_authorized=1 AND p.recording_basis='direct' AND p.withdrawn_at IS NULL AND p.free_allowed=1 AND p.starts_at<=unixepoch('now')*1000 AND p.reviewed_at<=unixepoch('now')*1000 AND length(trim(p.recording_evidence))>0 AND length(trim(p.composition_evidence))>0 AND length(trim(p.reviewed_by))>0 AND p.expires_at > ?)
