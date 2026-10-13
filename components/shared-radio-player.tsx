@@ -96,7 +96,17 @@ export function SharedRadioPlayer({onTrack,onError,onPlay,onProgress,onEnded,onI
       onEnded={()=>{callbacks.current.onEnded();void update()}} onError={()=>{silence();callbacks.current.onError('Audio unavailable. Radio will reconnect.')}} />
     <div aria-label="Radio playback controls" style={{display:'flex',alignItems:'center',flexWrap:'wrap',gap:24,padding:'12px 0'}}>
     <button type="button" disabled={!delivery?.mediaUrl} aria-label={playing?'Pause Radio':'Play Radio'} style={{minWidth:96,minHeight:44,padding:'10px 20px',border:'1px solid #ff3ea5',borderRadius:24,background:'#ff3ea522',color:'#fff',flexShrink:0,cursor:'pointer'}} onClick={()=>{
-      wanted.current=!playing;if(playing)audio.current?.pause();else{synchronize();void update()}
+      wanted.current=!playing;
+      if(playing)audio.current?.pause();else{
+        synchronize();
+        // Start existing authorized media in the click gesture. Waiting for a
+        // channel fetch can lose browser playback permission (notably Firefox).
+        const element=audio.current;
+        if(element?.getAttribute('src'))void element.play().catch(()=>{
+          wanted.current=false;callbacks.current.onError('Radio could not start. Press Play to try again.');
+        });
+        void update();
+      }
     }}>{playing?'Pause':'Play'}</button>
     <label style={{display:'flex',alignItems:'center',gap:12,minHeight:44,maxWidth:'100%',color:'#eee'}}>
       <span>Volume</span>
