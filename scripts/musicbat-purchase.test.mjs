@@ -380,3 +380,17 @@ test("test checkout rejects missing, live and nonboolean returned Session modes 
  const saved=console.error;console.error=()=>{};try{assert.equal((await purchase.POST(post(1,cookie))).status,503)}finally{console.error=saved}
  assert.equal(sqlite.prepare('SELECT count(*) n FROM purchases').get().n,1);sqlite.close();
 });
+
+
+test("oversized unauthenticated purchase webhook stops reading and makes no processor or ledger changes", async () => {
+  const {sqlite,state}=await fixture();
+  const webhook=await load('../app/api/musicbat/stripe/webhook/route.ts',state);
+  let cancelled=false, reads=0;
+  const request=new Request('https://musicbat.audio/api/musicbat/stripe/webhook',{method:'POST',duplex:'half',body:new ReadableStream({
+    pull(controller){reads++;if(reads<=6)controller.enqueue(new Uint8Array(256*1024));else controller.close();},
+    cancel(){cancelled=true;},
+  })});
+  const saved=console.error;console.error=()=>{};
+  try {assert.equal((await webhook.POST(request)).status,413);assert.equal(cancelled,true);assert.ok(reads<=6);assert.equal(state.requests.length,0);assert.equal(sqlite.prepare('SELECT count(*) n FROM stripe_events').get().n,0);}
+  finally {console.error=saved;sqlite.close();}
+});
