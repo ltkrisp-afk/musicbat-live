@@ -24,7 +24,7 @@ export function PersistentRadioProvider({children}:{children:ReactNode}) {
   return <RadioContext.Provider value={value}>
     <div style={{paddingBottom:190}}>{children}</div>
     <section aria-label="Persistent MusicBat player" style={{position:'fixed',bottom:0,left:0,right:0,zIndex:40,background:'#111018',borderTop:'1px solid #ff3ea566',padding:'8px 20px',color:'#eee',maxHeight:'35vh',overflowY:'auto'}}>
-      <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',gap:16}}><span>Bat Radio · {consoleState.snapshot?.category?.genre??'Free Radio'}</span><Link href="/?view=radio" style={{color:'#ff69bd'}}>Open Radio</Link></div>
+      <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',gap:16}}><span>Bat Radio · {consoleState.snapshot?.category?.genre??'Free Radio'}</span><Link href="/?view=radio" onNavigate={()=>window.dispatchEvent(new Event('musicbat:open-radio'))} style={{color:'#ff69bd'}}>Open Radio</Link></div>
       <SharedRadioPlayer hideTuning onConsole={setConsole} onTrack={onTrack} onInteractive={setInteractive} onError={onError} onPlay={onPlay} onProgress={onProgress} onEnded={onEnded} />
       {error&&<p role="status" style={{margin:0,fontSize:12}}>{error}</p>}
     </section>

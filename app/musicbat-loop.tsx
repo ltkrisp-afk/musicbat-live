@@ -109,6 +109,19 @@ async function api<T>(path: string, init?: RequestInit): Promise<T> {
 
 export default function MusicBatLoop({ displayName, artistSlug, initialTab }: { displayName: string; artistSlug?:string;initialTab?:string }) {
   const [tab, setTab] = useState(artistSlug ? "discover" : initialTab ?? "radio");
+  const routeView = JSON.stringify([artistSlug ?? null, initialTab ?? null]);
+  const [previousRouteView, setPreviousRouteView] = useState(routeView);
+  // Client navigation may reuse this screen; select its new route without
+  // remounting the root-owned audio or overriding ordinary local tab changes.
+  if (previousRouteView !== routeView) {
+    setPreviousRouteView(routeView);
+    setTab(artistSlug ? "discover" : initialTab ?? "radio");
+  }
+  useEffect(() => {
+    const open = () => setTab("radio");
+    window.addEventListener("musicbat:open-radio", open);
+    return () => window.removeEventListener("musicbat:open-radio", open);
+  }, []);
   const [artists,setArtists]=useState<Artist[]>([]),[canManage,setCanManage]=useState(false),[followingOnly,setFollowingOnly]=useState(false),[search,setSearch]=useState('');
   const [artistError,setArtistError]=useState(''),[artistLoading,setArtistLoading]=useState(true),[followBusy,setFollowBusy]=useState(false);
   const followStartingRef=useRef(false);
