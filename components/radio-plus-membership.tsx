@@ -1,18 +1,22 @@
 "use client";
 import { useEffect, useRef, useState } from 'react';
-type Status={available:boolean;active:boolean;paidUntil:number;cancelAtPeriodEnd:boolean;status:string};
+import { createPlusStatusReader, type PlusStatus as Status, type PlusStatusView } from '../lib/radio-plus-status';
 export function RadioPlusMembership() {
   const dialog=useRef<HTMLDialogElement>(null),flight=useRef(false);
-  const [status,setStatus]=useState<Status|null>(null),[busy,setBusy]=useState(false),[message,setMessage]=useState(''),[consent,setConsent]=useState(false);
-  const [signedOut,setSignedOut]=useState(false);
-  async function refresh() {
-    const response=await fetch('/api/musicbat/subscription',{cache:'no-store'});const data=await response.json() as Status & {error?:string;checkoutUrl?:string};
-    setSignedOut(response.status===401);
-    if(response.status===401){setStatus(null);return null;}
-    if(!response.ok)throw new Error(data.error??'Radio Plus status could not be loaded.');
-    setStatus(data);return data as Status;
-  }
-  useEffect(()=>{let mounted=true;fetch('/api/musicbat/subscription',{cache:'no-store'}).then(async r=>{if(mounted)setSignedOut(r.status===401);if(r.ok){const data=await r.json() as Status;if(mounted)setStatus(data);}}).catch(()=>{});return()=>{mounted=false};},[]);
+  const [view,setView]=useState<PlusStatusView>({status:null,signedOut:false,loading:true,error:''});
+  const {status,signedOut,loading}=view;
+  const [busy,setBusy]=useState(false),[message,setMessage]=useState(''),[consent,setConsent]=useState(false);
+  const reader=useRef<ReturnType<typeof createPlusStatusReader>|null>(null);
+  if(!reader.current)reader.current=createPlusStatusReader((...args)=>fetch(...args),setView);
+  async function refresh(){setMessage('');await reader.current!.refresh();}
+  useEffect(()=>{
+    const current=reader.current!;
+    void current.refresh();
+    const update=()=>{setMessage('');void current.refresh();};
+    window.addEventListener('focus',update);
+    window.addEventListener('pageshow',update);
+    return()=>{current.invalidate();window.removeEventListener('focus',update);window.removeEventListener('pageshow',update);};
+  },[]);
   async function action(value:'join'|'cancel') {
     if(flight.current)return;flight.current=true;setBusy(true);setMessage('');
     try {
@@ -29,7 +33,7 @@ export function RadioPlusMembership() {
       <h2 id="radio-plus-title" style={{fontSize:24,margin:'0 0 12px'}}>Radio Plus</h2>
       <p>Optional $3/month. Explore eligible genre, subgenre and style stations. Vote and Keep favorites in rotation after listening.</p>
       <p>Free Radio and artist participation stay free. Music purchases are separate.</p>
-      {signedOut ? <a href="/signin-with-chatgpt?return_to=%2F" style={{...buttonStyle,display:'inline-block',textDecoration:'none'}}>Sign in to subscribe — $3/month</a> : status?.available ? <>
+      {loading ? <p role="status">Checking Radio Plus membership…</p> : view.error ? <><p role="alert">{view.error}</p><button type="button" style={buttonStyle} onClick={()=>void refresh()}>Retry membership status</button></> : signedOut ? <button type="button" style={buttonStyle} onClick={()=>window.location.assign(new URL('/signin-with-chatgpt?return_to=%2F',window.location.origin).href)}>Sign in to subscribe — $3/month</button> : status?.available ? <>
         <p style={{color:'#ff69bd'}}>Test checkout only. This preview does not collect real money.</p>
         {status.active ? <>
           <p>Radio Plus active until {new Date(status.paidUntil).toLocaleString()}.{status.cancelAtPeriodEnd?' Renewal cancelled.':''}</p>
