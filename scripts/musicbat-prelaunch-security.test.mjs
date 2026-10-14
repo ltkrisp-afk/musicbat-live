@@ -67,6 +67,12 @@ test('Connect requires identity and same origin; client body cannot replace acco
   };
   f.state.user=null;assert.equal((await route.POST(post({}))).status,401);assert.equal(calls.length,0);
   f.state.user={userId:'owner',email:'owner@example.test'};
+  assert.equal((await route.POST(post({}))).status,403);assert.equal(calls.length,0);
+  await f.route.POST(post({action:'set_artist_identity',artistName:'Owner artist'}));
+  const secret=f.state.env.STRIPE_SECRET_KEY;delete f.state.env.STRIPE_SECRET_KEY;
+  assert.equal((await route.POST(post({}))).status,503);assert.equal(calls.length,0);
+  assert.equal(f.sqlite.prepare('SELECT count(*) n FROM artist_accounts').get().n,0);f.state.env.STRIPE_SECRET_KEY=secret;
+  const missingOrigin=post({});missingOrigin.headers.delete('origin');assert.equal((await route.POST(missingOrigin)).status,403);assert.equal(calls.length,0);
   const foreign=post({});foreign.headers.set('origin','https://evil.test');assert.equal((await route.POST(foreign)).status,403);assert.equal(calls.length,0);
   assert.equal((await route.POST(post({artistId:'victim',stripe_account_id:'acct_attacker'}))).status,200);
   assert.equal(calls[0].body.get('metadata[musicbat_artist_id]'),'owner');

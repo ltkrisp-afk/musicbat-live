@@ -16,6 +16,9 @@ function json(data: unknown, status = 200) {
 async function requireArtist() {
   const user = await getChatGPTUser();
   if (!user) throw new Error("SIGN_IN_REQUIRED");
+  if (!env.DB) throw new Error("MusicBat storage is unavailable.");
+  const artist = await env.DB.prepare('SELECT 1 FROM artist_profiles WHERE account_id=? UNION SELECT 1 FROM tracks WHERE artist_id=? LIMIT 1').bind(user.userId,user.userId).first();
+  if (!artist) throw new Error("ARTIST_REQUIRED");
   return user;
 }
 
@@ -43,6 +46,7 @@ function publicAccount(account: StripeAccount | AccountRow | null) {
 function failure(error: unknown) {
   const message = error instanceof Error ? error.message : "Unexpected error";
   if (message === "SIGN_IN_REQUIRED") return json({ error: "Sign in to connect artist payouts." }, 401);
+  if (message === "ARTIST_REQUIRED") return json({ error: "Create your artist identity before connecting payouts." }, 403);
   if (error instanceof StripeConfigurationError) return json({ error: error.message }, 503);
   console.error("MusicBat Stripe Connect error", error);
   return json({ error: "Stripe onboarding is temporarily unavailable." }, 503);
@@ -62,7 +66,7 @@ export async function POST(request: Request) {
   if (env.MUSICBAT_RELEASE_PAUSED === "1") return Response.json({ error: "MusicBat is briefly paused for an update." }, { status: 503, headers: { "retry-after": "60", "cache-control": "no-store" } });
   try {
     const origin = request.headers.get("origin");
-    if (origin && origin !== new URL(request.url).origin) return json({ error: "Open MusicBat to connect payouts." }, 403);
+    if (origin !== new URL(request.url).origin) return json({ error: "Open MusicBat to connect payouts." }, 403);
     const user = await requireArtist();
     if (!env.DB) throw new Error("MusicBat storage is unavailable.");
     let row = await rowFor(user.userId);
@@ -75,6 +79,7 @@ export async function POST(request: Request) {
         "capabilities[transfers][requested]": "true",
         "metadata[musicbat_artist_id]": user.userId,
       }, `musicbat-connect-${key}`);
+      if (!/^acct_[A-Za-z0-9]+$/.test(account.id ?? '')) throw new Error('Invalid Stripe account response.');
       await env.DB.prepare(`INSERT OR IGNORE INTO artist_accounts (artist_id, stripe_account_id) VALUES (?, ?)`)
         .bind(user.userId, account.id).run();
       row = await rowFor(user.userId);
@@ -89,6 +94,8 @@ export async function POST(request: Request) {
       return_url: `${base}/?stripe=return`,
       refresh_url: `${base}/?stripe=refresh`,
     });
+    const onboarding = new URL(link.url);
+    if (onboarding.origin !== 'https://connect.stripe.com' || onboarding.username || onboarding.password) throw new Error('Invalid Stripe onboarding response.');
     return json({ ...publicAccount(account), onboardingUrl: link.url });
   } catch (error) { return failure(error); }
 }
