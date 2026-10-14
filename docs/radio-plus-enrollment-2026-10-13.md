@@ -51,3 +51,11 @@ The automated subscription/handler tests exercise the real verification logic us
 Live rollout is deliberately disabled. Refund/dispute handling, taxes/account-specific billing fees, target deployment wiring and a completed browser/sandbox acceptance run remain prerequisites for a future live subscription implementation. Purchase history after artist withdrawal also remains pending on the user's Linux browser, although isolated automated coverage passes.
 
 Final development checks: `npm test` 120 passed, zero failures; `npm run typecheck` passed; `npm run build` passed; `npm run lint` zero errors and one existing unused-variable warning in `musicbat-release-migration.test.mjs`; `git diff --check` passed. Browser enrollment attempt was blocked by missing Chromium and a failed browser download. No live credentials were used.
+
+## Membership display correction — October 13 evening
+
+User browser evidence: simulated enrollment activated Plus; cancellation retained the November 12 paid period and category access. Musician withdrawal removed Generated Acceptance 3 from the patron catalog. After role switching, the dialog displayed none and a sign-in error while the direct subscription endpoint returned active=true and cancelAtPeriodEnd=true. Voting/Keep was reported unresponsive at that point.
+
+The dialog now uses one status reader, ignores superseded responses, clears old errors on refresh, hides previous state while loading, displays refresh failures explicitly, and rechecks on window focus/page restoration. Signed-out users get an actionable sign-in button. Regression tests cover delayed signed-out responses, failed refresh/retry and role switching with retained cancelled paid access. These changes address confirmed state-handling defects; the specific browser divergence and voting behavior still require a fresh browser check. No production deployment or live Stripe changes.
+
+Validation: 123 automated tests pass; TypeScript and build pass. Linux delivery and browser retest are pending.
