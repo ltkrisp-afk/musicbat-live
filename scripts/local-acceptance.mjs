@@ -13,10 +13,12 @@ import { RadioRuntime } from '../radio/runtime.ts';
 import { publishCatalogRecording } from '../radio/catalog-import.ts';
 import { readHttpRequest, writeHttpResponse } from '../radio/server.ts';
 
-export async function createAcceptance() {
+export async function createAcceptance({payoutsReady=true}={}) {
   if (process.env.NODE_ENV !== 'development') throw new Error('Offline acceptance requires NODE_ENV=development');
   if (process.env.STRIPE_SECRET_KEY || process.env.STRIPE_WEBHOOK_SECRET || process.env.STRIPE_RADIO_PLUS_WEBHOOK_SECRET) throw new Error('Remove payment credentials before offline acceptance');
   const f = await fixture(), context = new AsyncLocalStorage(), sessions = new Map(), checkouts = new Map(), buyers = new Map();
+  const accounts=new Map(),accountKeys=new Map(),connectLinks=new Map();
+  if(payoutsReady)accounts.set('acct_test_local',{id:'acct_test_local',charges_enabled:true,payouts_enabled:true,details_submitted:true});
   const dir = await mkdtemp(join(tmpdir(), 'musicbat-acceptance-'));
   const token = randomBytes(32).toString('hex');
   const runtime = new RadioRuntime({databasePath:join(dir,'radio.sqlite'),assetRoot:dir,gatewayToken:token});
@@ -40,7 +42,17 @@ export async function createAcceptance() {
   async function processor(url, init={}) {
     const u=new URL(String(url));
     if(u.origin!=='https://api.stripe.com') throw new Error('Offline adapter blocks outbound requests');
-    if(u.pathname.startsWith('/v1/accounts/')) return Response.json({id:u.pathname.split('/').at(-1),charges_enabled:true,payouts_enabled:true,details_submitted:true});
+    if(u.pathname==='/v1/accounts' && init.method==='POST') {
+      const key=init.headers['idempotency-key'];let id=accountKeys.get(key);
+      if(!id){id='acct_'+randomBytes(12).toString('hex');accountKeys.set(key,id);accounts.set(id,{id,charges_enabled:false,payouts_enabled:false,details_submitted:false});}
+      return Response.json(accounts.get(id));
+    }
+    if(u.pathname.startsWith('/v1/accounts/')) {const account=accounts.get(u.pathname.split('/').at(-1));return account?Response.json(account):new Response(null,{status:404});}
+    if(u.pathname==='/v1/account_links' && init.method==='POST') {
+      const p=new URLSearchParams(init.body),account=p.get('account');if(!accounts.has(account))throw new Error('Unknown fixture account');
+      const id=randomBytes(16).toString('hex');connectLinks.set(id,{account,owner:context.getStore()?.session,returnUrl:p.get('return_url'),refreshUrl:p.get('refresh_url'),used:false});
+      return Response.json({url:'https://connect.stripe.com/__musicbat_fixture/'+id});
+    }
     if(u.pathname==='/v1/checkout/sessions' && init.method==='POST') {
       const p=new URLSearchParams(init.body),id='cs_test_'+randomBytes(12).toString('hex');
       const session={id,url:'/__local/checkout/'+id,livemode:false,status:'open',payment_status:'unpaid',currency:'usd',
@@ -68,7 +80,7 @@ export async function createAcceptance() {
     const object=f.objects.get('tracks/'+row.audio_url.split('/').at(-1)); const path=row.id+'.wav';await writeFile(join(dir,path),object.bytes);
     publishCatalogRecording(runtime,row,permission,{artistIds:['generated-musician'],albumId:'generated-album',compilationIds:[],durationMs:30000,directRestrictions:null,metadataReviewed:true},{path,sha256:createHash('sha256').update(object.bytes).digest('hex'),size:object.bytes.length,mediaType:'audio/wav',lawfulCopyReference:'Generated fixture only',reviewedBy:'local acceptance',reviewedAt:now-1,durationEvidence:'PCM sample count',contractReference:'Generated fixture unrestricted',restrictionsReviewed:true});
   }
-  f.sqlite.prepare("INSERT INTO artist_accounts(artist_id,stripe_account_id,charges_enabled,payouts_enabled,details_submitted) VALUES ('local_musician','acct_test_local',1,1,1)").run();
+  if(payoutsReady)f.sqlite.prepare("INSERT INTO artist_accounts(artist_id,stripe_account_id,charges_enabled,payouts_enabled,details_submitted) VALUES ('local_musician','acct_test_local',1,1,1)").run();
   for(const [id,category] of [['free',null],['rock',{genre:'Rock'}],['punk',{genre:'Rock',subgenre:'Punk'}],['hardcore',{genre:'Rock',subgenre:'Punk',style:'Hardcore'}],['jazz',{genre:'Jazz'}]]) runtime.establishChannel(id,{category,mode:category?'radio-plus':'free-radio',territory:'worldwide',minimumArtists:1,review:{reference:'Generated fixture channel only',verifiedAt:now-1,expiresAt:expiry},gate:null});
   // Membership now starts as Free; only verified fixture invoices unlock Plus.
   runtime.start();
@@ -85,6 +97,18 @@ export async function createAcceptance() {
         return new Response(null,{status:303,headers:{location:'/', 'set-cookie':'__musicbat_acceptance='+value+'; HttpOnly; SameSite=Lax; Path=/'}});
       }
       if(path==='/signout-with-chatgpt'){sessions.delete(cookie);return new Response(null,{status:303,headers:{location:'/__local','set-cookie':'__musicbat_acceptance=; Max-Age=0; HttpOnly; SameSite=Lax; Path=/'}});}
+      if(path.startsWith('/__local/connect/')) {
+        const entry=connectLinks.get(path.split('/').at(-1));
+        if(!user||!entry||entry.owner!==cookie||entry.used)return new Response(null,{status:404});
+        if(request.method==='POST'){
+          const action=(await request.formData()).get('action');
+          if(!['complete','refresh'].includes(action))return new Response(null,{status:400});
+          entry.used=true;
+          if(action==='complete')Object.assign(accounts.get(entry.account),{charges_enabled:true,payouts_enabled:true,details_submitted:true});
+          return new Response(null,{status:303,headers:{location:action==='complete'?entry.returnUrl:entry.refreshUrl}});
+        }
+        return new Response('<h1>Offline Stripe Connect simulation</h1><p>No bank details or money are collected. This is not Stripe onboarding.</p><form method="post"><button name="action" value="complete">Simulate completed payout setup</button><button name="action" value="refresh">Simulate expired onboarding link</button></form>',{headers:{'content-type':'text/html','cache-control':'no-store'}});
+      }
       if(path==='/__local/history') {
         if(!user)return new Response(null,{status:401});
         const buyer=buyers.get(cookie),items=[];
@@ -142,6 +166,11 @@ export async function createAcceptance() {
           request=new Request(request,{headers:h});
         }
         const response=await route[request.method](request);
+        if(path==='/api/musicbat/stripe/connect' && request.method==='POST' && response.ok){
+          const data=await response.json();
+          if(data.onboardingUrl?.startsWith('https://connect.stripe.com/__musicbat_fixture/'))data.onboardingUrl='/__local/connect/'+data.onboardingUrl.split('/').at(-1);
+          return Response.json(data,{status:response.status,headers:response.headers});
+        }
         const buyerCookie=/musicbat_buyer=([a-f0-9]{64})/.exec(response.headers.get('set-cookie')??'');
         if(buyerCookie && user)buyers.set(cookie,buyerCookie[1]);
         // Local HTTP only; production handlers retain Secure cookies.

@@ -97,13 +97,16 @@ type ToolContext = {
   }, options?: { signal?: AbortSignal }) => void | Promise<void>;
 };
 
+class MusicBatApiError extends Error {
+  constructor(message: string, readonly status: number) { super(message); }
+}
 async function api<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(path, {
     ...init,
     headers: { ...(init?.body instanceof FormData ? {} : { "content-type": "application/json" }), ...(init?.headers ?? {}) },
   });
   const data = (await response.json()) as T & { error?: string };
-  if (!response.ok) throw new Error(data.error ?? "MusicBat request failed.");
+  if (!response.ok) throw new MusicBatApiError(data.error ?? "MusicBat request failed.", response.status);
   return data;
 }
 
@@ -179,6 +182,9 @@ export default function MusicBatLoop({ displayName, artistSlug, initialTab }: { 
   const [saleConsents, setSaleConsents] = useState<Record<number, boolean>>({});
   const [connectStatus, setConnectStatus] = useState<ConnectStatus | null>(null);
   const [connectBusy, setConnectBusy] = useState(false);
+  const connectStartingRef = useRef(false);
+  const [connectError, setConnectError] = useState("");
+  const [connectSignIn, setConnectSignIn] = useState(false);
   const startingRef = useRef(false);
   const qualifyingRef = useRef(false);
 
@@ -465,16 +471,26 @@ export default function MusicBatLoop({ displayName, artistSlug, initialTab }: { 
   }
 
   async function connectStripe() {
-    if (connectBusy) return;
+    if (connectStartingRef.current) return;
+    connectStartingRef.current = true;
     setConnectBusy(true);
+    setConnectError("");setConnectSignIn(false);
     try {
+      if (!canManage) {
+        if (!artistName.trim()) throw new Error("Enter your artist or band name below to create your artist identity before connecting payouts.");
+        await api('/api/musicbat', {method:'POST',body:JSON.stringify({action:'set_artist_identity',artistName:artistName.trim()})});
+        await loadArtists();
+      }
       const result = await api<ConnectStatus & { onboardingUrl: string | null }>("/api/musicbat/stripe/connect", { method: "POST", body: "{}" });
       setConnectStatus(result);
       if (result.onboardingUrl) window.location.assign(result.onboardingUrl);
-      else setMessage("Stripe payouts are ready for your MusicBat track sales.");
+      else if (result.ready) setMessage("Stripe payouts are ready for your MusicBat track sales.");
+      else throw new Error("Stripe did not return an onboarding link. Try connecting payouts again.");
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Stripe payout setup could not start.");
-    } finally { setConnectBusy(false); }
+      const detail=error instanceof Error ? error.message : "Stripe payout setup could not start.";
+      setConnectError(detail);setMessage(detail);
+      setConnectSignIn(error instanceof MusicBatApiError && error.status===401);
+    } finally { connectStartingRef.current=false;setConnectBusy(false); }
   }
 
   async function saveSale(track: Track, enabled: boolean) {
@@ -629,7 +645,9 @@ export default function MusicBatLoop({ displayName, artistSlug, initialTab }: { 
                   <div className="rounded-xl border border-white/10 bg-white/[0.03] p-4">
                     <div className="text-sm font-black text-white">Artist payouts</div>
                     <p className="mt-1 text-sm text-white/50">{connectStatus?.ready ? "Payout setup is ready. Checkout availability follows the configured payment mode." : connectStatus?.connected ? "Finish Stripe onboarding before buyers can check out." : "Connect a separate MusicBat Stripe Express account to receive 85% of the song price. Buyer processing fees are charged separately."}</p>
-                    <Button type="button" disabled={connectBusy || Boolean(connectStatus?.ready)} onClick={() => void connectStripe()} className="mt-3 h-10 rounded-full border border-[#ff3ea5]/50 bg-[#ff3ea5]/15 px-4 text-white hover:bg-[#ff3ea5]/25">{connectBusy ? "Opening Stripe…" : connectStatus?.ready ? "Stripe connected" : connectStatus?.connected ? "Finish Stripe setup" : "Connect Stripe payouts"}</Button>
+                    <Button type="button" disabled={artistLoading || connectBusy || Boolean(connectStatus?.ready)} onClick={() => void connectStripe()} className="mt-3 h-10 rounded-full border border-[#ff3ea5]/50 bg-[#ff3ea5]/15 px-4 text-white hover:bg-[#ff3ea5]/25">{connectBusy ? "Opening Stripe…" : connectStatus?.ready ? "Stripe connected" : connectStatus?.connected ? "Finish Stripe setup" : canManage ? "Connect Stripe payouts" : "Create artist identity & connect payouts"}</Button>
+                    {connectError&&<p role="alert" className="mt-3 text-sm text-[#ff69bd]">{connectError}</p>}
+                    {connectSignIn&&<a href="/signin-with-chatgpt?return_to=%2F" className="mt-2 inline-block underline">Sign in to connect artist payouts</a>}
                   </div>
                   <label className="block"><span className="mb-2 block text-sm font-semibold text-white/65">Track title</span><Input value={title} onChange={(event) => setTitle(event.target.value)} required maxLength={120} className="h-12 rounded-xl border-white/12 bg-white/[0.045] px-4 text-white placeholder:text-white/25" placeholder="Track title" /></label>
                   <label className="block"><span className="mb-2 block text-sm font-semibold text-white/65">Artist or band name</span><Input value={artistName} onChange={(event) => setArtistName(event.target.value)} required maxLength={80} className="h-12 rounded-xl border-white/12 bg-white/[0.045] px-4 text-white placeholder:text-white/25" placeholder="Artist or band name" /></label>
