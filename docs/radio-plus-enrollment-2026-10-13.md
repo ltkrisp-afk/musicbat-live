@@ -59,3 +59,11 @@ User browser evidence: simulated enrollment activated Plus; cancellation retaine
 The dialog now uses one status reader, ignores superseded responses, clears old errors on refresh, hides previous state while loading, displays refresh failures explicitly, and rechecks on window focus/page restoration. Signed-out users get an actionable sign-in button. Regression tests cover delayed signed-out responses, failed refresh/retry and role switching with retained cancelled paid access. These changes address confirmed state-handling defects; the specific browser divergence and voting behavior still require a fresh browser check. No production deployment or live Stripe changes.
 
 Validation: 123 automated tests pass; TypeScript and build pass. Linux delivery and browser retest are pending.
+
+## Station tuning correction — October 13 evening
+
+The user confirmed the updated patron dialog shows active membership and cancelled renewal. Playback subsequently showed the generic quiet/unavailable message. A local reproduction established that withdrawal of Generated Acceptance 3 empties Jazz, while Free and Rock remain playable. This reproduces one silence path; the user's exact tuned channel was not captured.
+
+Background channel polls previously set the same busy state as listener tuning and rejected commands during any in-flight poll. The player now serializes tune commands behind pending authority checks, skips overlapping background polls, and leaves station controls available during polling. Quiet station messaging distinguishes an empty eligible pool and points to available genres or Free Radio. No withdrawn audio or permission restriction is bypassed.
+
+125 tests pass; TypeScript/build pass; lint has zero errors and the existing migration-test warning. Browser playback on the user's iMac remains pending after delivery.
