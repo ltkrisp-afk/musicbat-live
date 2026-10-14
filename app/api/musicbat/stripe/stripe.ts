@@ -38,6 +38,37 @@ export type StripeEvent = {
 export class StripeConfigurationError extends Error {}
 export class StripeRequestError extends Error {}
 
+export class StripeWebhookBodyTooLarge extends Error {}
+
+/** Bound unauthenticated delivery before decoding; preserve the raw signed text. */
+export async function readStripeWebhookBody(request: Request) {
+  const limit = 1024 * 1024;
+  const reader = request.body?.getReader();
+  if (!reader) return "";
+  const chunks: Uint8Array[] = [];
+  let size = 0;
+  try {
+    if (Number(request.headers.get("content-length")) > limit) {
+      await reader.cancel();
+      throw new StripeWebhookBodyTooLarge("Webhook body exceeds 1 MiB.");
+    }
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      size += value.byteLength;
+      if (size > limit) {
+        await reader.cancel();
+        throw new StripeWebhookBodyTooLarge("Webhook body exceeds 1 MiB.");
+      }
+      chunks.push(value);
+    }
+  } finally { reader.releaseLock(); }
+  const bytes = new Uint8Array(size);
+  let offset = 0;
+  for (const chunk of chunks) { bytes.set(chunk, offset); offset += chunk.byteLength; }
+  return new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+}
+
 export function stripeMode(runtime: StripeRuntime): "test" | "live" {
   const mode = runtime.MUSICBAT_STRIPE_MODE ?? "test";
   if (mode !== "test" && mode !== "live") throw new StripeConfigurationError("Stripe mode must be test or live.");

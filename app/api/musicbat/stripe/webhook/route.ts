@@ -1,5 +1,5 @@
 import { env } from "cloudflare:workers";
-import { StripeCheckoutSession, StripeConfigurationError, stripeGet, stripeModeMatches, verifyStripeWebhook } from "../stripe";
+import { StripeCheckoutSession, StripeConfigurationError, StripeWebhookBodyTooLarge, readStripeWebhookBody, stripeGet, stripeModeMatches, verifyStripeWebhook } from "../stripe";
 
 type Purchase = {
   id: string;
@@ -25,7 +25,7 @@ export async function POST(request: Request) {
   if (env.MUSICBAT_RELEASE_PAUSED === "1") return Response.json({ error: "MusicBat is briefly paused for an update." }, { status: 503, headers: { "retry-after": "60", "cache-control": "no-store" } });
   try {
     if (!env.DB) return Response.json({ error: "MusicBat storage is unavailable." }, { status: 503 });
-    const rawBody = await request.text();
+    const rawBody = await readStripeWebhookBody(request);
     const event = await verifyStripeWebhook(rawBody, request.headers.get("stripe-signature"), env.STRIPE_WEBHOOK_SECRET, undefined, env);
     const supported = new Set(["checkout.session.completed", "checkout.session.async_payment_succeeded", "checkout.session.async_payment_failed", "checkout.session.expired", "charge.refunded"]);
     if (!supported.has(event.type)) return Response.json({ received: true });
@@ -87,6 +87,6 @@ export async function POST(request: Request) {
     return Response.json({ received: true, pending: true });
   } catch (error) {
     console.error("MusicBat Stripe webhook rejected", error);
-    return Response.json({ error: error instanceof StripeConfigurationError ? error.message : "Webhook rejected." }, { status: error instanceof StripeConfigurationError ? 503 : 400 });
+    return Response.json({ error: error instanceof StripeConfigurationError ? error.message : "Webhook rejected." }, { status: error instanceof StripeWebhookBodyTooLarge ? 413 : error instanceof StripeConfigurationError ? 503 : 400 });
   }
 }

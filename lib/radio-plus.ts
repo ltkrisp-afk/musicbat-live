@@ -1,4 +1,4 @@
-import { musicBatOrigin, StripeConfigurationError, verifyStripeWebhook, type StripeRuntime } from '../app/api/musicbat/stripe/stripe';
+import { musicBatOrigin, StripeConfigurationError, readStripeWebhookBody, verifyStripeWebhook, type StripeRuntime } from '../app/api/musicbat/stripe/stripe';
 
 export type PlusRuntime = StripeRuntime & {DB?: D1Database; MUSICBAT_RADIO_PLUS_ENABLED?: string; MUSICBAT_RELEASE_PAUSED?: string; STRIPE_RADIO_PLUS_WEBHOOK_SECRET?: string; RADIO_PLUS_PROCESSOR?: Pick<Fetcher,'fetch'>};
 type Enrollment = {id:string;user_id:string;attempt:number;checkout_session_id:string|null;subscription_id:string|null;status:string;paid_until:number;cancel_at_period_end:number};
@@ -71,7 +71,7 @@ export async function plusCancel(env:PlusRuntime,userId:string) {
 }
 export async function plusWebhook(env:PlusRuntime,request:Request) {
   configured(env);const db=env.DB!;
-  const event=await verifyStripeWebhook(await request.text(),request.headers.get('stripe-signature'),env.STRIPE_RADIO_PLUS_WEBHOOK_SECRET,undefined,{...env,MUSICBAT_STRIPE_MODE:'test'});
+  const event=await verifyStripeWebhook(await readStripeWebhookBody(request),request.headers.get('stripe-signature'),env.STRIPE_RADIO_PLUS_WEBHOOK_SECRET,undefined,{...env,MUSICBAT_STRIPE_MODE:'test'});
   const types=['invoice.paid','invoice.payment_failed','customer.subscription.created','customer.subscription.updated','customer.subscription.deleted','checkout.session.completed','checkout.session.expired'];
   if(!types.includes(event.type))return {received:true};
   if(await db.prepare('SELECT event_id FROM radio_plus_events WHERE event_id=?').bind(event.id).first())return {received:true,duplicate:true};

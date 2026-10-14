@@ -24,6 +24,10 @@ test('actual subscription webhook handler rejects invalid delivery and atomicall
   const raw=JSON.stringify({id:'evt_route_invoice',type:'invoice.paid',livemode:false,data:{object:{id:sub.latest_invoice,livemode:false}}});
   const stamp=Math.floor(Date.now()/1000);
   const send=(body=raw,secret=env.STRIPE_RADIO_PLUS_WEBHOOK_SECRET,time=stamp)=>POST(new Request(origin+'/api/musicbat/subscription/webhook',{method:'POST',headers:{'stripe-signature':`t=${time},v1=${createHmac('sha256',secret).update(time+'.'+body).digest('hex')}`},body}));
+  let cancelled=false;
+  const huge=new Request(origin+'/api/musicbat/subscription/webhook',{method:'POST',duplex:'half',body:new ReadableStream({start(c){c.enqueue(new Uint8Array(1024*1024+1));},cancel(){cancelled=true;}})});
+  assert.equal((await POST(huge)).status,413);assert.equal(cancelled,true);
+  assert.equal(f.sqlite.prepare('SELECT count(*) n FROM radio_plus_events').get().n,0);
   const unsigned=await POST(new Request(origin+'/api/musicbat/subscription/webhook',{method:'POST',body:raw}));
   assert.equal(unsigned.status,400);assert.equal(unsigned.headers.get('cache-control'),'no-store');
   assert.equal((await send(raw,'whsec_wrong')).status,400);
