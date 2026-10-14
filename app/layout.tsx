@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import "./globals.css";
+import {PersistentRadioProvider} from '../components/persistent-radio';
 
 export const metadata: Metadata = {
   title: "MusicBat — Minimum Working Loop",
@@ -17,7 +18,7 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en">
-      <body className="antialiased">{children}</body>
+      <body className="antialiased"><PersistentRadioProvider>{children}</PersistentRadioProvider></body>
     </html>
   );
 }

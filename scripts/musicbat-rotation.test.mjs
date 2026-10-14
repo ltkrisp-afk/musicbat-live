@@ -99,7 +99,8 @@ test('insufficient/broken preferred tracks fall back; ineligible tracks never pl
 test('MusicBat player omits native controls and Next; Buy and essential playback controls remain', () => {
   const player = readFileSync('app/musicbat-loop.tsx', 'utf8');
   const controls = readFileSync('components/shared-radio-player.tsx', 'utf8');
-  assert.match(player, /<SharedRadioPlayer/);
+  assert.match(readFileSync('components/persistent-radio.tsx', 'utf8'), /<SharedRadioPlayer/);
+  assert.doesNotMatch(player, /<SharedRadioPlayer/);
   assert.match(controls, /controlsList="nodownload noremoteplayback"/);
   assert.doesNotMatch(controls, /\bcontrols(?:\s|=)/);
   assert.match(controls, /'Pause Radio':'Play Radio'/);
@@ -108,7 +109,7 @@ test('MusicBat player omits native controls and Next; Buy and essential playback
   assert.match(controls, /onEnded.*update/);
   assert.match(player, /aria-label=\{`Buy \$\{current.title\}`\}/);
   assert.match(player, /aria-pressed=\{keepActive\}/);
-  assert.match(player, /onEnded=\{\(\) => void completeListen\(\)\}/);
+  assert.match(player, /onEnded:\(\)=>void completeListen\(\)/);
   assert.doesNotMatch(player, /downloadMedia|href=.*audio_url|SkipForward|> Next</);
 });
 
@@ -186,7 +187,8 @@ test('Radio UI preserves catalog classification and responses while using author
   const player = readFileSync('app/musicbat-loop.tsx', 'utf8');
   assert.match(player, /value=\{track.energy_lane\}/);
   assert.doesNotMatch(player, /selectNextTrack|src=\{current.audio_url\}/);
-  assert.match(player, /<SharedRadioPlayer/);
+  assert.match(readFileSync('components/persistent-radio.tsx', 'utf8'), /<SharedRadioPlayer/);
+  assert.doesNotMatch(player, /<SharedRadioPlayer/);
   assert.match(player, /More like this/);
   assert.match(player, /Less like this/);
   assert.match(player, /signal: \"up\" \| \"down\"/);

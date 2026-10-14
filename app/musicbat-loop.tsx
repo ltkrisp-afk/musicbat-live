@@ -1,12 +1,13 @@
 "use client";
-/* Full document navigation refreshes server-authenticated artist and sign-in pages. */
+/* Authentication and download endpoints retain full document navigation. */
 /* eslint-disable @next/next/no-html-link-for-pages */
 
 import { FormEvent, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { Activity, Disc3, Gauge, Radio, ShieldCheck, Sparkles, Upload } from "lucide-react";
 import { ArtistDiscovery, type Artist } from "@/components/artist-discovery";
 import { ArtistRotunda } from "@/components/artist-rotunda";
-import { SharedRadioPlayer } from "@/components/shared-radio-player";
+import {RadioConsole,usePersistentRadio,useRadioCallbacks} from "@/components/persistent-radio";
+import Link from "next/link";
 
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -128,14 +129,12 @@ export default function MusicBatLoop({ displayName, artistSlug, initialTab }: { 
 
   const [tracks, setTracks] = useState<Track[]>([]);
   const [shockRows, setShockRows] = useState<ShockRow[]>([]);
-  const [sharedTrackId, setSharedTrackId] = useState<string | null>(null);
-  const [sharedPerformanceKey, setSharedPerformanceKey] = useState("");
+  const {trackId:sharedTrackId,performanceKey:sharedPerformanceKey,interactive}=usePersistentRadio();
   const currentTrackIdRef = useRef<number | null>(null);
   const activeSessionRef = useRef("");
   const signalStartingRef = useRef(false);
   const [listenId, setListenId] = useState<string | null>(null);
   const [qualified, setQualified] = useState(false);
-  const [interactive, setInteractive] = useState(false);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [purchaseBusy, setPurchaseBusy] = useState(false);
@@ -358,6 +357,8 @@ export default function MusicBatLoop({ displayName, artistSlug, initialTab }: { 
     }
   }
 
+  useRadioCallbacks({onError:setMessage,onPlay:()=>void startListen(),onProgress:seconds=>void qualifyListen(seconds),onEnded:()=>void completeListen()});
+
   async function toggleKeep(track: Track) {
     if (signalStartingRef.current) return;
     const session = activeSessionRef.current;
@@ -552,7 +553,7 @@ export default function MusicBatLoop({ displayName, artistSlug, initialTab }: { 
             <div className="grid size-11 place-items-center rounded-full border border-[#ff3ea5]/40 bg-[#ff3ea5]/10 text-[#ff69bd] shadow-[0_0_34px_rgba(255,62,165,.18)]">
               <Activity className="size-5" />
             </div>
-            <div><a href="/" className="text-[0.72rem] font-black uppercase tracking-[0.24em] text-[#ff69bd]">MusicBat</a><p className="mt-1 text-[0.6rem] tracking-wider text-white/55">YOUR MUSIC. YOUR RIGHTS. YOUR MONEY.</p></div>
+            <div><Link href="/" className="text-[0.72rem] font-black uppercase tracking-[0.24em] text-[#ff69bd]">MusicBat</Link><p className="mt-1 text-[0.6rem] tracking-wider text-white/55">YOUR MUSIC. YOUR RIGHTS. YOUR MONEY.</p></div>
           </div>
           <div className="text-right"><div className="text-sm font-semibold text-white/90">{displayName}</div><div className="text-xs text-white/45">{loopStatus}</div></div>
         </header>
@@ -582,7 +583,7 @@ export default function MusicBatLoop({ displayName, artistSlug, initialTab }: { 
                 <div className="pointer-events-none absolute -right-24 -top-24 size-72 rounded-full bg-[#ff3ea5]/10 blur-3xl" />
                 <div className="relative">
                   <div className="mb-10 flex items-center justify-between gap-4"><div className="flex items-center gap-2 text-xs font-black uppercase tracking-[0.18em] text-[#ff69bd]"><span className="size-2 rounded-full bg-[#ff3ea5] shadow-[0_0_14px_#ff3ea5]" /> Now in the cave</div><div className="rounded-full border border-white/10 px-3 py-1 text-xs text-white/45">{sharedTrackId ? "Shared channel" : "Quiet"}</div></div>
-                  <SharedRadioPlayer onInteractive={setInteractive} onTrack={(id, key) => { setSharedTrackId(id); setSharedPerformanceKey(key); }} onError={setMessage} onPlay={() => void startListen()} onProgress={(seconds) => void qualifyListen(seconds)} onEnded={() => void completeListen()} />
+                  <RadioConsole />
                   {current ? <>
                     <div className="mb-8 min-h-36"><div className="mb-3 text-sm uppercase tracking-[0.16em] text-white/38">Independent signal · {current.primary_genre} / {energyCategory(current.energy_lane)}</div><h1 className="max-w-4xl text-4xl font-black leading-[0.98] tracking-[-0.045em] sm:text-6xl lg:text-7xl">{current.title}</h1><p className="mt-4 text-lg font-semibold text-white/58">{current.artist_name}</p></div>
                     <div className="flex flex-wrap items-center gap-3">
