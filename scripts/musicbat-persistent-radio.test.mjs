@@ -26,6 +26,9 @@ test('one live audio element and volume survive screen replacement and membershi
   await act(async()=>tree.root.findByProps({'aria-label':'Volume'}).props.onChange({target:{value:'0.35'}}));
   await act(async()=>tree.root.findByProps({'aria-label':'Mute Radio'}).props.onClick());assert.equal(audio.muted,true);
   const loads=audio.loads,pauses=audio.pauses,src=audio.src;
+  let radioRequested=0;window.addEventListener('musicbat:open-radio',()=>radioRequested++);
+  await act(async()=>tree.root.findAllByProps({children:'Open Radio'}).find(node=>node.props.onNavigate).props.onNavigate());
+  assert.equal(radioRequested,1);assert.equal(audio.pauses,pauses);assert.equal(audio.loads,loads);
   for(const name of ['Discovery','Artist page','Manage Songs','Radio']){
    await act(async()=>tree.update(view(name)));
    assert.equal(audioRefs,1);assert.equal(tree.root.findAllByType('audio').length,1);assert.equal(audio.volume,0.35);assert.equal(audio.muted,true);assert.equal(audio.paused,false);assert.equal(audio.src,src);assert.equal(audio.loads,loads);assert.equal(audio.pauses,pauses);
