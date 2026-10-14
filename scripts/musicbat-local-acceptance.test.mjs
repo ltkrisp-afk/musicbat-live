@@ -40,6 +40,12 @@ test('offline identities, catalog Radio, settlement, history and withdrawal use 
   assert.equal((await call(download,purchaser)).status,200);
   assert.equal((await (await call('/api/musicbat/purchase?id='+row.id,purchaser)).json()).purchase.status,'paid');
   assert.equal(app.sqlite.prepare('SELECT count(*) n FROM purchases').get().n,1);
+  assert.equal((await call('/api/musicbat',musician,{action:'withdraw_track',trackId:3})).status,200);
+  const quiet=await (await call('/api/musicbat/channel',returnedPatron,{category:{genre:'Jazz'}})).json();
+  assert.equal(quiet.snapshot.status,'silent');assert.equal(quiet.snapshot.reason,'category-dormant');assert.equal(quiet.mediaUrl,null);
+  const remaining=await (await call('/api/musicbat/channel',returnedPatron,{category:{genre:'Rock'}})).json();
+  assert.equal(remaining.snapshot.status,'playing');assert.equal(remaining.snapshot.performance.trackId,'2');
+  assert.equal((await call(remaining.mediaUrl,returnedPatron)).status,200);
   assert.equal((await app.handle(new Request(origin+'/__local/login',{method:'POST',headers:{origin:'https://forged.invalid'},body:new URLSearchParams({role:'musician'})}))).status,403);
  }finally{await app.close();}
 });
