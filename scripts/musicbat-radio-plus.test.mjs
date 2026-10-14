@@ -8,6 +8,20 @@ const origin='http://localhost:5173';
 const request=body=>new Request(origin+'/api/musicbat/subscription',{method:'POST',headers:{origin,'content-type':'application/json'},body:JSON.stringify(body)});
 async function setup(){const f=await fixture(),env=f.state.env;delete env.MUSICBAT_BASE_URL;const processor=plusFixture(env);return {...f,env,processor};}
 const join=env=>handlePlus(env,request({action:'join',recurringConsent:true,confirmedPriceCents:300}),'patron');
+test('invalid modes and incomplete sandbox configuration deny enrollment before processor calls or ledger writes',async()=>{
+ const f=await setup();try{
+  const configured={...f.env};let calls=0;
+  f.env.RADIO_PLUS_PROCESSOR={async fetch(){calls++;throw new Error('Unexpected processor call');}};
+  const cases=[{MUSICBAT_STRIPE_MODE:'invalid'},{MUSICBAT_STRIPE_MODE:'TEST'},{MUSICBAT_STRIPE_MODE:'live'},{STRIPE_SECRET_KEY:undefined},{STRIPE_SECRET_KEY:'sk_live_forbidden'},{STRIPE_RADIO_PLUS_WEBHOOK_SECRET:undefined},{STRIPE_RADIO_PLUS_WEBHOOK_SECRET:'invalid'},{MUSICBAT_RADIO_PLUS_ENABLED:undefined},{DB:undefined},{MUSICBAT_RELEASE_PAUSED:'1'}];
+  for(const change of cases){
+   const env={...configured,...change,RADIO_PLUS_PROCESSOR:f.env.RADIO_PLUS_PROCESSOR};
+   assert.equal((await plusStatus(env,'patron')).available,false,JSON.stringify(Object.keys(change)));
+   assert.equal((await join(env)).status,503);
+   await assert.rejects(()=>plusWebhook(env,new Request(origin,{method:'POST',body:'{}'})),/available|paused/);
+  }
+  assert.equal(calls,0);assert.equal(f.sqlite.prepare('SELECT count(*) n FROM radio_plus_enrollments').get().n,0);assert.equal(f.sqlite.prepare('SELECT count(*) n FROM radio_plus_events').get().n,0);
+ }finally{f.sqlite.close();}
+});
 async function paid(f){const r=await join(f.env);assert.equal(r.status,200);const id=(await r.json()).checkoutUrl.split('/').at(-1);await f.processor.pay(id);return id;}
 test('test subscription requires sign-in, origin, consent and test configuration; redirects never activate',async()=>{
  const f=await setup();try{
