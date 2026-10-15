@@ -6,6 +6,30 @@ import {create,act} from 'react-test-renderer';
 const {default:MusicBatLoop}=await import('../app/musicbat-loop.tsx');
 const {Tabs}=await import('../components/ui/tabs.tsx');
 
+test('Stripe return opens artist payouts under the saved band name and retains artist view on refresh',async()=>{
+ const saved={window:globalThis.window,document:globalThis.document,fetch:globalThis.fetch,self:globalThis.self,raf:globalThis.requestAnimationFrame,caf:globalThis.cancelAnimationFrame,act:globalThis.IS_REACT_ACT_ENVIRONMENT};
+ globalThis.IS_REACT_ACT_ENVIRONMENT=true;globalThis.self=globalThis;globalThis.requestAnimationFrame=fn=>setTimeout(fn,0);globalThis.cancelAnimationFrame=clearTimeout;
+ const window=new EventTarget();window.location={search:'?stripe=return',pathname:'/',origin:'http://localhost',href:'http://localhost/?stripe=return'};
+ let replaced,tree;window.history={replaceState(_state,_title,url){replaced=url;window.location.search=new URL(url,window.location.origin).search;}};
+ globalThis.window=window;globalThis.document=new EventTarget();
+ globalThis.fetch=async(path)=>{
+  if(String(path).includes('view=artists'))return Response.json({artists:[],canManage:true,artistIdentity:'The Fixture Band'});
+  if(String(path).includes('/stripe/connect'))return Response.json({connected:true,ready:true,chargesEnabled:true,payoutsEnabled:true,detailsSubmitted:true});
+  return Response.json({tracks:[],rows:[]});
+ };
+ try{
+  await act(async()=>{tree=create(React.createElement(MusicBatLoop,{displayName:'Seedy',initialTab:'radio'}));await new Promise(r=>setTimeout(r,20));});
+  await act(async()=>{await new Promise(r=>setTimeout(r,20));});
+  assert.equal(tree.root.findByType(Tabs).props.value,'catalog');assert.equal(replaced,'/?view=artist');
+  assert.ok(tree.root.findAll(n=>n.type==='div'&&n.props.children==='The Fixture Band').length);
+  assert.ok(tree.root.findAll(n=>n.type==='button'&&n.props.children==='Stripe connected').length);
+  await act(async()=>tree.root.findByType(Tabs).props.onValueChange('radio'));
+  assert.equal(tree.root.findByType(Tabs).props.value,'radio','Artist return must not trap normal listening navigation');
+ }finally{
+  if(tree)await act(async()=>tree.unmount());globalThis.window=saved.window;globalThis.document=saved.document;globalThis.fetch=saved.fetch;globalThis.self=saved.self;globalThis.requestAnimationFrame=saved.raf;globalThis.cancelAnimationFrame=saved.caf;globalThis.IS_REACT_ACT_ENVIRONMENT=saved.act;
+ }
+});
+
 test('payout button shows configuration/sign-in failures beside the control and serializes clicks',async()=>{
  const saved={window:globalThis.window,document:globalThis.document,fetch:globalThis.fetch,self:globalThis.self,raf:globalThis.requestAnimationFrame,caf:globalThis.cancelAnimationFrame,act:globalThis.IS_REACT_ACT_ENVIRONMENT};
  globalThis.IS_REACT_ACT_ENVIRONMENT=true;globalThis.self=globalThis;globalThis.requestAnimationFrame=fn=>setTimeout(fn,0);globalThis.cancelAnimationFrame=clearTimeout;

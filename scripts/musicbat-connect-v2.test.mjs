@@ -54,6 +54,8 @@ test('sandbox creates Express merchant/recipient through v2 JSON and reuses stor
   const link=JSON.parse(f.calls.at(-1).init.body);
   assert.deepEqual(Object.keys(link.use_case.account_onboarding).sort(),['refresh_url','return_url']);assert.equal(link.account,'acct_v2fixture');
   assert.equal(new URL(link.use_case.account_onboarding.return_url).origin,'https://musicbat.audio');
+  assert.equal(new URL(link.use_case.account_onboarding.return_url).searchParams.get('view'),'artist');
+  assert.equal(new URL(link.use_case.account_onboarding.refresh_url).searchParams.get('view'),'artist');
   assert.equal((await f.route.POST(post({}))).status,200);
   assert.equal(f.calls.filter(c=>c.url.endsWith('/v2/core/accounts')).length,1);
   assert.equal(f.calls.filter(c=>c.url.endsWith('/v1/accounts')).length,0);

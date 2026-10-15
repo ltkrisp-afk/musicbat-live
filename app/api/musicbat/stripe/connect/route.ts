@@ -110,13 +110,13 @@ export async function POST(request: Request) {
     const link = sandbox ? await stripeSandboxPost<{ url: string; account: string; livemode: boolean }>(env, "/v2/core/account_links", {
       account: row.stripe_account_id,
       use_case: { type: "account_onboarding", account_onboarding: {
-        return_url: `${base}/?stripe=return`, refresh_url: `${base}/?stripe=refresh`,
+        return_url: `${base}/?view=artist&stripe=return`, refresh_url: `${base}/?view=artist&stripe=refresh`,
       } },
     }) : await stripePost<{ url: string }>(env, "/v1/account_links", {
       account: row.stripe_account_id,
       type: "account_onboarding",
-      return_url: `${base}/?stripe=return`,
-      refresh_url: `${base}/?stripe=refresh`,
+      return_url: `${base}/?view=artist&stripe=return`,
+      refresh_url: `${base}/?view=artist&stripe=refresh`,
     });
     if (sandbox && (!("livemode" in link) || link.livemode !== false || !("account" in link) || link.account !== row.stripe_account_id)) throw new Error("Stripe onboarding mode or account mismatch.");
     const onboarding = new URL(link.url);

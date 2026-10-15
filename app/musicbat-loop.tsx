@@ -111,7 +111,9 @@ async function api<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 export default function MusicBatLoop({ displayName, artistSlug, initialTab }: { displayName: string; artistSlug?:string;initialTab?:string }) {
-  const [tab, setTab] = useState(artistSlug ? "discover" : initialTab ?? "radio");
+  const returnSearch = useSyncExternalStore(subscribeLocation, readLocation, serverLocation);
+  const stripeLanding = new URLSearchParams(returnSearch).get('stripe');
+  const [tab, setTab] = useState(artistSlug ? "discover" : stripeLanding==='return'||stripeLanding==='refresh' ? 'catalog' : initialTab ?? "radio");
   const routeView = JSON.stringify([artistSlug ?? null, initialTab ?? null]);
   const [previousRouteView, setPreviousRouteView] = useState(routeView);
   // Client navigation may reuse this screen; select its new route without
@@ -126,11 +128,12 @@ export default function MusicBatLoop({ displayName, artistSlug, initialTab }: { 
     return () => window.removeEventListener("musicbat:open-radio", open);
   }, []);
   const [artists,setArtists]=useState<Artist[]>([]),[canManage,setCanManage]=useState(false),[followingOnly,setFollowingOnly]=useState(false),[search,setSearch]=useState('');
+  const [artistIdentity,setArtistIdentity]=useState<string|null>(null);
   const [artistError,setArtistError]=useState(''),[artistLoading,setArtistLoading]=useState(true),[followBusy,setFollowBusy]=useState(false);
   const followStartingRef=useRef(false);
   const loadArtists=useCallback(async()=>{
     setArtistLoading(true);
-    try {const d=await api<{artists:Artist[];canManage:boolean}>('/api/musicbat?view=artists');setArtists(d.artists);setCanManage(d.canManage);setArtistError('');}
+    try {const d=await api<{artists:Artist[];canManage:boolean;artistIdentity?:string|null}>('/api/musicbat?view=artists');setArtists(d.artists);setCanManage(d.canManage);setArtistIdentity(typeof d.artistIdentity==='string'?d.artistIdentity:null);setArtistError('');}
     catch(e){setArtistError(e instanceof Error?e.message:'Could not load artists.');throw e;}
     finally{setArtistLoading(false);}
   },[]);
@@ -155,7 +158,6 @@ export default function MusicBatLoop({ displayName, artistSlug, initialTab }: { 
   const [busy, setBusy] = useState(false);
   const [purchaseBusy, setPurchaseBusy] = useState(false);
   const [purchaseStatus, setPurchaseMessage] = useState("");
-  const returnSearch = useSyncExternalStore(subscribeLocation, readLocation, serverLocation);
   const returnParams = new URLSearchParams(returnSearch);
   const purchaseMessage = purchaseStatus || (returnParams.get("purchase") === "cancelled"
     ? "Checkout cancelled. The track remains locked and you were not charged."
@@ -283,7 +285,7 @@ export default function MusicBatLoop({ displayName, artistSlug, initialTab }: { 
     const state = params.get("purchase");
     const order = params.get("order");
     const stripeReturn = params.get("stripe");
-    if (stripeReturn) {
+    if (stripeReturn === 'return' || stripeReturn === 'refresh') {
       void api<ConnectStatus>("/api/musicbat/stripe/connect").then(status => {
         setConnectStatus(status);
         setMessage(stripeReturn === "return" ? "Stripe setup returned to MusicBat. Payout status refreshed." : "Restart Stripe onboarding to finish payout setup.");
@@ -307,7 +309,8 @@ export default function MusicBatLoop({ displayName, artistSlug, initialTab }: { 
         setPurchaseMessage("Stripe is still confirming the payment. Refresh this page in a moment; the track stays locked until confirmation arrives.");
       })();
     }
-    if (state === "cancelled" || stripeReturn) window.history.replaceState({}, "", window.location.pathname);
+    if (stripeReturn === 'return' || stripeReturn === 'refresh') window.history.replaceState({}, "", window.location.pathname+'?view=artist');
+    else if (state === "cancelled") window.history.replaceState({}, "", window.location.pathname);
   }, [refreshConnectStatus, returnSearch]);
 
   useEffect(() => {
@@ -574,6 +577,7 @@ export default function MusicBatLoop({ displayName, artistSlug, initialTab }: { 
     return sharedTrackId ? "Shared Radio performance" : "Radio is quiet or unavailable";
   }, [listenId, canRespond, tracks.length, sharedTrackId]);
 
+  const artistContext = ['catalog','rotunda','shock'].includes(tab) || (tab==='discover' && Boolean(artistSlug) && artists.some(a=>a.slug===artistSlug&&Number(a.is_owner)===1));
   return (
     <main className="min-h-screen bg-[#08070b] text-[#f7f4ed]">
       <div className="mx-auto max-w-[1440px] px-4 py-4 sm:px-7 sm:py-6 lg:px-10">
@@ -584,7 +588,7 @@ export default function MusicBatLoop({ displayName, artistSlug, initialTab }: { 
             </div>
             <div><Link href="/" className="text-[0.72rem] font-black uppercase tracking-[0.24em] text-[#ff69bd]">MusicBat</Link><p className="mt-1 text-[0.6rem] tracking-wider text-white/55">YOUR MUSIC. YOUR RIGHTS. YOUR MONEY.</p></div>
           </div>
-          <div className="text-right"><div className="text-sm font-semibold text-white/90">{displayName}</div><div className="text-xs text-white/45">{loopStatus}</div></div>
+          <div className="text-right"><div className="text-sm font-semibold text-white/90">{artistContext && artistIdentity ? artistIdentity : displayName}</div><div className="text-xs text-white/45">{artistContext ? canManage ? 'Artist account' : 'Artist setup' : loopStatus}</div></div>
         </header>
 
         <div className="mb-5 grid grid-cols-4 overflow-hidden rounded-xl border border-white/10 bg-white/[0.025] text-center text-[0.68rem] font-black uppercase tracking-[0.12em] text-white/45">

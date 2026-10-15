@@ -153,10 +153,12 @@ export async function GET(request: Request) {
         COALESCE((SELECT artist_name FROM artist_profiles WHERE account_id=p.account_id),
           (SELECT artist_name FROM tracks WHERE artist_id=p.account_id ORDER BY id DESC LIMIT 1)) AS artist_name,
         (SELECT COUNT(*) FROM tracks WHERE artist_id=p.account_id AND status='active' AND rights_attested=1) AS track_count,
-        EXISTS(SELECT 1 FROM artist_follows WHERE artist_id=p.account_id AND listener_id=?) AS following
-        FROM artist_pages p ORDER BY artist_name COLLATE NOCASE`).bind(user?.userId ?? '').all();
+        EXISTS(SELECT 1 FROM artist_follows WHERE artist_id=p.account_id AND listener_id=?) AS following,
+        p.account_id=? AS is_owner
+        FROM artist_pages p ORDER BY artist_name COLLATE NOCASE`).bind(user?.userId ?? '',user?.userId ?? '').all();
       const managed=user ? await db.prepare(`SELECT 1 FROM artist_profiles WHERE account_id=? UNION SELECT 1 FROM tracks WHERE artist_id=? UNION SELECT 1 FROM track_authority WHERE account_id=? AND revoked_at IS NULL LIMIT 1`).bind(user.userId,user.userId,user.userId).first() : null;
-      return Response.json({artists:artists.results,canManage:Boolean(managed),signedIn:Boolean(user)}, {headers:{'cache-control':'private, no-store','vary':'Cookie'}});
+      const artistIdentity=user ? artists.results.find(artist=>artist.artist_id===user.userId)?.artist_name ?? null : null;
+      return Response.json({artists:artists.results,canManage:Boolean(managed),signedIn:Boolean(user),artistIdentity}, {headers:{'cache-control':'private, no-store','vary':'Cookie'}});
     }
     if (view === "shock-room") {
       const rows = await db.prepare(`
@@ -286,6 +288,7 @@ export async function POST(request: Request) {
 
     if (body.action === 'follow_artist') {
       if(typeof body.artistId!=='string' || typeof body.enabled!=='boolean') return fail('Choose an artist and follow state.');
+      if(body.artistId===user.userId)return fail('This is your artist page. Use your artist controls to manage your music.',403);
       if(!await db.prepare('SELECT 1 FROM artist_pages WHERE account_id=?').bind(body.artistId).first()) return fail('Artist not found.',404);
       if(body.enabled) await db.prepare('INSERT OR IGNORE INTO artist_follows(listener_id,artist_id) VALUES (?,?)').bind(user.userId,body.artistId).run();
       else await db.prepare('DELETE FROM artist_follows WHERE listener_id=? AND artist_id=?').bind(user.userId,body.artistId).run();
