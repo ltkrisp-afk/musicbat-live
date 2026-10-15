@@ -18,11 +18,16 @@ async function setup(){
  const code=ts.transpileModule(source,{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.ESNext}}).outputText;
  const route=await import('data:text/javascript;base64,'+Buffer.from(code).toString('base64'));
  const calls=[];
- const response=(url)=>{
+ const response=(url,init={})=>{
   if(url.endsWith('/v1/account'))return Response.json({country:'US'});
   if(url.endsWith('/v2/core/accounts'))return Response.json({id:'acct_v2fixture',livemode:false});
   if(url.endsWith('/v1/accounts/acct_v2fixture'))return Response.json({id:'acct_v2fixture',charges_enabled:false,payouts_enabled:false,details_submitted:false});
-  if(url.endsWith('/v2/core/account_links'))return Response.json({account:'acct_v2fixture',livemode:false,url:'https://accounts.stripe.com/r/fixture'});
+  if(url.endsWith('/v2/core/account_links')){
+   const body=JSON.parse(init.body),onboarding=body.use_case.account_onboarding;
+   // Pinned Endive request contract: configurations is returned by Stripe, not accepted here.
+   if(Object.keys(onboarding).some(k=>!['return_url','refresh_url'].includes(k)))return Response.json({error:{message:'Unknown account_onboarding field'}},{status:400});
+   return Response.json({account:'acct_v2fixture',livemode:false,url:'https://accounts.stripe.com/r/fixture'});
+  }
   throw new Error('Unexpected endpoint '+url);
  };
  const processor={respond:response};
@@ -47,7 +52,7 @@ test('sandbox creates Express merchant/recipient through v2 JSON and reuses stor
   assert.equal(body.configuration.merchant.capabilities.card_payments.requested,true);
   assert.equal(body.configuration.recipient.capabilities.stripe_balance.stripe_transfers.requested,true);
   const link=JSON.parse(f.calls.at(-1).init.body);
-  assert.deepEqual(link.use_case.account_onboarding.configurations,['merchant','recipient']);assert.equal(link.account,'acct_v2fixture');
+  assert.deepEqual(Object.keys(link.use_case.account_onboarding).sort(),['refresh_url','return_url']);assert.equal(link.account,'acct_v2fixture');
   assert.equal(new URL(link.use_case.account_onboarding.return_url).origin,'https://musicbat.audio');
   assert.equal((await f.route.POST(post({}))).status,200);
   assert.equal(f.calls.filter(c=>c.url.endsWith('/v2/core/accounts')).length,1);

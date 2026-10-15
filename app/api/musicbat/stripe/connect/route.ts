@@ -110,7 +110,6 @@ export async function POST(request: Request) {
     const link = sandbox ? await stripeSandboxPost<{ url: string; account: string; livemode: boolean }>(env, "/v2/core/account_links", {
       account: row.stripe_account_id,
       use_case: { type: "account_onboarding", account_onboarding: {
-        configurations: ["merchant", "recipient"],
         return_url: `${base}/?stripe=return`, refresh_url: `${base}/?stripe=refresh`,
       } },
     }) : await stripePost<{ url: string }>(env, "/v1/account_links", {
