@@ -1,0 +1,44 @@
+{
+  "asOf": "2026-10-15T15:30:00-07:00",
+  "purpose": "Non-secret reference. Read current Command Center before work; this snapshot is not automatic synchronization.",
+  "commandCenter": {
+    "name": "MusicBat_Command_Center_2026-10-15.md",
+    "libraryId": "libfile_30d4d4b6cc988191a6576ca0eba0029e"
+  },
+  "workbook": {
+    "name": "MusicBat_Verification_Master_2026-10-13.xlsx",
+    "libraryId": "libfile_ed36a4193f948191909a5ee31d0c61b5",
+    "currentTab": "Credentials & Settings"
+  },
+  "site": {
+    "projectId": "appgprj_6aaa2f4673e88191b504cf941f475802",
+    "url": "https://musicbat.audio",
+    "lastVerifiedVersion": 15,
+    "lastVerifiedApplicationSource": "2a9fe5ede5fc7e9c34beebfa797ce60ff15812ed"
+  },
+  "github": {
+    "releaseBranch": "musicbat-public-readiness-2026-10-15",
+    "applicationCommit": "78e1954a2001c33d5a2cf77fbbf040c22d2fb32d",
+    "developmentBranch": "musicbat-acceptance-restored-2026-10-13",
+    "developmentCheckpoint": "5ee7e666af08ee9355fe1a03e3c41a2aed079283"
+  },
+  "stripe": {
+    "mode": "test",
+    "platform": "acct_1UHA0OLKJHBmA7Jw",
+    "existingArtistAccount": "acct_1UQrXtLKJHXYfqXB",
+    "checkoutPaused": true,
+    "hostedSecretPresence": {
+      "STRIPE_SECRET_KEY": false,
+      "STRIPE_WEBHOOK_SECRET": false
+    },
+    "webhook": "https://musicbat.audio/api/musicbat/stripe/webhook"
+  },
+  "settings": {
+    "documentedEntry": "https://chatgpt.com/sites",
+    "documentedRoute": "MusicBat Minimum Loop > More actions > Settings",
+    "source": "https://learn.chatgpt.com/docs/sites/managing-a-site",
+    "actualUserSettingsScreenObserved": false
+  },
+  "nextAction": "Privately configure matching sandbox API key and the hosted endpoint signing secret in Site settings; no secret goes in chat or workbook.",
+  "approval": "Hosted sandbox rollout and simulated purchase authorized. Live activation and real charges forbidden."
+}
