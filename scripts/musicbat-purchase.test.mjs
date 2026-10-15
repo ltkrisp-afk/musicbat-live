@@ -124,6 +124,7 @@ test("restricted sandbox Checkout preserves exact 85/15 ledger split and itemize
   assert.equal(form.get("payment_intent_data[application_fee_amount]"), "211");
   assert.equal(form.get("payment_intent_data[transfer_data][destination]"), "acct_test_artist");
   assert.equal(form.get("payment_method_types[0]"), "card");
+  assert.equal(form.get("managed_payments[enabled]"), "false");
   assert.equal(form.get("mode"), "payment");
   assert.equal(form.get("line_items[1][price_data][unit_amount]"), "61");
   assert.equal(form.get("line_items[0][price_data][unit_amount]"), "1000");
@@ -394,4 +395,23 @@ test("oversized unauthenticated purchase webhook stops reading and makes no proc
   const saved=console.error;console.error=()=>{};
   try {assert.equal((await webhook.POST(request)).status,413);assert.equal(cancelled,true);assert.ok(reads<=6);assert.equal(state.requests.length,0);assert.equal(sqlite.prepare('SELECT count(*) n FROM stripe_events').get().n,0);}
   finally {console.error=saved;sqlite.close();}
+});
+
+test('sandbox Connect Checkout opts out of account-default Managed Payments; live request remains unchanged',async()=>{
+ for(const mode of ['test','live']){
+  const {sqlite,state,purchase}=await fixture(mode);
+  const processor=globalThis.fetch;
+  globalThis.fetch=async(url,init={})=>{
+   if(String(url).endsWith('/v1/checkout/sessions')&&init.method==='POST'&&mode==='test'&&init.body.get('managed_payments[enabled]')!=='false')return Response.json({error:{message:'Managed Payments does not support Connect'}},{status:400});
+   return processor(url,init);
+  };
+  try{
+   assert.equal((await purchase.POST(post())).status,201);
+   const form=state.requests.find(r=>r.init.method==='POST'&&r.url.endsWith('/v1/checkout/sessions')).init.body;
+   assert.equal(form.get('managed_payments[enabled]'),mode==='test'?'false':null);
+   assert.equal(form.get('payment_intent_data[transfer_data][destination]'),'acct_test_artist');
+   assert.equal(form.get('payment_intent_data[application_fee_amount]'),'211');
+   assert.equal(sqlite.prepare('SELECT artist_share_cents FROM purchases').get().artist_share_cents,850);
+  }finally{sqlite.close()}
+ }
 });

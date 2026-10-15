@@ -24,13 +24,13 @@ export function blockers(env) {
 }
 function d1(sqlite){return {prepare(sql){const statement=sqlite.prepare(sql);const bound=(...values)=>({async first(){return statement.get(...values)??null},async all(){return {results:statement.all(...values)}},async run(){return {meta:{changes:statement.run(...values).changes}}},execute(){if(statement.columns().length){const results=statement.all(...values);return {results,meta:{changes:results.length}}}return {results:[],meta:{changes:statement.run(...values).changes}}}});return {...bound(),bind:bound}},async batch(statements){sqlite.exec('BEGIN IMMEDIATE');try{const result=statements.map(s=>s.execute());sqlite.exec('COMMIT');return result}catch(error){sqlite.exec('ROLLBACK');throw error}}}}
 export async function handler(path,env){
- const key='sandbox'+randomBytes(16).toString('hex');globalThis[key]={env};
+ const key='sandbox'+randomBytes(16).toString('hex');globalThis[key]={env,console:{...console,error(...args){console.error(...args.map(value=>value instanceof Error?value.message:value))}}};
  let source=await readFile(path,'utf8');
  source=source.replace(/import \{ env \} from ["']cloudflare:workers["'];/,`const env=globalThis.${key}.env;`)
   .replace(/import \{ buyerIdentity \} from "[^"]*buyer";/,await readFile('app/api/musicbat/purchase/buyer.ts','utf8'))
   .replace(/import \{[^;]+\} from "[^";]*stripe";/s,await readFile('app/api/musicbat/stripe/stripe.ts','utf8'));
- const compiled=ts.transpileModule(source,{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.ESNext}}).outputText;
- return import('data:text/javascript;base64,'+Buffer.from(compiled).toString('base64'));
+ const compiled=ts.transpileModule(`const console=globalThis.${key}.console;\n`+source,{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.ESNext}}).outputText;
+ return import('data:text/javascript;base64,'+Buffer.from(compiled+'\n//# sourceURL=musicbat-sandbox-commerce-handler.mjs').toString('base64'));
 }
 export async function createPurchaseSnapshot(sourcePath,snapshot){
  const source=new DatabaseSync(sourcePath,{readOnly:true});try{await backup(source,snapshot)}finally{source.close()}

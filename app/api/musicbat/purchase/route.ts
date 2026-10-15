@@ -118,6 +118,9 @@ export async function POST(request: Request) {
     try {
       checkout = await stripePost<StripeCheckoutSession>(env, "/v1/checkout/sessions", {
         mode: "payment",
+        // Sandbox accounts can default to merchant-of-record Managed Payments,
+        // which does not support Connect destination charges or application fees.
+        ...(stripeModeMatches(env, false) ? { "managed_payments[enabled]": "false" } : {}),
         success_url: `${base}/?purchase=success&order=${id}&session_id={CHECKOUT_SESSION_ID}`,
         cancel_url: `${base}/?purchase=cancelled&order=${id}`,
         client_reference_id: id,

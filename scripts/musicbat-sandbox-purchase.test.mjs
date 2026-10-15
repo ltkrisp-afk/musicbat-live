@@ -14,6 +14,15 @@ test('runner loads the actual purchase, webhook and download handlers and retain
  assert.equal((await webhook.POST(new Request('http://127.0.0.1:5181/api/musicbat/stripe/webhook',{method:'POST',body:'{}'}))).status,503);
  assert.equal((await download.GET(new Request('http://127.0.0.1:5181/api/musicbat/purchase/test/download'))).status,503);
 });
+test('runner diagnostics retain error messages without dumping encoded handler stacks',async()=>{
+ const messages=[],saved=console.error;console.error=(...args)=>messages.push(args);
+ try{
+  const purchase=await handler('app/api/musicbat/purchase/route.ts',{DB:{prepare(){throw Error('Controlled storage failure')}},BUCKET:{}});
+  assert.equal((await purchase.POST(new Request('http://127.0.0.1:5181/api/musicbat/purchase',{method:'POST',headers:{'content-type':'application/json'},body:'{"trackId":5}'}))).status,503);
+  assert.equal(messages.at(-1).at(-1),'Controlled storage failure');
+  assert.equal(JSON.stringify(messages).includes('data:text/javascript'),false);
+ }finally{console.error=saved}
+});
 test('sandbox purchase runner refuses live mode and live credentials',()=>{
  assert.ok(blockers({...configured,MUSICBAT_STRIPE_MODE:'live'}).length);
  assert.ok(blockers({...configured,STRIPE_SECRET_KEY:'sk_live_fixture'}).length);
