@@ -1,6 +1,6 @@
 import { env } from "cloudflare:workers";
 import { getChatGPTUser } from "../../../../chatgpt-auth";
-import { connectReady, musicBatOrigin, stableKey, StripeAccount, StripeConfigurationError, stripeGet, stripePost } from "../stripe";
+import { connectReady, musicBatOrigin, stableKey, StripeAccount, StripeConfigurationError, stripeGet, stripePost, stripeMode, stripeSandboxPost } from "../stripe";
 
 type AccountRow = {
   stripe_account_id: string;
@@ -70,9 +70,28 @@ export async function POST(request: Request) {
     const user = await requireArtist();
     if (!env.DB) throw new Error("MusicBat storage is unavailable.");
     let row = await rowFor(user.userId);
+    const sandbox = stripeMode(env) === "test";
     if (!row) {
       const key = await stableKey(user.userId);
-      const account = await stripePost<StripeAccount>(env, "/v1/accounts", {
+      let account: StripeAccount;
+      if (sandbox) {
+        // Match the former v1 default country to the platform; never infer artist legal identity.
+        const platform = await stripeGet<{ country?: string }>(env, "/v1/account");
+        if (!/^[A-Z]{2}$/.test(platform.country ?? "")) throw new Error("Stripe platform country is unavailable.");
+        const created = await stripeSandboxPost<{ id: string; livemode: boolean }>(env, "/v2/core/accounts", {
+          contact_email: user.email,
+          dashboard: "express",
+          identity: { country: platform.country },
+          configuration: {
+            merchant: { capabilities: { card_payments: { requested: true } } },
+            recipient: { capabilities: { stripe_balance: { stripe_transfers: { requested: true } } } },
+          },
+          defaults: { responsibilities: { fees_collector: "application", losses_collector: "application" } },
+          metadata: { musicbat_artist_id: user.userId },
+        }, `musicbat-connect-v2-test-${key}`);
+        if (created.livemode !== false) throw new Error("Stripe account mode mismatch.");
+        account = created;
+      } else account = await stripePost<StripeAccount>(env, "/v1/accounts", {
         type: "express",
         email: user.email,
         "capabilities[card_payments][requested]": "true",
@@ -88,14 +107,22 @@ export async function POST(request: Request) {
     const account = await refresh(user.userId, row);
     if (connectReady(account)) return json({ ...publicAccount(account), onboardingUrl: null });
     const base = musicBatOrigin(env, request);
-    const link = await stripePost<{ url: string }>(env, "/v1/account_links", {
+    const link = sandbox ? await stripeSandboxPost<{ url: string; account: string; livemode: boolean }>(env, "/v2/core/account_links", {
+      account: row.stripe_account_id,
+      use_case: { type: "account_onboarding", account_onboarding: {
+        configurations: ["merchant", "recipient"],
+        return_url: `${base}/?stripe=return`, refresh_url: `${base}/?stripe=refresh`,
+      } },
+    }) : await stripePost<{ url: string }>(env, "/v1/account_links", {
       account: row.stripe_account_id,
       type: "account_onboarding",
       return_url: `${base}/?stripe=return`,
       refresh_url: `${base}/?stripe=refresh`,
     });
+    if (sandbox && (!("livemode" in link) || link.livemode !== false || !("account" in link) || link.account !== row.stripe_account_id)) throw new Error("Stripe onboarding mode or account mismatch.");
     const onboarding = new URL(link.url);
-    if (onboarding.origin !== 'https://connect.stripe.com' || onboarding.username || onboarding.password) throw new Error('Invalid Stripe onboarding response.');
+    const allowedOrigins = sandbox ? ['https://connect.stripe.com', 'https://accounts.stripe.com'] : ['https://connect.stripe.com'];
+    if (!allowedOrigins.includes(onboarding.origin) || onboarding.username || onboarding.password) throw new Error('Invalid Stripe onboarding response.');
     return json({ ...publicAccount(account), onboardingUrl: link.url });
   } catch (error) { return failure(error); }
 }
