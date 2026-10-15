@@ -1,0 +1,12 @@
+{
+  "sourceCommit": "706082ad960574dd1f67f84bab61667dabfb0897",
+  "files": {
+    "app/api/musicbat/route.ts": "0e72563f9545627d99dddf3270af6e83972f6bd99d1fef5f3bdde60efe6ae1ed",
+    "app/api/musicbat/audio/[assetId]/route.ts": "05089898280a2eece1eca34b84da68b6ef7f18a1d10bafaa88d9badf7485ed0a",
+    "app/rotation.ts": "e5681a56f4ef0ef0a3c36da7b886266952a8b367731d42ec72244fd982663b8a",
+    "components/musicbat-player.tsx": "fdbb7cd94d1e03c333624a9fc5c0ce5f2c7f0b066a939906cc7aa396b4cd7386"
+  },
+  "playerInvocation": "fe2d04f9ae9b00b2a8a905683ef6d0121b8e87f01a08a40307c02f6ce938c9a0",
+  "listeningHandlers": "b68e76697542718656fce78059e73fc4ad46466bdd99568372d153cb729f4439",
+  "rotationHandler": "226863a1c5745d77b7b92575474e43f15608a3e437cfb01b98852e375b37c535"
+}

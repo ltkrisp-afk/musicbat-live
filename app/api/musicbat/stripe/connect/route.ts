@@ -17,7 +17,7 @@ async function requireArtist() {
   const user = await getChatGPTUser();
   if (!user) throw new Error("SIGN_IN_REQUIRED");
   if (!env.DB) throw new Error("MusicBat storage is unavailable.");
-  const artist = await env.DB.prepare('SELECT 1 FROM artist_profiles WHERE account_id=? UNION SELECT 1 FROM tracks WHERE artist_id=? LIMIT 1').bind(user.userId,user.userId).first();
+  const artist = await env.DB.prepare('SELECT 1 FROM artist_accounts WHERE artist_id=? UNION SELECT 1 FROM tracks WHERE artist_id=? LIMIT 1').bind(user.userId,user.userId).first();
   if (!artist) throw new Error("ARTIST_REQUIRED");
   return user;
 }

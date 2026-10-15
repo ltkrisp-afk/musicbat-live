@@ -415,3 +415,18 @@ test('sandbox Connect Checkout opts out of account-default Managed Payments; liv
   }finally{sqlite.close()}
  }
 });
+
+test('checkout-only pause leaves signed webhooks able to settle an existing purchase',async()=>{
+ const {sqlite,state,purchase}=await fixture('test','rk');
+ const created=await purchase.POST(post());const {purchase:order}=await created.json();
+ const row=sqlite.prepare('SELECT * FROM purchases WHERE id=?').get(order.id);
+ state.env.MUSICBAT_CHECKOUT_PAUSED='1';
+ assert.equal((await purchase.POST(post())).status,503);
+ assert.equal(sqlite.prepare('SELECT count(*) n FROM purchases').get().n,1);
+ globalThis.fetch=async()=>Response.json({id:row.processor_session_id,livemode:false,status:'complete',payment_status:'paid',amount_total:row.amount_cents+row.processing_cents,currency:'usd',metadata:{musicbat_purchase_id:order.id,musicbat_processing_cents:String(row.processing_cents)},payment_intent:{id:'pi_pause',application_fee_amount:row.platform_fee_cents+row.processing_cents,transfer_data:{destination:row.processor_account_id}}});
+ const webhook=await load('../app/api/musicbat/stripe/webhook/route.ts',state);
+ const event={id:'evt_pause_settle',type:'checkout.session.completed',livemode:false,data:{object:{id:row.processor_session_id,livemode:false}}};
+ const raw=JSON.stringify(event);
+ const response=await webhook.POST(new Request('https://musicbat.audio/api/musicbat/stripe/webhook',{method:'POST',headers:{'stripe-signature':await sign(raw,state.env.STRIPE_WEBHOOK_SECRET)},body:raw}));
+ assert.equal(response.status,200);assert.equal(sqlite.prepare('SELECT status FROM purchases WHERE id=?').get(order.id).status,'paid');sqlite.close();
+});

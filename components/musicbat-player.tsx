@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Pause, Play, Volume2, VolumeX } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
@@ -18,22 +18,20 @@ export function MusicBatPlayer({ src, title, replay, autoPlay, onPlay, onProgres
   const audioRef = useRef<HTMLAudioElement>(null);
   const advanceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const autoPlayRef = useRef(autoPlay);
-
+  autoPlayRef.current = autoPlay;
   const errorRef = useRef(onError);
-
+  errorRef.current = onError;
   const [playing, setPlaying] = useState(false);
   const [position, setPosition] = useState(0);
   const [duration, setDuration] = useState(0);
   const [muted, setMuted] = useState(false);
   const [volume, setVolume] = useState(1);
 
-  useLayoutEffect(() => {
-    autoPlayRef.current = autoPlay;
-    errorRef.current = onError;
-  }, [autoPlay, onError]);
-
   useEffect(() => {
     const audio = audioRef.current;
+    setPosition(0);
+    setDuration(0);
+    setPlaying(false);
     if (audio) {
       audio.disableRemotePlayback = true;
       audio.load();
@@ -57,7 +55,6 @@ export function MusicBatPlayer({ src, title, replay, autoPlay, onPlay, onProgres
 
   return <div className="flex min-w-0 flex-1 basis-[240px] flex-wrap items-center gap-2 rounded-full border border-white/10 bg-white/[0.025] px-2 py-1">
     <audio ref={audioRef} preload="metadata" src={src} controlsList="nodownload noremoteplayback" aria-label={title}
-      onEmptied={() => { setPosition(0); setDuration(0); setPlaying(false); }}
       onPlay={() => { setPlaying(true); onPlay(); }} onPause={() => setPlaying(false)}
       onLoadedMetadata={(event) => setDuration(event.currentTarget.duration)}
       onDurationChange={(event) => setDuration(event.currentTarget.duration)}
@@ -71,7 +68,8 @@ export function MusicBatPlayer({ src, title, replay, autoPlay, onPlay, onProgres
       onError={onUnavailable} />
     <Button type="button" variant="ghost" size="icon" onClick={() => void togglePlay()} aria-label={playing ? "Pause Radio" : "Play Radio"} className="rounded-full text-white hover:bg-white/10 hover:text-white">{playing ? <Pause /> : <Play />}</Button>
     <span className="text-xs tabular-nums text-white/70">{time(position)} / {time(duration)}</span>
-    <progress aria-label="Playback position" max={Number.isFinite(duration) && duration > 0 ? duration : 1} value={Math.min(position, Number.isFinite(duration) && duration > 0 ? duration : 0)} className="h-2 min-w-16 flex-1 accent-[#ff3ea5]" />
+    <input type="range" aria-label="Playback position" min="0" max={Number.isFinite(duration) ? duration : 0} step="0.1" value={Math.min(position, Number.isFinite(duration) ? duration : 0)} disabled={!duration || !Number.isFinite(duration)}
+      onChange={(event) => { const audio = audioRef.current; if (audio) { audio.currentTime = Number(event.target.value); setPosition(audio.currentTime); } }} className="h-8 min-w-16 flex-1 cursor-pointer accent-[#ff3ea5]" />
     <Button type="button" variant="ghost" size="icon" aria-label={muted ? "Unmute Radio" : "Mute Radio"} onClick={() => { const audio = audioRef.current; if (audio) { audio.muted = !muted; setMuted(audio.muted); } }} className="rounded-full text-white hover:bg-white/10 hover:text-white">{muted ? <VolumeX /> : <Volume2 />}</Button>
     <input type="range" aria-label="Volume" min="0" max="1" step="0.05" value={volume} onChange={(event) => { const value = Number(event.target.value); if (audioRef.current) audioRef.current.volume = value; setVolume(value); }} className="h-8 w-14 cursor-pointer accent-[#ff3ea5]" />
   </div>;

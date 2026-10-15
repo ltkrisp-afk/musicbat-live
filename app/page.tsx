@@ -3,9 +3,7 @@ import MusicBatLoop from "./musicbat-loop";
 
 export const dynamic = "force-dynamic";
 
-export default async function Home({searchParams}:{searchParams:Promise<{view?:string;stripe?:string}>}) {
-  const {view,stripe}=await searchParams;
+export default async function Home() {
   const user = await getChatGPTUser();
-  const artistReturn = stripe === 'return' || stripe === 'refresh';
-  return <MusicBatLoop initialTab={artistReturn || view==='artist'?'catalog':view==='discover'?'discover':'radio'} displayName={user?.displayName ?? "MusicBat listener"} />;
+  return <MusicBatLoop displayName={user?.displayName ?? "MusicBat operator"} />;
 }

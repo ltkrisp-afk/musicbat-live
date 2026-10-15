@@ -56,6 +56,7 @@ async function existingCheckout(purchase: PurchaseDraft) {
 }
 
 export async function POST(request: Request) {
+  if (env.MUSICBAT_CHECKOUT_PAUSED === "1") return response({ error: "Purchases are temporarily unavailable." }, 503);
   if (env.MUSICBAT_RELEASE_PAUSED === "1") return Response.json({ error: "MusicBat is briefly paused for an update." }, { status: 503, headers: { "retry-after": "60", "cache-control": "no-store" } });
   try {
     const origin = request.headers.get("origin");
