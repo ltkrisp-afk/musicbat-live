@@ -79,10 +79,15 @@ export function stripeModeMatches(runtime: StripeRuntime, livemode: unknown) {
   return typeof livemode === "boolean" && livemode === (stripeMode(runtime) === "live");
 }
 
+// Restricted credentials are enabled for sandbox only; live acceptance is unchanged.
+export function isStripeSandboxKey(value: string | undefined) {
+  return Boolean(value && /^(?:sk|rk)_test_[A-Za-z0-9_]+$/.test(value));
+}
+
 function secret(runtime: StripeRuntime) {
   const value = runtime.STRIPE_SECRET_KEY?.trim();
   const mode = stripeMode(runtime);
-  if (!value || !value.startsWith(`sk_${mode}_`)) throw new StripeConfigurationError("Stripe credential does not match the configured mode.");
+  if (!value || !(mode === "test" ? isStripeSandboxKey(value) : value.startsWith("sk_live_"))) throw new StripeConfigurationError("Stripe credential does not match the configured mode.");
   return value;
 }
 

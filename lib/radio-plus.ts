@@ -1,4 +1,4 @@
-import { musicBatOrigin, StripeConfigurationError, readStripeWebhookBody, verifyStripeWebhook, type StripeRuntime } from '../app/api/musicbat/stripe/stripe';
+import { isStripeSandboxKey, musicBatOrigin, StripeConfigurationError, readStripeWebhookBody, verifyStripeWebhook, type StripeRuntime } from '../app/api/musicbat/stripe/stripe';
 
 export type PlusRuntime = StripeRuntime & {DB?: D1Database; MUSICBAT_RADIO_PLUS_ENABLED?: string; MUSICBAT_RELEASE_PAUSED?: string; STRIPE_RADIO_PLUS_WEBHOOK_SECRET?: string; RADIO_PLUS_PROCESSOR?: Pick<Fetcher,'fetch'>};
 type Enrollment = {id:string;user_id:string;attempt:number;checkout_session_id:string|null;subscription_id:string|null;status:string;paid_until:number;cancel_at_period_end:number};
@@ -8,7 +8,7 @@ type Invoice = {id:string;livemode:boolean;status:string;amount_paid:number;amou
 const headers={'cache-control':'private, no-store'};
 function configured(env:PlusRuntime) {
   if(env.MUSICBAT_RELEASE_PAUSED==='1')throw new StripeConfigurationError('MusicBat is briefly paused for an update.');
-  if(env.MUSICBAT_RADIO_PLUS_ENABLED!=='test' || (env.MUSICBAT_STRIPE_MODE??'test')!=='test' || !env.STRIPE_SECRET_KEY?.startsWith('sk_test_') || !env.STRIPE_RADIO_PLUS_WEBHOOK_SECRET?.startsWith('whsec_') || !env.DB)
+  if(env.MUSICBAT_RADIO_PLUS_ENABLED!=='test' || (env.MUSICBAT_STRIPE_MODE??'test')!=='test' || !isStripeSandboxKey(env.STRIPE_SECRET_KEY) || !env.STRIPE_RADIO_PLUS_WEBHOOK_SECRET?.startsWith('whsec_') || !env.DB)
     throw new StripeConfigurationError('Radio Plus enrollment is not available yet.');
 }
 async function stripe<T>(env:PlusRuntime,path:string,fields?:Record<string,string>,key?:string):Promise<T> {
@@ -32,7 +32,7 @@ export async function plusAccess(db:D1Database,userId:string,now=Date.now()) {
   return row && ['active','past_due'].includes(row.status) && Number.isSafeInteger(row.paid_until) && row.paid_until>now ? row.paid_until : 0;
 }
 export async function plusStatus(env:PlusRuntime,userId:string,now=Date.now()) {
-  const enabled=env.MUSICBAT_RADIO_PLUS_ENABLED==='test' && (env.MUSICBAT_STRIPE_MODE??'test')==='test' && !!env.STRIPE_SECRET_KEY?.startsWith('sk_test_') && !!env.STRIPE_RADIO_PLUS_WEBHOOK_SECRET?.startsWith('whsec_') && !!env.DB && env.MUSICBAT_RELEASE_PAUSED!=='1';
+  const enabled=env.MUSICBAT_RADIO_PLUS_ENABLED==='test' && (env.MUSICBAT_STRIPE_MODE??'test')==='test' && isStripeSandboxKey(env.STRIPE_SECRET_KEY) && !!env.STRIPE_RADIO_PLUS_WEBHOOK_SECRET?.startsWith('whsec_') && !!env.DB && env.MUSICBAT_RELEASE_PAUSED!=='1';
   if(!enabled)return {available:false,mode:'test',active:false,paidUntil:0,cancelAtPeriodEnd:false,status:'unavailable'};
   const row=await env.DB!.prepare('SELECT * FROM radio_plus_enrollments WHERE user_id=?').bind(userId).first<Enrollment>();
   return {available:true,mode:'test',active:!!(row && ['active','past_due'].includes(row.status) && row.paid_until>now),paidUntil:row?.paid_until??0,cancelAtPeriodEnd:!!row?.cancel_at_period_end,status:row?.status??'none'};

@@ -89,3 +89,24 @@ test('rejoining after cancellation uses a new attempt and ignores old subscripti
   assert.equal(f.sqlite.prepare('SELECT count(*) n FROM radio_plus_invoices').get().n,2);
  }finally{f.sqlite.close();}
 });
+
+
+test('restricted sandbox membership uses verified invoices for activation, renewal, cancellation and expiry',async()=>{
+ const f=await setup();try{
+  f.env.STRIPE_SECRET_KEY='rk_test_plus_fixture';
+  const processor=f.env.RADIO_PLUS_PROCESSOR,calls=[];
+  f.env.RADIO_PLUS_PROCESSOR={async fetch(r){assert.equal(r.headers.get('authorization'),'Bearer rk_test_plus_fixture');calls.push(r.method+' '+new URL(r.url).pathname);return processor.fetch(r);}};
+  assert.equal((await plusStatus(f.env,'patron')).available,true);
+  const checkout=await join(f.env);assert.equal(checkout.status,200);assert.equal(await plusAccess(f.env.DB,'patron'),0);
+  const id=(await checkout.json()).checkoutUrl.split('/').at(-1);
+  await f.processor.pay(id);const first=await plusAccess(f.env.DB,'patron');assert.ok(first>Date.now());
+  await f.processor.lifecycle('patron','renew');assert.ok(await plusAccess(f.env.DB,'patron')>first);
+  assert.equal((await handlePlus(f.env,request({action:'cancel'}),'patron')).status,200);
+  assert.equal((await plusStatus(f.env,'patron')).cancelAtPeriodEnd,true);
+  await f.processor.lifecycle('patron','expire');assert.equal(await plusAccess(f.env.DB,'patron'),0);
+  assert.ok(calls.some(p=>p.startsWith('POST /v1/subscriptions/')));assert.ok(calls.some(p=>p.startsWith('GET /v1/invoices/')));
+  for(const key of ['rk_live_forbidden','pk_test_forbidden','rk_test_','rk_test_bad key']){
+   f.env.STRIPE_SECRET_KEY=key;assert.equal((await plusStatus(f.env,'patron')).available,false);assert.equal((await join(f.env)).status,503);
+  }
+ }finally{f.sqlite.close();}
+});

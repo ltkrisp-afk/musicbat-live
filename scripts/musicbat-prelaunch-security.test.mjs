@@ -62,11 +62,13 @@ test('Connect requires identity and same origin; client body cannot replace acco
   const code=ts.transpileModule(source,{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.ESNext}}).outputText;
   const route=await import('data:text/javascript;base64,'+Buffer.from(code).toString('base64'));
   const calls=[];globalThis.fetch=async(url,init)=>{
+   assert.equal(init.headers.authorization,'Bearer rk_test_connect_fixture');
    calls.push({url:String(url),body:init.body});
    return Response.json(String(url).endsWith('/account_links')?{url:'https://connect.stripe.com/test'}:{id:'acct_owner',charges_enabled:false,payouts_enabled:false,details_submitted:false});
   };
   f.state.user=null;assert.equal((await route.POST(post({}))).status,401);assert.equal(calls.length,0);
   f.state.user={userId:'owner',email:'owner@example.test'};
+  f.state.env.STRIPE_SECRET_KEY='rk_test_connect_fixture';
   assert.equal((await route.POST(post({}))).status,403);assert.equal(calls.length,0);
   await f.route.POST(post({action:'set_artist_identity',artistName:'Owner artist'}));
   const secret=f.state.env.STRIPE_SECRET_KEY;delete f.state.env.STRIPE_SECRET_KEY;

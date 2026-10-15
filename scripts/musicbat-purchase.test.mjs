@@ -37,7 +37,7 @@ async function load(path, state) {
   return import(`data:text/javascript;base64,${Buffer.from(outputText + "\n//" + Math.random()).toString("base64")}`);
 }
 
-async function fixture(mode = "test") {
+async function fixture(mode = "test", keyType = "sk") {
   const sqlite = new DatabaseSync(":memory:");
   for (const filename of (await readdir(new URL("../drizzle", import.meta.url))).filter((name) => name.endsWith(".sql")).sort()) {
     sqlite.exec(await readFile(new URL(`../drizzle/${filename}`, import.meta.url), "utf8"));
@@ -56,7 +56,7 @@ async function fixture(mode = "test") {
         async get(key) { return key === `tracks/${asset}` ? { body: bytes, size: bytes.length, httpMetadata: { contentType: "audio/wav" } } : null; },
       },
       MUSICBAT_STRIPE_MODE: mode,
-      STRIPE_SECRET_KEY: `sk_${mode}_musicbat_fixture`,
+      STRIPE_SECRET_KEY: `${keyType}_${mode}_musicbat_fixture`,
       STRIPE_WEBHOOK_SECRET: "whsec_musicbat_test",
       MUSICBAT_BASE_URL: "https://musicbat.audio",
       MUSICBAT_PROCESSING_BPS: "290",
@@ -104,8 +104,8 @@ async function sign(raw, secret, timestamp = Math.floor(Date.now() / 1000)) {
   return `t=${timestamp},v1=${signature}`;
 }
 
-test("Checkout is test-mode destination charge with exact 85/15 ledger split and itemized buyer fee", async () => {
-  const { sqlite, state, purchase } = await fixture();
+test("restricted sandbox Checkout preserves exact 85/15 ledger split and itemized buyer fee", async () => {
+  const { sqlite, state, purchase } = await fixture("test", "rk");
   const response = await purchase.POST(post(1, null, { amountCents: 1, paid: true, destination: "acct_wrong" }));
   assert.equal(response.status, 201);
   const cookie = response.headers.get("set-cookie").split(";")[0];
@@ -120,6 +120,7 @@ test("Checkout is test-mode destination charge with exact 85/15 ledger split and
   assert.equal(row.status, "pending");
   const create = state.requests.find((entry) => entry.url.endsWith("/v1/checkout/sessions") && entry.init.method === "POST");
   const form = create.init.body;
+  assert.equal(create.init.headers.authorization, "Bearer rk_test_musicbat_fixture");
   assert.equal(form.get("payment_intent_data[application_fee_amount]"), "211");
   assert.equal(form.get("payment_intent_data[transfer_data][destination]"), "acct_test_artist");
   assert.equal(form.get("payment_method_types[0]"), "card");
@@ -144,8 +145,8 @@ test("declined, cancelled, pending and unsigned payment states never unlock the 
   sqlite.close();
 });
 
-test("valid signed webhook alone confirms payment and unlocks captured download", async () => {
-  const { sqlite, state, purchase, download } = await fixture();
+test("restricted sandbox signed webhook alone confirms payment and unlocks captured download", async () => {
+  const { sqlite, state, purchase, download } = await fixture("test", "rk");
   const checkout = await purchase.POST(post());
   const cookie = checkout.headers.get("set-cookie").split(";")[0];
   const { purchase: draft } = await checkout.json();
