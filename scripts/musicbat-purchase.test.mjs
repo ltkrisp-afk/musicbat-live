@@ -430,3 +430,11 @@ test('checkout-only pause leaves signed webhooks able to settle an existing purc
  const response=await webhook.POST(new Request('https://musicbat.audio/api/musicbat/stripe/webhook',{method:'POST',headers:{'stripe-signature':await sign(raw,state.env.STRIPE_WEBHOOK_SECRET)},body:raw}));
  assert.equal(response.status,200);assert.equal(sqlite.prepare('SELECT status FROM purchases WHERE id=?').get(order.id).status,'paid');sqlite.close();
 });
+
+test('original artist purchase path resolves only the approved existing sandbox account and still requires quote consent',async()=>{
+ const {sqlite,state,purchase}=await fixture('test','rk');
+ const owner='yY7U7NYKoZEsc3qxYJzEh8nNB3jXrRUopGya1R7e3cu74CgXcTSFil',account='acct_1UQrXtLKJHXYfqXB',audio='/api/musicbat/audio/048ea870-7924-40a2-9e18-c945a3a9b4b3.mp3';
+ sqlite.exec('DELETE FROM artist_accounts');sqlite.prepare('UPDATE tracks SET id=5,artist_id=?,audio_url=? WHERE id=1').run(owner,audio);state.env.MUSICBAT_SANDBOX_LINK_APPROVED='1';state.env.BUCKET.head=async()=>({size:2671395});const calls=[];
+ globalThis.fetch=async(url,init)=>{calls.push({url:String(url),method:init.method});assert.equal(init.method,'GET');return Response.json(String(url).endsWith('/v1/account')?{id:'acct_1UHA0OLKJHBmA7Jw'}:{id:account,charges_enabled:true,payouts_enabled:true,details_submitted:true,metadata:{musicbat_artist_id:'local_seedy'}})};
+ const result=await purchase.POST(post(5,null,{confirmedTotalCents:undefined}));assert.equal(result.status,409);assert.equal((await result.json()).confirmationRequired,true);assert.equal(sqlite.prepare('SELECT stripe_account_id FROM artist_accounts WHERE artist_id=?').get(owner).stripe_account_id,account);assert.equal(sqlite.prepare('SELECT charges_enabled FROM artist_accounts').get().charges_enabled,1);assert.equal(sqlite.prepare('SELECT artist_id FROM tracks').get().artist_id,owner);assert.equal(sqlite.prepare('SELECT count(*) n FROM purchases').get().n,0);assert.ok(calls.every(c=>c.method==='GET'));sqlite.close();
+});

@@ -10,5 +10,6 @@ declare namespace Cloudflare {
     MUSICBAT_PROCESSING_FIXED_CENTS?: string;
     MUSICBAT_RELEASE_PAUSED?: string;
     MUSICBAT_CHECKOUT_PAUSED?: string;
+    MUSICBAT_SANDBOX_LINK_APPROVED?: string;
   }
 }

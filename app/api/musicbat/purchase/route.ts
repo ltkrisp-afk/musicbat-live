@@ -1,6 +1,6 @@
 import { env } from "cloudflare:workers";
 import { buyerIdentity } from "./buyer";
-import { connectReady, musicBatOrigin, StripeAccount, StripeCheckoutSession, StripeConfigurationError, stripeGet, stripePost, stripeModeMatches } from "../stripe/stripe";
+import { connectReady, musicBatOrigin, StripeAccount, StripeCheckoutSession, StripeConfigurationError, stripeGet, stripePost, stripeModeMatches, ensureApprovedSandboxArtist } from "../stripe/stripe";
 
 type TrackForSale = {
   id: number;
@@ -76,6 +76,7 @@ export async function POST(request: Request) {
     if (!track.sale_enabled || !track.sale_rights_attested || !track.sale_price_cents) return response({ error: "This artist has not offered the track for sale yet." }, 409);
     if (!Number.isSafeInteger(track.sale_price_cents) || track.sale_price_cents < 1 || track.sale_price_cents > 99999999) return response({ error: "This song has an invalid sale price." }, 409);
     if (track.sale_currency !== "usd") return response({ error: "This track's currency is not supported yet." }, 409);
+    if (!track.stripe_account_id) track.stripe_account_id = await ensureApprovedSandboxArtist(env, track.artist_id);
     if (!track.stripe_account_id) {
       return response({ error: "This artist is still finishing Stripe payout setup." }, 409);
     }

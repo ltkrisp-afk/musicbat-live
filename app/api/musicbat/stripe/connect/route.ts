@@ -1,6 +1,6 @@
 import { env } from "cloudflare:workers";
 import { getChatGPTUser } from "../../../../chatgpt-auth";
-import { connectReady, musicBatOrigin, stableKey, StripeAccount, StripeConfigurationError, stripeGet, stripePost, stripeMode, stripeSandboxPost } from "../stripe";
+import { connectReady, musicBatOrigin, stableKey, StripeAccount, StripeConfigurationError, stripeGet, stripePost, stripeMode, stripeSandboxPost, ensureApprovedSandboxArtist } from "../stripe";
 
 type AccountRow = {
   stripe_account_id: string;
@@ -24,8 +24,11 @@ async function requireArtist() {
 
 async function rowFor(artistId: string) {
   if (!env.DB) throw new Error("MusicBat storage is unavailable.");
-  return env.DB.prepare("SELECT stripe_account_id, charges_enabled, payouts_enabled, details_submitted FROM artist_accounts WHERE artist_id = ?")
-    .bind(artistId).first<AccountRow>();
+  const query = () => env.DB!.prepare("SELECT stripe_account_id, charges_enabled, payouts_enabled, details_submitted FROM artist_accounts WHERE artist_id = ?").bind(artistId).first<AccountRow>();
+  const existing = await query();
+  if (existing) return existing;
+  if (await ensureApprovedSandboxArtist(env,artistId)) return query();
+  return null;
 }
 
 async function refresh(artistId: string, row: AccountRow) {

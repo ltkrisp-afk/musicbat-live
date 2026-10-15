@@ -1,4 +1,6 @@
-# MusicBat public payment release — prepared, NOT deployed
+# MusicBat public payment release plan
+
+Update: founder authorization received and the approved foundation deployed. See hosted-rollout-2026-10-15.md for actual completed actions, the guarded runtime linkage follow-up, and credential blocker. Earlier preparation statements below are historical planning context.
 
 ## Decision
 The Linux Stripe sandbox purchase has passed. The public site's payment connection has not. This candidate uses the exact published source as its baseline, not the newer development Radio implementation. It is ready for review and an approved hosted SANDBOX payment rollout; live payment launch remains blocked.

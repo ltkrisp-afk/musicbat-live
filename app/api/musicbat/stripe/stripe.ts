@@ -172,3 +172,27 @@ export async function stableKey(value: string) {
   const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(value));
   return hex(digest).slice(0, 48);
 }
+
+// Founder-authorized October 15 sandbox crosswalk. No account creation or arbitrary reassignment.
+export async function ensureApprovedSandboxArtist(runtime: StripeRuntime & { DB?: D1Database; MUSICBAT_SANDBOX_LINK_APPROVED?: string }, artistId: string): Promise<string | null> {
+  const owner = "yY7U7NYKoZEsc3qxYJzEh8nNB3jXrRUopGya1R7e3cu74CgXcTSFil";
+  const accountId = "acct_1UQrXtLKJHXYfqXB";
+  const audio = "/api/musicbat/audio/048ea870-7924-40a2-9e18-c945a3a9b4b3.mp3";
+  if (runtime.MUSICBAT_SANDBOX_LINK_APPROVED !== "1" || artistId !== owner) return null;
+  if (stripeMode(runtime) !== "test" || !isStripeSandboxKey(runtime.STRIPE_SECRET_KEY?.trim())) throw new StripeConfigurationError("Approved artist linkage requires sandbox credentials.");
+  if (!runtime.DB) throw new StripeConfigurationError("Artist storage is unavailable.");
+  const original = await runtime.DB.prepare("SELECT artist_id, audio_url FROM tracks WHERE id=5").first<{artist_id:string;audio_url:string}>();
+  if (!original || original.artist_id !== owner || original.audio_url !== audio) throw new StripeConfigurationError("Original artist recording does not match the approved sandbox linkage.");
+  const associations = await runtime.DB.prepare("SELECT artist_id, stripe_account_id FROM artist_accounts WHERE artist_id=? OR stripe_account_id=?").bind(owner,accountId).all<{artist_id:string;stripe_account_id:string}>();
+  if (associations.results.some(row => row.artist_id !== owner || row.stripe_account_id !== accountId)) throw new StripeConfigurationError("Existing artist association conflicts with the approved sandbox linkage.");
+  const platform = await stripeGet<{id:string}>(runtime,"/v1/account");
+  if (platform.id !== "acct_1UHA0OLKJHBmA7Jw") throw new StripeConfigurationError("Sandbox platform does not match the approved linkage.");
+  const account = await stripeGet<StripeAccount & {metadata?:Record<string,string>}>(runtime,`/v1/accounts/${accountId}`);
+  if (account.id !== accountId || !connectReady(account) || !["local_seedy",owner].includes(account.metadata?.musicbat_artist_id ?? "")) throw new StripeConfigurationError("Existing sandbox account could not be verified for the approved artist.");
+  await runtime.DB.prepare(`INSERT INTO artist_accounts (artist_id,stripe_account_id,charges_enabled,payouts_enabled,details_submitted)
+    SELECT ?,?,0,0,0 WHERE EXISTS (SELECT 1 FROM tracks WHERE id=5 AND artist_id=? AND audio_url=?)
+    AND NOT EXISTS (SELECT 1 FROM artist_accounts WHERE artist_id=? AND stripe_account_id=?)`).bind(owner,accountId,owner,audio,owner,accountId).run();
+  const saved = await runtime.DB.prepare("SELECT stripe_account_id FROM artist_accounts WHERE artist_id=?").bind(owner).first<{stripe_account_id:string}>();
+  if (saved?.stripe_account_id !== accountId) throw new StripeConfigurationError("Approved sandbox artist association was not saved.");
+  return accountId;
+}
