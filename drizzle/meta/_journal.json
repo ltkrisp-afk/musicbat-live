@@ -99,6 +99,13 @@
       "when": 1792160000000,
       "tag": "0013_checkout_withdrawal",
       "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "6",
+      "when": 1792170000000,
+      "tag": "0014_checkout_recovery",
+      "breakpoints": true
     }
   ]
 }

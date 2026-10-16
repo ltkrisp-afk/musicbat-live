@@ -18,7 +18,8 @@
     "radio:start": "node --import ./scripts/register-typescript.mjs scripts/radio-start.mjs",
     "radio:import": "node --import ./scripts/register-typescript.mjs scripts/radio-import.mjs",
     "typecheck": "tsc --noEmit",
-    "dev:acceptance": "node --import ./scripts/register-typescript.mjs scripts/local-acceptance-start.mjs"
+    "dev:acceptance": "node --import ./scripts/register-typescript.mjs scripts/local-acceptance-start.mjs",
+    "checkout:recover": "node --import ./scripts/register-typescript.mjs scripts/checkout-recovery-worker.mjs"
   },
   "dependencies": {
     "@base-ui/react": "^1.7.0",

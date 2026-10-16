@@ -1,53 +1,14 @@
 import assert from 'node:assert/strict';
 import {test} from 'node:test';
-import {createHmac} from 'node:crypto';
 import {DatabaseSync} from 'node:sqlite';
 import {mkdtemp,rm} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {readMigrationFiles} from 'drizzle-orm/migrator';
-import {fixture,upload,post,load,d1} from './website-fixture.mjs';
+import {post,d1} from './website-fixture.mjs';
 import {expireWithdrawnCheckouts} from '../app/api/musicbat/stripe/stripe.ts';
 
-async function setup(databasePath) {
-  const f=await fixture(databasePath);
-  await upload(f.route);
-  await f.route.POST(post({action:'set_sale_settings',trackId:1,saleEnabled:true,saleRightsAttested:true,salePriceCents:200}));
-  f.sqlite.exec("INSERT INTO artist_accounts(artist_id,stripe_account_id,charges_enabled,payouts_enabled,details_submitted) VALUES ('owner','acct_test_owner',1,1,1)");
-  const sessions=new Map(), calls=[];
-  const original=globalThis.fetch;
-  globalThis.fetch=async(url,init={})=>{
-    const path=new URL(url).pathname;calls.push({path,init});
-    if(path.startsWith('/v1/accounts/'))return Response.json({id:'acct_test_owner',charges_enabled:true,payouts_enabled:true,details_submitted:true});
-    if(path==='/v1/checkout/sessions'&&init.method==='POST'){
-      const id='cs_test_'+sessions.size;
-      const session={id,status:'open',payment_status:'unpaid',livemode:false,url:'https://checkout.stripe.com/'+id,amount_total:237,currency:'usd',metadata:{musicbat_purchase_id:init.body.get('metadata[musicbat_purchase_id]'),musicbat_processing_cents:'37'},payment_intent:{id:'pi_'+id,application_fee_amount:67,transfer_data:{destination:'acct_test_owner'}}};
-      sessions.set(id,session);return Response.json(session);
-    }
-    const id=path.split('/')[4],session=sessions.get(id);
-    if(session&&path.endsWith('/expire')){
-      if(session.status!=='open')return Response.json({error:{message:'not open'}},{status:400});
-      session.status='expired';session.url=null;
-    }
-    if(session)return Response.json(session);
-    throw new Error('Unexpected request '+path);
-  };
-  const purchase=await load('app/api/musicbat/purchase/route.ts',f.state);
-  const webhook=await load('app/api/musicbat/stripe/webhook/route.ts',f.state);
-  const download=await load('app/api/musicbat/purchase/[purchaseId]/download/route.ts',f.state);
-  const cookie='musicbat_buyer='+'ab'.repeat(32);
-  const buy=()=>purchase.POST(new Request('https://musicbat.audio/api/musicbat/purchase',{method:'POST',headers:{'content-type':'application/json',cookie},body:JSON.stringify({trackId:1,confirmedTotalCents:237})}));
-  const withdraw=(action='set_sale_settings')=>f.route.POST(post({action,trackId:1,saleEnabled:false}));
-  const send=async({id='evt_paid',type='checkout.session.completed',created,paid=true,sessionId=[...sessions.keys()][0]}={})=>{
-    const raw=JSON.stringify({id,type,created,livemode:false,data:{object:{id:sessionId,livemode:false,payment_status:paid?'paid':'unpaid'}}});
-    const t=Math.floor(Date.now()/1000),sig=createHmac('sha256',f.state.env.STRIPE_WEBHOOK_SECRET).update(t+'.'+raw).digest('hex');
-    return webhook.POST(new Request('https://musicbat.audio/api/musicbat/stripe/webhook',{method:'POST',headers:{'stripe-signature':`t=${t},v1=${sig}`},body:raw}));
-  };
-  return {...f,sessions,calls,buy,withdraw,send,cookie,download,close(){globalThis.fetch=original;if(f.sqlite.isOpen)f.sqlite.close()}};
-}
-const order=f=>f.sqlite.prepare('SELECT * FROM purchases').get();
-const paid=f=>{const s=[...f.sessions.values()][0];s.status='complete';s.payment_status='paid';return s};
-const access=f=>f.download.GET(new Request('https://musicbat.audio/api/musicbat/purchase/'+order(f).id+'/download',{headers:{cookie:f.cookie}}));
+import {setup,order,paid,access} from './checkout-recovery-fixture.mjs';
 
 for(const action of ['set_sale_settings','withdraw_track','delete_track'])test(action+' expires open sandbox sessions and prevents new Checkout',async()=>{
   const f=await setup();try{
@@ -86,10 +47,11 @@ test('Stripe outage persists retry work across a real SQLite reopen; retry expir
   try{
     await f.buy();const processor=globalThis.fetch;globalThis.fetch=async()=>{throw new Error('offline')};
     assert.equal((await f.withdraw()).status,200);assert.equal(order(f).cleanup_state,'retry');
-    assert.equal(order(f).cleanup_error,'processor_verification_or_expiration_failed');
+    assert.equal(order(f).cleanup_error,'processor_temporarily_unavailable');
     f.sqlite.close();
     reopened=new DatabaseSync(file);f.state.env.DB=d1(reopened);globalThis.fetch=processor;
     assert.ok(reopened.prepare('SELECT sale_withdrawn_at FROM purchases').get().sale_withdrawn_at);
+    reopened.prepare('UPDATE checkout_recovery_jobs SET next_attempt_at=0').run();
     await expireWithdrawnCheckouts(f.state.env,1);
     assert.equal(reopened.prepare('SELECT cleanup_state FROM purchases').get().cleanup_state,'expired');
     assert.equal(reopened.prepare('SELECT cleanup_attempts FROM purchases').get().cleanup_attempts,2);
@@ -227,7 +189,7 @@ test('rights revocation writes a durable cleanup cutoff without changing purchas
 
 test('upgrade preserves paid history and marks older withdrawn unresolved orders with an unknown cutoff',()=>{
   const db=new DatabaseSync(':memory:');try{
-    const migrations=readMigrationFiles({migrationsFolder:'drizzle'});
+    const migrations=readMigrationFiles({migrationsFolder:'drizzle'}).slice(0,14);
     for(const m of migrations.slice(0,-1))for(const sql of m.sql)db.exec(sql);
     db.exec("INSERT INTO tracks(id,artist_id,artist_name,title,audio_url,status) VALUES(1,'owner','Artist','Song','original.wav','withdrawn')");
     for(const [id,status] of [['historical','paid'],['unresolved','pending']])db.prepare('INSERT INTO purchases(id,buyer_hash,track_id,title,artist_name,audio_path,status,amount_cents,artist_share_cents,platform_fee_cents) VALUES(?,?,1,?,?,?, ?,200,170,30)').run(id,'buyer','Song','Artist','original.wav',status);

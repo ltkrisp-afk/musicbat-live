@@ -163,3 +163,25 @@ export const artistTrackAudit = sqliteTable('artist_track_audit', {
   id:text('id').primaryKey(), trackId:integer('track_id').notNull(), accountId:text('account_id').notNull(),
   action:text('action').notNull(), detail:text('detail').notNull(), createdAt:integer('created_at').notNull(),
 });
+
+export const checkoutRecoveryJobs = sqliteTable("checkout_recovery_jobs", {
+  purchaseId: text("purchase_id").primaryKey().references(() => purchases.id),
+  state: text("state").notNull().default("pending"),
+  attempts: integer("attempts").notNull().default(0),
+  nextAttemptAt: integer("next_attempt_at").notNull().default(0),
+  leaseToken: text("lease_token"),
+  leaseUntil: integer("lease_until").notNull().default(0),
+  updatedAt: integer("updated_at").notNull().default(0),
+  lastError: text("last_error"),
+  scanCursor: text("scan_cursor"),
+  observedSessionStatus: text("observed_session_status"),
+  observedPaymentStatus: text("observed_payment_status"),
+}, (table) => [index("idx_checkout_recovery_due").on(table.state, table.nextAttemptAt, table.leaseUntil)]);
+
+export const checkoutPaymentEvidence = sqliteTable("checkout_payment_evidence", {
+  eventId: text("event_id").primaryKey(),
+  purchaseId: text("purchase_id").notNull().references(() => purchases.id),
+  sessionId: text("session_id").notNull(),
+  stripeCreated: integer("stripe_created"),
+  paidSnapshot: integer("paid_snapshot").notNull().default(0),
+}, (table) => [index("idx_checkout_evidence_purchase").on(table.purchaseId, table.sessionId, table.stripeCreated)]);

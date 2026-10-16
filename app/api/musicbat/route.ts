@@ -207,6 +207,15 @@ export async function GET(request: Request) {
     const url = new URL(request.url);
     const view = url.searchParams.get("view") ?? "tracks";
 
+    if (view === 'checkout-cleanup') {
+      const user=await requireUser();
+      const rows=await db.prepare(`SELECT p.track_id,j.state,count(*) AS operations,min(j.next_attempt_at) AS next_attempt_at,max(j.attempts) AS attempts
+        FROM checkout_recovery_jobs j JOIN purchases p ON p.id=j.purchase_id JOIN tracks t ON t.id=p.track_id
+        WHERE t.artist_id=? OR EXISTS(SELECT 1 FROM track_authority a WHERE a.track_id=t.id AND a.account_id=? AND a.revoked_at IS NULL)
+        GROUP BY p.track_id,j.state ORDER BY p.track_id,j.state LIMIT 200`).bind(user.userId,user.userId).all();
+      return Response.json({operations:rows.results},{headers:{'cache-control':'private, no-store'}});
+    }
+
     if (view === 'catalog-export') {
       const user=await requireUser();
       const after=Number(url.searchParams.get('after') ?? 0);

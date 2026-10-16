@@ -74,6 +74,8 @@ export async function POST(request: Request) {
         ? event.created! : 0;
       await env.DB.batch([
         env.DB.prepare("INSERT OR IGNORE INTO stripe_events (event_id, event_type) VALUES (?, ?)").bind(event.id, event.type),
+        env.DB.prepare(`INSERT OR IGNORE INTO checkout_payment_evidence(event_id,purchase_id,session_id,stripe_created,paid_snapshot) VALUES(?,?,?,?,?)`)
+          .bind(event.id,purchase.id,session.id,paidEventSecond || null,event.data.object.payment_status==='paid'?1:0),
         // Evaluate against the durable cutoff inside the write: withdrawal may
         // commit after the SELECT above. Stripe event seconds describe event
         // creation, never use delivery time or Session/Intent creation as payment time.
