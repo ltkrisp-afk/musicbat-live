@@ -32,6 +32,12 @@ test('follow controls reflect persisted state, serialize UI actions and target t
  assert.equal(buttons[0].props['aria-pressed'],true);buttons[1].props.onClick();assert.equal(target,'b');
  const busy=elements(ArtistDiscovery({...props,followBusy:true})).filter(e=>e.type==='button'&&/follow artist/i.test(e.props.children));assert.ok(busy.every(e=>e.props.disabled));
 });
+test('an owner sees artist controls instead of following their own band; visitors retain Follow',()=>{
+ const owned=artists.map(a=>({...a,is_owner:a.artist_id==='a'?1:0}));
+ const own=html({artists:owned,artistSlug:'stable-a'});
+ assert.match(own,/Your artist controls/);assert.match(own,/Your artist page/);assert.match(own,/href="\/\?view=artist"/);assert.doesNotMatch(own,/>Follow artist<|>Unfollow artist<|The patron follows the music/);
+ const visitor=html({artists:owned,artistSlug:'stable-b'});assert.match(visitor,/>Follow artist</);assert.doesNotMatch(visitor,/Your artist controls/);
+});
 test('patron shell excludes artist navigation and direct artist-only tab content',()=>{
  for(const initialTab of ['radio','rotunda','shock']){const rendered=renderToStaticMarkup(createElement(MusicBatLoop,{displayName:'Patron',initialTab}));assert.doesNotMatch(rendered,/Manage Songs|Save identity|Remove Song|Listening is exposure\. Choice is signal/);}
 });

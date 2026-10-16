@@ -62,11 +62,14 @@ test('Connect requires identity and same origin; client body cannot replace acco
   const code=ts.transpileModule(source,{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.ESNext}}).outputText;
   const route=await import('data:text/javascript;base64,'+Buffer.from(code).toString('base64'));
   const calls=[];globalThis.fetch=async(url,init)=>{
+   assert.equal(init.headers.authorization,'Bearer rk_test_connect_fixture');
    calls.push({url:String(url),body:init.body});
-   return Response.json(String(url).endsWith('/account_links')?{url:'https://connect.stripe.com/test'}:{id:'acct_owner',charges_enabled:false,payouts_enabled:false,details_submitted:false});
+   if(String(url).endsWith('/v1/account'))return Response.json({country:'US'});
+   return Response.json(String(url).endsWith('/account_links')?{url:'https://accounts.stripe.com/test',account:'acct_owner',livemode:false}:{id:'acct_owner',livemode:false,charges_enabled:false,payouts_enabled:false,details_submitted:false});
   };
   f.state.user=null;assert.equal((await route.POST(post({}))).status,401);assert.equal(calls.length,0);
   f.state.user={userId:'owner',email:'owner@example.test'};
+  f.state.env.STRIPE_SECRET_KEY='rk_test_connect_fixture';
   assert.equal((await route.POST(post({}))).status,403);assert.equal(calls.length,0);
   await f.route.POST(post({action:'set_artist_identity',artistName:'Owner artist'}));
   const secret=f.state.env.STRIPE_SECRET_KEY;delete f.state.env.STRIPE_SECRET_KEY;
@@ -75,8 +78,8 @@ test('Connect requires identity and same origin; client body cannot replace acco
   const missingOrigin=post({});missingOrigin.headers.delete('origin');assert.equal((await route.POST(missingOrigin)).status,403);assert.equal(calls.length,0);
   const foreign=post({});foreign.headers.set('origin','https://evil.test');assert.equal((await route.POST(foreign)).status,403);assert.equal(calls.length,0);
   assert.equal((await route.POST(post({artistId:'victim',stripe_account_id:'acct_attacker'}))).status,200);
-  assert.equal(calls[0].body.get('metadata[musicbat_artist_id]'),'owner');
-  assert.equal(calls.at(-1).body.get('account'),'acct_owner');
+  assert.equal(JSON.parse(calls.find(c=>c.url.endsWith('/v2/core/accounts')).body).metadata.musicbat_artist_id,'owner');
+  assert.equal(JSON.parse(calls.at(-1).body).account,'acct_owner');
   assert.equal(f.sqlite.prepare('SELECT artist_id,stripe_account_id FROM artist_accounts').get().artist_id,'owner');
  }finally{globalThis.fetch=originalFetch;delete globalThis[key];f.sqlite.close();}
 });

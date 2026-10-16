@@ -1,0 +1,22 @@
+--- a/app/api/musicbat/purchase/route.ts
++++ b/app/api/musicbat/purchase/route.ts
+@@ -30,7 +30,7 @@
+ }
+ 
+ function split(amount: number) {
+-  const artistShare = Math.round(amount * 0.9);
++  const artistShare = Math.floor((amount * 85 + 50) / 100);
+   return { artistShare, platformFee: amount - artistShare };
+ }
+ 
+--- a/app/api/musicbat/stripe/stripe.ts
++++ b/app/api/musicbat/stripe/stripe.ts
+@@ -40,7 +40,7 @@
+ function secret(runtime: StripeRuntime) {
+   const value = runtime.STRIPE_SECRET_KEY?.trim();
+   if (!value) throw new StripeConfigurationError("Stripe test checkout is not configured yet.");
+-  if (!value.startsWith("sk_test_")) throw new StripeConfigurationError("MusicBat is locked to Stripe test mode.");
++  if (!/^(?:sk|rk)_test_[A-Za-z0-9_]+$/.test(value)) throw new StripeConfigurationError("MusicBat is locked to Stripe test mode.");
+   return value;
+ }
+ 

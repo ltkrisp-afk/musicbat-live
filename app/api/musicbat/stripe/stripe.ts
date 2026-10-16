@@ -79,10 +79,15 @@ export function stripeModeMatches(runtime: StripeRuntime, livemode: unknown) {
   return typeof livemode === "boolean" && livemode === (stripeMode(runtime) === "live");
 }
 
+// Restricted credentials are enabled for sandbox only; live acceptance is unchanged.
+export function isStripeSandboxKey(value: string | undefined) {
+  return Boolean(value && /^(?:sk|rk)_test_[A-Za-z0-9_]+$/.test(value));
+}
+
 function secret(runtime: StripeRuntime) {
   const value = runtime.STRIPE_SECRET_KEY?.trim();
   const mode = stripeMode(runtime);
-  if (!value || !value.startsWith(`sk_${mode}_`)) throw new StripeConfigurationError("Stripe credential does not match the configured mode.");
+  if (!value || !(mode === "test" ? isStripeSandboxKey(value) : value.startsWith("sk_live_"))) throw new StripeConfigurationError("Stripe credential does not match the configured mode.");
   return value;
 }
 
@@ -97,12 +102,13 @@ export function musicBatOrigin(runtime: StripeRuntime, request: Request) {
   return url.origin;
 }
 
-async function stripeRequest<T>(runtime: StripeRuntime, method: "GET" | "POST", path: string, params?: URLSearchParams, idempotencyKey?: string): Promise<T> {
+async function stripeRequest<T>(runtime: StripeRuntime, method: "GET" | "POST", path: string, params?: URLSearchParams | string, idempotencyKey?: string, apiVersion?: string): Promise<T> {
   const response = await fetch(`https://api.stripe.com${path}`, {
     method,
     headers: {
       authorization: `Bearer ${secret(runtime)}`,
-      ...(params ? { "content-type": "application/x-www-form-urlencoded" } : {}),
+      ...(params ? { "content-type": typeof params === "string" ? "application/json" : "application/x-www-form-urlencoded" } : {}),
+      ...(apiVersion ? { "Stripe-Version": apiVersion } : {}),
       ...(idempotencyKey ? { "idempotency-key": idempotencyKey } : {}),
     },
     body: params,
@@ -117,6 +123,12 @@ async function stripeRequest<T>(runtime: StripeRuntime, method: "GET" | "POST", 
 
 export function stripePost<T>(runtime: StripeRuntime, path: string, fields: Record<string, string>, idempotencyKey?: string) {
   return stripeRequest<T>(runtime, "POST", path, new URLSearchParams(fields), idempotencyKey);
+}
+
+export function stripeSandboxPost<T>(runtime: StripeRuntime, path: "/v2/core/accounts" | "/v2/core/account_links", fields: Record<string, unknown>, idempotencyKey?: string) {
+  if (stripeMode(runtime) !== "test") throw new StripeConfigurationError("Accounts v2 onboarding is sandbox only.");
+  if (path !== "/v2/core/accounts" && path !== "/v2/core/account_links") throw new StripeConfigurationError("Unsupported sandbox onboarding endpoint.");
+  return stripeRequest<T>(runtime, "POST", path, JSON.stringify(fields), idempotencyKey, "2026-09-30.endive");
 }
 
 export function stripeGet<T>(runtime: StripeRuntime, path: string, fields?: Record<string, string>) {

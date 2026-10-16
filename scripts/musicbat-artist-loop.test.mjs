@@ -23,7 +23,7 @@ test('authenticated unified identity owns upload, persists hierarchy, rejects st
  f.state.user={userId:'owner'};assert.equal((await f.route.POST(post({action:'edit_metadata',trackId:1,title:'Correction',primaryGenre:'Rock',subgenre:'Post-Punk',style:'Art Punk',energyLane:'medium'}))).status,200);assert.equal(f.sqlite.prepare('SELECT style FROM tracks').get().style,'Art Punk');
  assert.equal((await f.route.POST(post({action:'edit_metadata',trackId:1,title:'x',primaryGenre:'Rock',style:'unparented',energyLane:'medium'}))).status,400);
  assert.equal((await f.route.POST(post({action:'withdraw_track',trackId:1}))).status,200);assert.equal((await (await mine(f.route)).json()).tracks[0].status,'withdrawn');
- assert.equal((await f.route.POST(post({action:'delete_track',trackId:1}))).status,200);assert.equal((await (await mine(f.route)).json()).tracks[0].status,'deleted');assert.equal(f.objects.size,1);assert.equal(f.sqlite.prepare('SELECT count(*) n FROM artist_track_audit').get().n,4);
+ assert.equal((await f.route.POST(post({action:'delete_track',trackId:1}))).status,200);assert.equal((await (await mine(f.route)).json()).tracks[0].status,'deleted');assert.equal(f.objects.size,0);assert.equal(f.sqlite.prepare('SELECT count(*) n FROM artist_track_audit').get().n,4);
  f.state.user=null;assert.equal((await mine(f.route)).status,401);
 }finally{f.sqlite.close()}});
 test('owner appointments authorize representatives; revocation and foreign origins block changes',async()=>{const f=await fixture();try{
@@ -155,5 +155,56 @@ test('patron follows persist independently; stable artist URLs and genuine owner
   assert.equal((await (await mine(f.route)).json()).tracks.length,2);assert.equal(f.sqlite.prepare('SELECT COUNT(*) n FROM listens').get().n,4);assert.equal(f.sqlite.prepare('SELECT COUNT(*) n FROM artist_follows').get().n,1);
   f.state.user={userId:'patron'};assert.equal((await f.route.POST(post({action:'follow_artist',artistId:'owner',enabled:false}))).status,200);assert.equal(f.sqlite.prepare('SELECT COUNT(*) n FROM artist_follows').get().n,0);
   f.state.user=null;assert.equal((await f.route.POST(post({action:'follow_artist',artistId:'owner',enabled:true}))).status,401);
+ }finally{f.sqlite.close()}
+});
+
+test('living metadata persists independently of permissions and account authority',async()=>{
+ const f=await fixture();try{
+  const r=await upload(f.route,{metadata:JSON.stringify({album:'First record',isrc:'US-ABC-26-00001',iswc:'T-123.456.789-0',songwriters:['Writer'],recordingRightsHolders:['Band'],compositionRightsHolders:['Writer']})});
+  assert.equal(r.status,201);let row=f.sqlite.prepare('SELECT * FROM tracks').get();const id=row.id;
+  assert.equal(JSON.parse(row.recording_metadata).isrc,'USABC2600001');assert.equal(JSON.parse(row.recording_metadata).iswc,'T1234567890');
+  const tech=JSON.parse(row.technical_metadata);assert.equal(tech.format,'wav');assert.equal(tech.durationMs,30000);assert.ok(tech.sampleRate>0);
+  assert.equal(row.compilation_allowed,0);assert.equal(row.licensing_allowed,0);assert.equal(f.sqlite.prepare('SELECT count(*) n FROM playback_permissions').get().n,0);
+  f.state.user={userId:'stranger'};assert.equal((await f.route.POST(post({action:'set_recording_metadata',trackId:id,metadata:{album:'Forged'}}))).status,403);
+  f.state.user={userId:'owner'};
+  assert.equal((await f.route.POST(post({action:'set_recording_metadata',trackId:id,metadata:{album:'Corrected',songwriters:['Two']}}))).status,200);
+  row=f.sqlite.prepare('SELECT * FROM tracks').get();assert.equal(row.id,id);assert.equal(JSON.parse(row.recording_metadata).album,'Corrected');assert.equal(JSON.parse(row.technical_metadata).durationMs,30000);
+  assert.equal((await f.route.POST(post({action:'set_recording_metadata',trackId:id,metadata:{isrc:'not-valid'}}))).status,400);
+  for(const permission of ['compilation','licensing'])assert.equal((await f.route.POST(post({action:'set_catalog_permission',trackId:id,permission,enabled:true}))).status,200);
+  assert.equal(f.sqlite.prepare('SELECT compilation_allowed FROM tracks').get().compilation_allowed,1);
+  assert.equal((await f.route.POST(post({action:'withdraw_track',trackId:id}))).status,200);
+  row=f.sqlite.prepare('SELECT * FROM tracks').get();assert.equal(row.compilation_allowed,0);assert.equal(row.licensing_allowed,0);assert.equal(row.radio_enabled,0);assert.equal(row.sale_enabled,0);
+  assert.equal((await f.route.POST(post({action:'set_catalog_permission',trackId:id,permission:'licensing',enabled:true}))).status,403);
+ }finally{f.sqlite.close()}
+});
+
+test('metadata bounds reject malformed declarations without registering audio',async()=>{const f=await fixture();try{
+ for(const metadata of ['[]','null',JSON.stringify({songwriters:['x'.repeat(201)]}),JSON.stringify({album:'a'.repeat(201)}),JSON.stringify({iswc:'wrong'})])assert.equal((await upload(f.route,{metadata})).status,400);
+ assert.equal(f.sqlite.prepare('SELECT count(*) n FROM tracks').get().n,0);assert.equal(f.objects.size,0);
+}finally{f.sqlite.close()}});
+
+test('embedded ID3 and FLAC metadata are bounded suggestions; explicit album wins',async()=>{
+ const f=await fixture();try{
+  async function send(bytes,name,metadata={}) {const form=new FormData();for(const [k,v]of Object.entries({title:'Explicit title',artistName:'Artist',rightsAttested:'true',primaryGenre:'Rock',energyLane:'medium',metadata:JSON.stringify(metadata)}))form.set(k,v);form.set('audio',new File([bytes],name));return f.route.POST(new Request('https://musicbat.audio/api/musicbat',{method:'POST',body:form}));}
+  const value=Buffer.from('\u0003Embedded album'),frame=Buffer.alloc(10+value.length);frame.write('TALB');frame.writeUInt32BE(value.length,4);value.copy(frame,10);const header=Buffer.from([73,68,51,3,0,0,0,0,0,frame.length]);
+  assert.equal((await send(Buffer.concat([header,frame]),'tagged.mp3',{album:'Musician correction'})).status,201);
+  let row=f.sqlite.prepare('SELECT * FROM tracks WHERE id=1').get();assert.equal(JSON.parse(row.recording_metadata).album,'Musician correction');assert.equal(JSON.parse(row.technical_metadata).embedded.album,'Embedded album');assert.equal(row.title,'Explicit title');assert.equal(JSON.parse(row.technical_metadata).durationMs,undefined);
+  const info=Buffer.alloc(34);const rate=44100,samples=88200;info.writeUInt32BE((rate*4096)+(1<<9)+(15<<4),10);info.writeUInt32BE(samples,14);
+  const entry=Buffer.from('ALBUM=FLAC record'),comments=Buffer.alloc(12+entry.length);comments.writeUInt32LE(0,0);comments.writeUInt32LE(1,4);comments.writeUInt32LE(entry.length,8);entry.copy(comments,12);
+  const flac=Buffer.concat([Buffer.from('fLaC'),Buffer.from([0,0,0,34]),info,Buffer.from([132,0,0,comments.length]),comments]);
+  assert.equal((await send(flac,'tagged.flac')).status,201);row=f.sqlite.prepare('SELECT * FROM tracks WHERE id=2').get();assert.equal(JSON.parse(row.recording_metadata).album,'FLAC record');assert.equal(JSON.parse(row.technical_metadata).durationMs,2000);
+  const exported=await (await f.route.GET(new Request('https://musicbat.audio/api/musicbat?view=catalog-export'))).json();assert.equal(exported.schema,'musicbat.catalog.v1');assert.equal(exported.tracks.length,2);assert.equal(exported.tracks[0].recording_metadata.album,'Musician correction');assert.equal(exported.tracks[0].audio_url,undefined);
+  f.state.user={userId:'stranger'};assert.equal((await (await f.route.GET(new Request('https://musicbat.audio/api/musicbat?view=catalog-export'))).json()).tracks.length,0);
+ }finally{f.sqlite.close()}
+});
+
+test('deletion removes unneeded content, is retryable, and retains pending buyer assets',async()=>{
+ const f=await fixture();try{
+  await upload(f.route);let row=f.sqlite.prepare('SELECT * FROM tracks').get();
+  f.sqlite.prepare("INSERT INTO purchases(id,buyer_hash,track_id,title,artist_name,audio_path,status) VALUES ('pending-buyer','buyer',?,'Captured title','Artist',?,'pending')").run(row.id,row.audio_url);
+  assert.equal((await f.route.POST(post({action:'delete_track',trackId:row.id}))).status,200);assert.equal(f.objects.size,1);
+  assert.equal((await f.route.POST(post({action:'set_radio',trackId:row.id,enabled:true}))).status,409);
+  f.sqlite.prepare("UPDATE purchases SET status='cancelled' WHERE id='pending-buyer'").run();
+  const retried=await f.route.POST(post({action:'delete_track',trackId:row.id}));assert.equal(retried.status,200);assert.equal((await retried.json()).contentRemoval,'removed');assert.equal(f.objects.size,0);assert.equal(f.sqlite.prepare('SELECT title FROM purchases').get().title,'Captured title');
  }finally{f.sqlite.close()}
 });

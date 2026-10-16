@@ -37,7 +37,7 @@ async function load(path, state) {
   return import(`data:text/javascript;base64,${Buffer.from(outputText + "\n//" + Math.random()).toString("base64")}`);
 }
 
-async function fixture(mode = "test") {
+async function fixture(mode = "test", keyType = "sk") {
   const sqlite = new DatabaseSync(":memory:");
   for (const filename of (await readdir(new URL("../drizzle", import.meta.url))).filter((name) => name.endsWith(".sql")).sort()) {
     sqlite.exec(await readFile(new URL(`../drizzle/${filename}`, import.meta.url), "utf8"));
@@ -56,7 +56,7 @@ async function fixture(mode = "test") {
         async get(key) { return key === `tracks/${asset}` ? { body: bytes, size: bytes.length, httpMetadata: { contentType: "audio/wav" } } : null; },
       },
       MUSICBAT_STRIPE_MODE: mode,
-      STRIPE_SECRET_KEY: `sk_${mode}_musicbat_fixture`,
+      STRIPE_SECRET_KEY: `${keyType}_${mode}_musicbat_fixture`,
       STRIPE_WEBHOOK_SECRET: "whsec_musicbat_test",
       MUSICBAT_BASE_URL: "https://musicbat.audio",
       MUSICBAT_PROCESSING_BPS: "290",
@@ -104,8 +104,8 @@ async function sign(raw, secret, timestamp = Math.floor(Date.now() / 1000)) {
   return `t=${timestamp},v1=${signature}`;
 }
 
-test("Checkout is test-mode destination charge with exact 85/15 ledger split and itemized buyer fee", async () => {
-  const { sqlite, state, purchase } = await fixture();
+test("restricted sandbox Checkout preserves exact 85/15 ledger split and itemized buyer fee", async () => {
+  const { sqlite, state, purchase } = await fixture("test", "rk");
   const response = await purchase.POST(post(1, null, { amountCents: 1, paid: true, destination: "acct_wrong" }));
   assert.equal(response.status, 201);
   const cookie = response.headers.get("set-cookie").split(";")[0];
@@ -120,9 +120,11 @@ test("Checkout is test-mode destination charge with exact 85/15 ledger split and
   assert.equal(row.status, "pending");
   const create = state.requests.find((entry) => entry.url.endsWith("/v1/checkout/sessions") && entry.init.method === "POST");
   const form = create.init.body;
+  assert.equal(create.init.headers.authorization, "Bearer rk_test_musicbat_fixture");
   assert.equal(form.get("payment_intent_data[application_fee_amount]"), "211");
   assert.equal(form.get("payment_intent_data[transfer_data][destination]"), "acct_test_artist");
   assert.equal(form.get("payment_method_types[0]"), "card");
+  assert.equal(form.get("managed_payments[enabled]"), "false");
   assert.equal(form.get("mode"), "payment");
   assert.equal(form.get("line_items[1][price_data][unit_amount]"), "61");
   assert.equal(form.get("line_items[0][price_data][unit_amount]"), "1000");
@@ -144,8 +146,8 @@ test("declined, cancelled, pending and unsigned payment states never unlock the 
   sqlite.close();
 });
 
-test("valid signed webhook alone confirms payment and unlocks captured download", async () => {
-  const { sqlite, state, purchase, download } = await fixture();
+test("restricted sandbox signed webhook alone confirms payment and unlocks captured download", async () => {
+  const { sqlite, state, purchase, download } = await fixture("test", "rk");
   const checkout = await purchase.POST(post());
   const cookie = checkout.headers.get("set-cookie").split(";")[0];
   const { purchase: draft } = await checkout.json();
@@ -393,4 +395,23 @@ test("oversized unauthenticated purchase webhook stops reading and makes no proc
   const saved=console.error;console.error=()=>{};
   try {assert.equal((await webhook.POST(request)).status,413);assert.equal(cancelled,true);assert.ok(reads<=6);assert.equal(state.requests.length,0);assert.equal(sqlite.prepare('SELECT count(*) n FROM stripe_events').get().n,0);}
   finally {console.error=saved;sqlite.close();}
+});
+
+test('sandbox Connect Checkout opts out of account-default Managed Payments; live request remains unchanged',async()=>{
+ for(const mode of ['test','live']){
+  const {sqlite,state,purchase}=await fixture(mode);
+  const processor=globalThis.fetch;
+  globalThis.fetch=async(url,init={})=>{
+   if(String(url).endsWith('/v1/checkout/sessions')&&init.method==='POST'&&mode==='test'&&init.body.get('managed_payments[enabled]')!=='false')return Response.json({error:{message:'Managed Payments does not support Connect'}},{status:400});
+   return processor(url,init);
+  };
+  try{
+   assert.equal((await purchase.POST(post())).status,201);
+   const form=state.requests.find(r=>r.init.method==='POST'&&r.url.endsWith('/v1/checkout/sessions')).init.body;
+   assert.equal(form.get('managed_payments[enabled]'),mode==='test'?'false':null);
+   assert.equal(form.get('payment_intent_data[transfer_data][destination]'),'acct_test_artist');
+   assert.equal(form.get('payment_intent_data[application_fee_amount]'),'211');
+   assert.equal(sqlite.prepare('SELECT artist_share_cents FROM purchases').get().artist_share_cents,850);
+  }finally{sqlite.close()}
+ }
 });

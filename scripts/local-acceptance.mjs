@@ -42,16 +42,18 @@ export async function createAcceptance({payoutsReady=true}={}) {
   async function processor(url, init={}) {
     const u=new URL(String(url));
     if(u.origin!=='https://api.stripe.com') throw new Error('Offline adapter blocks outbound requests');
-    if(u.pathname==='/v1/accounts' && init.method==='POST') {
+    if(u.pathname==='/v1/account')return Response.json({country:'US'});
+    if(['/v1/accounts','/v2/core/accounts'].includes(u.pathname) && init.method==='POST') {
       const key=init.headers['idempotency-key'];let id=accountKeys.get(key);
       if(!id){id='acct_'+randomBytes(12).toString('hex');accountKeys.set(key,id);accounts.set(id,{id,charges_enabled:false,payouts_enabled:false,details_submitted:false});}
-      return Response.json(accounts.get(id));
+      return Response.json({...accounts.get(id),livemode:false});
     }
     if(u.pathname.startsWith('/v1/accounts/')) {const account=accounts.get(u.pathname.split('/').at(-1));return account?Response.json(account):new Response(null,{status:404});}
-    if(u.pathname==='/v1/account_links' && init.method==='POST') {
-      const p=new URLSearchParams(init.body),account=p.get('account');if(!accounts.has(account))throw new Error('Unknown fixture account');
+    if(['/v1/account_links','/v2/core/account_links'].includes(u.pathname) && init.method==='POST') {
+      const v2=u.pathname.startsWith('/v2/'),body=v2?JSON.parse(init.body):null;
+      const p=v2?new URLSearchParams(body.use_case.account_onboarding):new URLSearchParams(init.body),account=v2?body.account:p.get('account');if(!accounts.has(account))throw new Error('Unknown fixture account');
       const id=randomBytes(16).toString('hex');connectLinks.set(id,{account,owner:context.getStore()?.session,returnUrl:p.get('return_url'),refreshUrl:p.get('refresh_url'),used:false});
-      return Response.json({url:'https://connect.stripe.com/__musicbat_fixture/'+id});
+      return Response.json({url:'https://connect.stripe.com/__musicbat_fixture/'+id,account,livemode:false});
     }
     if(u.pathname==='/v1/checkout/sessions' && init.method==='POST') {
       const p=new URLSearchParams(init.body),id='cs_test_'+randomBytes(12).toString('hex');
