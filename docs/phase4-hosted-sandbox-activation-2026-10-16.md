@@ -64,11 +64,11 @@ table is empty; a project-specific authenticated artist must be deliberately
 associated with that existing account. Metadata local_seedy is not a hosted
 identity and must not be treated as one.
 
-Render lists one workspace, Kris's workspace, tea-da1njsjl550s739b50m0.
-A request-scoped service listing returned null, which is inconclusive.
-get_selected_workspace reports no workspace selected and explicitly requires
-the user to choose a workspace before further inspection. No service absence,
-available free persistent host, disk, scheduler or hosting cost is inferred.
+Render's legacy free PostgreSQL instance musicbat-postgres was separately
+verified suspended after its October 7 free-plan expiration. This database is
+not identified as a dependency of the existing Stage 4 Site. It must not be
+reactivated, upgraded or treated as a required hosting prerequisite. The
+approved target for application data and objects is Cloudflare D1 and R2.
 
 ## Minimum activation changes, for review before execution
 
@@ -83,13 +83,20 @@ pricing. Keep the sandbox release pause until all readiness checks below pass.
    Verify its platform and required Checkout, expire, event, payment/refund and
    Connect reads. The connected Stripe app cannot substitute for an application
    runtime API key. Do not rotate keys or copy the masked production key.
-3. Radio: inspect the user-selected existing hosting workspace first. Reuse a
-   suitable persistent Node service and durable disk if available. Run the
-   existing radio:start implementation with its reviewed catalog/audio, SQLite
-   database, asset directory and gateway token. It listens on loopback, so an
-   approved HTTPS reverse proxy or reviewed bind-address adaptation is required
-   on a managed web service. Wire authenticated HTTPS transport to the Site.
-   Any new paid service/disk needs an exact price and explicit approval first.
+3. Radio: Cloudflare-first architecture is mandatory. The existing
+   radio:start implementation currently uses a persistent Node HTTP listener,
+   local SQLite database and filesystem asset directory; it is NOT a deployed
+   Cloudflare Worker and must not be presented as D1/R2-native. Audit its
+   persistence, stream/range behavior, authorization and rights/rotation logic.
+   Adapt the radio catalog/state to bound D1 and authorized audio bytes to R2,
+   and expose streaming through the existing authenticated Cloudflare-compatible
+   application gateway, preserving range responses, revocation and listener
+   controls. Use Workers-compatible request handlers and durable state patterns
+   rather than Node listeners, local disk or SQLite as hosted dependencies.
+   Verify actual hosted D1/R2 operations before declaring the migration done.
+   No Render, PostgreSQL, new persistent Node host, or paid service is part of
+   the approved target architecture. If a hard platform limitation is found,
+   document the specific failing test and ask before proposing any alternative.
 4. Webhook: retain owner-only Site access. Prepare a narrowly exposed HTTPS
    relay that forwards only the Stripe webhook route, unchanged raw bytes and
    Stripe-Signature, through supported Sites service authorization. No visitor
@@ -112,8 +119,8 @@ pricing. Keep the sandbox release pause until all readiness checks below pass.
    every hosted publication a production deployment; this isolated target must
    be explicitly identified in any requested deployment approval.
 
-No new host, relay URL or schedule is invented here. Missing secure credentials
-and workspace selection prevent a deployable complete topology from being verified.
+No new host, relay URL or schedule is invented here. Missing secure credentials, hosted Radio D1/R2 adaptation and webhook/recovery
+integration prevent a complete topology from being verified.
 Approval alone does not supply those dependencies.
 
 ## Acceptance run and required evidence
@@ -147,3 +154,17 @@ because the target is paused and the prerequisites above are absent. There was
 no new charge, browser run, upload, mutation, migration, deployment, key rotation,
 account creation, scheduler creation or production change. No application defect
 was established and no speculative application repair was made.
+
+## Architecture correction — October 16, 2026
+
+User direction: MusicBat is Cloudflare-first. This supersedes the earlier Render
+hosting exploration in this historical inventory. Do not move application
+data to Render PostgreSQL or provision a persistent Render sidecar. Preserve
+the existing Site's D1 DB and R2 BUCKET bindings and the verified e60c051
+Radio fixes. The local Node/SQLite Radio harness remains useful for regression
+testing, but its hosted implementation must be adapted to D1/R2 and a
+Cloudflare-compatible request lifecycle, with no claim of successful migration
+until actual hosted tests pass. Production changes and paid services still
+require explicit approval. The user reported a later Site publication; its
+deployed revision and acceptance results were not accessible in this GitHub
+inspection and must not be assumed from this document.
