@@ -1,0 +1,15 @@
+{
+  "verified": true,
+  "downloaded_from_github_branch": "musicbat-original-history-2026-10-16",
+  "bundle_sha256": "e3020426db476051863124ff9d5748d843382d65d8973e67d117a90c602386a0",
+  "restored_checkout": "Independent disposable checkout; original working repository retained unchanged.",
+  "original_commits": {
+    "origin/phase1-checkout-withdrawal-2026-10-16": "5773f2c0b9e7ee31a29f2f73ea7c64d0bee3594d",
+    "origin/phase2-durable-checkout-recovery-2026-10-16": "0683cdfe6869468076fbcdff6602ef2b41b13435",
+    "HEAD": "b671d84e5783820352819fde24e05ac6bd38e92c"
+  },
+  "ancestry_commit_count": 48,
+  "git_fsck": "passed",
+  "restored_worktree": "clean",
+  "production_changes": false
+}

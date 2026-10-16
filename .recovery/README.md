@@ -27,3 +27,5 @@ Compare all results to the exact original identifiers above. Recovery must use a
 This is original-history preservation as a Git bundle stored in GitHub. It is distinct from importing the original commits into GitHub's native branch object graph. The source-only checkpoint's different commit identity is not substituted for the original commits in this bundle.
 
 No production, deployment, Stripe, schema or pricing changes.
+
+Independent recovery verified: downloaded this branch's bundle from GitHub, checked its SHA-256, restored all three exact original branch heads in an empty checkout, verified 48 ancestry commits and passed git fsck --full --no-dangling. The restored worktree was clean. See restore-verification.json.
