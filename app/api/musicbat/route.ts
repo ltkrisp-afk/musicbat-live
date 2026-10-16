@@ -1,4 +1,5 @@
 import { env } from "cloudflare:workers";
+import { expireWithdrawnCheckouts } from "./stripe/stripe";
 import { getChatGPTUser } from "../../chatgpt-auth";
 
 type ActionBody = {
@@ -434,12 +435,14 @@ export async function POST(request: Request) {
       statements.push(db.prepare('INSERT INTO artist_track_audit SELECT ?,id,?,?,?,? FROM tracks t WHERE t.id=? AND (t.artist_id=? OR EXISTS(SELECT 1 FROM track_authority a WHERE a.track_id=t.id AND a.account_id=? AND a.revoked_at IS NULL))').bind(crypto.randomUUID(),user.userId,body.action,JSON.stringify(body),now,id,user.userId,user.userId));
       const results=await db.batch(statements);
       if (results[0].meta.changes===0) return fail('Track authority changed. Refresh your catalog.',403);
+      const checkoutCleanup = ['withdraw_track','delete_track'].includes(body.action ?? '')
+        ? await expireWithdrawnCheckouts({ ...env, DB: db }, id) : undefined;
       const radioSynchronized = await syncArtistRadio(id);
       let contentRemoval: string | undefined;
       if (body.action==='delete_track') {
         // Consent is already revoked. A concurrent purchase must have captured
         // its snapshot before this commit; keep pending payments as well as paid.
-        const retained=await db.prepare("SELECT t.audio_url FROM tracks t WHERE t.id=? AND t.status='deleted' AND NOT EXISTS(SELECT 1 FROM purchases p WHERE p.audio_path=t.audio_url AND p.status IN ('paid','pending','awaiting_checkout')) AND NOT EXISTS(SELECT 1 FROM tracks other WHERE other.audio_url=t.audio_url AND other.id!=t.id AND other.status!='deleted')").bind(id).first<{audio_url:string}>();
+        const retained=await db.prepare("SELECT t.audio_url FROM tracks t WHERE t.id=? AND t.status='deleted' AND NOT EXISTS(SELECT 1 FROM purchases p WHERE p.audio_path=t.audio_url AND (p.status IN ('paid','pending','awaiting_checkout','payment_review') OR p.sale_withdrawn_at IS NOT NULL AND p.cleanup_state!='expired' AND p.status!='refunded')) AND NOT EXISTS(SELECT 1 FROM tracks other WHERE other.audio_url=t.audio_url AND other.id!=t.id AND other.status!='deleted')").bind(id).first<{audio_url:string}>();
         const asset=retained && /^\/api\/musicbat\/audio\/([0-9a-f-]{36}\.(?:mp3|wav|flac))$/.exec(retained.audio_url)?.[1];
         contentRemoval='retained for purchase obligations';
         if(asset) {
@@ -447,7 +450,7 @@ export async function POST(request: Request) {
           catch {contentRemoval='retry required';}
         }
       }
-      return Response.json({saved:true,recordsPreserved:true,radioSynchronized,contentRemoval});
+      return Response.json({saved:true,recordsPreserved:true,radioSynchronized,contentRemoval,checkoutCleanup});
     }
 
     if (body.action === "add_track") {
@@ -555,7 +558,8 @@ export async function POST(request: Request) {
         await db.prepare('INSERT INTO artist_track_audit VALUES (?,?,?,?,?,?)').bind(crypto.randomUUID(),trackId,user.userId,body.action,JSON.stringify(body),Date.now()).run();
         await syncArtistRadio(trackId);
       }
-      return Response.json({ track });
+      const checkoutCleanup = !enabled ? await expireWithdrawnCheckouts({ ...env, DB: db }, trackId) : undefined;
+      return Response.json({ track, checkoutCleanup });
     }
 
     if (body.action === "start_listen") {

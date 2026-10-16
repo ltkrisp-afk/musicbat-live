@@ -28,6 +28,7 @@ async function handlers(sqlite) {
     } }, BUCKET: { put() { assert.fail('Toggle must not write an audio asset'); }, delete() { assert.fail('Toggle must not remove audio'); } } },
   };
   const source = readFileSync('app/api/musicbat/route.ts', 'utf8')
+    .replace(/import \{[^;]+\} from \"[^\"]*stripe\";/s, readFileSync('app/api/musicbat/stripe/stripe.ts', 'utf8'))
     .replace('import { env } from "cloudflare:workers";', 'const env = globalThis.musicbatRotationState.env;')
     .replace('import { getChatGPTUser } from "../../chatgpt-auth";', 'const getChatGPTUser = async () => globalThis.musicbatRotationState.user;');
   return import(`data:text/javascript;base64,${Buffer.from(transpile(source) + '\n//' + Math.random()).toString('base64')}`);

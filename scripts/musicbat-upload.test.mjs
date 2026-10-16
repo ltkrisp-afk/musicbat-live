@@ -7,7 +7,9 @@ import ts from 'typescript';
 async function loadRoute(path, state) {
   globalThis.musicbatTestState = state;
   const policy = await readFile(new URL('../lib/playback-authorization.ts', import.meta.url), 'utf8');
+  const stripe = await readFile(new URL('../app/api/musicbat/stripe/stripe.ts', import.meta.url), 'utf8');
   const source = (await readFile(new URL(path, import.meta.url), 'utf8'))
+    .replace(/import \{[^;]+\} from \"[^\"]*stripe\";/s, stripe)
     .replace(/import \{ authorizePlayback, type Permission \} from [^;]+;/, policy)
     .replace('import { env } from "cloudflare:workers";', 'const env = globalThis.musicbatTestState.env;')
     .replace('import { getChatGPTUser } from "../../chatgpt-auth";', 'const getChatGPTUser = async () => globalThis.musicbatTestState.user;');

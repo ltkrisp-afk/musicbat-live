@@ -375,7 +375,7 @@ test("test checkout rejects missing, live and nonboolean returned Session modes 
   const {sqlite,purchase}=await fixture();const mock=globalThis.fetch;
   globalThis.fetch=async(url,init)=>{const result=await mock(url,init);if(String(url).includes('/checkout/sessions')){const obj=await result.json();obj.livemode=mode;return Response.json(obj)}return result};
   const saved=console.error;console.error=()=>{};try{assert.equal((await purchase.POST(post())).status,503)}finally{console.error=saved}
-  assert.equal(sqlite.prepare('SELECT status FROM purchases').get().status,'failed');sqlite.close();
+  assert.equal(sqlite.prepare('SELECT status FROM purchases').get().status,'awaiting_checkout');sqlite.close();
  }
  const {sqlite,state,purchase}=await fixture();const first=await purchase.POST(post());const cookie=first.headers.get('set-cookie').split(';')[0];
  state.env.MUSICBAT_STRIPE_MODE='live';state.env.STRIPE_SECRET_KEY='sk_live_fixture';

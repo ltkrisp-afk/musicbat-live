@@ -29,6 +29,7 @@ export type StripeCheckoutSession = {
 };
 
 export type StripeEvent = {
+  created?: number;
   id: string;
   type: string;
   livemode: boolean;
@@ -171,4 +172,49 @@ export async function verifyStripeWebhook(rawBody: string, signatureHeader: stri
 export async function stableKey(value: string) {
   const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(value));
   return hex(digest).slice(0, 48);
+}
+
+/** One bounded inline attempt. The DB trigger is the durable outbox; Phase 2
+ * supplies unattended retries/reconciliation. Never erase a paid entitlement. */
+export async function expireWithdrawnCheckouts(runtime: StripeRuntime & { DB: D1Database }, trackId: number) {
+  const rows = await runtime.DB.prepare(`SELECT id, processor_session_id FROM purchases
+    WHERE track_id=? AND sale_withdrawn_at IS NOT NULL AND status NOT IN ('paid','refunded')
+    AND cleanup_state IN ('pending','retry','awaiting_session') ORDER BY id LIMIT 50`)
+    .bind(trackId).all<{ id: string; processor_session_id: string | null }>();
+  for (const row of rows.results) {
+    if (!row.processor_session_id) {
+      await runtime.DB.prepare("UPDATE purchases SET cleanup_state='awaiting_session' WHERE id=? AND status NOT IN ('paid','refunded')") .bind(row.id).run();
+      continue;
+    }
+    try {
+      // This Phase 1 operator path is sandbox-only until hosted acceptance.
+      if (!stripeModeMatches(runtime, false)) throw new StripeConfigurationError('Sandbox required for withdrawal expiration.');
+      await runtime.DB.prepare('UPDATE purchases SET cleanup_attempts=cleanup_attempts+1 WHERE id=?').bind(row.id).run();
+      const path = `/v1/checkout/sessions/${encodeURIComponent(row.processor_session_id)}`;
+      let session = await stripeGet<StripeCheckoutSession>(runtime, path);
+      const verify = () => {
+        if (session.id !== row.processor_session_id || !stripeModeMatches(runtime, session.livemode)) throw new StripeConfigurationError('Session identity/mode mismatch.');
+      };
+      verify();
+      if (session.status === 'open' && session.payment_status !== 'paid') {
+        try { session = await stripePost<StripeCheckoutSession>(runtime, path + '/expire', {}, `musicbat-expire-${row.id}`); }
+        catch { session = await stripeGet<StripeCheckoutSession>(runtime, path); }
+        verify();
+      }
+      const state = session.status === 'expired' && session.payment_status !== 'paid' ? 'expired'
+        : session.payment_status === 'paid' ? 'payment_observed'
+        : session.status === 'complete' ? 'awaiting_payment' : 'retry';
+      await runtime.DB.prepare(`UPDATE purchases SET cleanup_state=?, cleanup_error=NULL,
+        status=CASE WHEN ?='expired' AND status!='payment_review' THEN 'cancelled' ELSE status END
+        WHERE id=? AND status NOT IN ('paid','refunded')`)
+        .bind(state, state, row.id).run();
+    } catch {
+      // No raw Stripe error/customer detail/secrets in durable operational state.
+      await runtime.DB.prepare("UPDATE purchases SET cleanup_state='retry', cleanup_error='processor_verification_or_expiration_failed' WHERE id=? AND status NOT IN ('paid','refunded')")
+        .bind(row.id).run();
+    }
+  }
+  const outstanding = await runtime.DB.prepare(`SELECT count(*) AS n FROM purchases WHERE track_id=?
+    AND sale_withdrawn_at IS NOT NULL AND status NOT IN ('paid','refunded') AND cleanup_state!='expired'`).bind(trackId).first<{ n: number }>();
+  return { pending: outstanding?.n ?? 0 };
 }

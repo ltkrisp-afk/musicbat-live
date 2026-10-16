@@ -5,11 +5,11 @@ import {readFileSync,readdirSync} from 'node:fs';
 import {spawnSync} from 'node:child_process';
 import {readMigrationFiles} from 'drizzle-orm/migrator';
 
-test('journal discovers all thirteen SQL files including Radio Plus and living catalog',()=>{
+test('journal discovers all fourteen SQL files including Checkout withdrawal',()=>{
  const journal=JSON.parse(readFileSync('drizzle/meta/_journal.json','utf8'));
  assert.deepEqual(journal.entries.map(e=>e.tag+'.sql'),readdirSync('drizzle').filter(p=>p.endsWith('.sql')).sort());
  const migrations=readMigrationFiles({migrationsFolder:'drizzle'});
- assert.equal(migrations.length,13);
+ assert.equal(migrations.length,14);
  const db=new DatabaseSync(':memory:');
  try{
   for(const migration of migrations)for(const sql of migration.sql)db.exec(sql);

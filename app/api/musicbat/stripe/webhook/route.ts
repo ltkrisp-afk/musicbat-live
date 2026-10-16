@@ -9,6 +9,7 @@ type Purchase = {
   processor_account_id: string;
   processor_session_id: string;
   status: string;
+  sale_withdrawn_at: number | null;
 };
 
 function destination(session: StripeCheckoutSession) {
@@ -52,8 +53,8 @@ export async function POST(request: Request) {
     }
     const session = await stripeGet<StripeCheckoutSession>(env, `/v1/checkout/sessions/${encodeURIComponent(sessionId)}`, { "expand[]": "payment_intent" });
     if (session.id !== sessionId || !stripeModeMatches(env, session.livemode)) return Response.json({ error: "Stripe session mode or identity mismatch." }, { status: 400 });
-    const purchase = await env.DB.prepare(`SELECT id, amount_cents, processing_cents, platform_fee_cents, processor_account_id, processor_session_id, status FROM purchases WHERE processor_session_id = ?`)
-      .bind(session.id).first<Purchase>();
+    const purchase = await env.DB.prepare(`SELECT id, amount_cents, processing_cents, platform_fee_cents, processor_account_id, processor_session_id, status, sale_withdrawn_at FROM purchases WHERE processor_session_id = ? OR (id=? AND processor_session_id IS NULL)`)
+      .bind(session.id, session.metadata?.musicbat_purchase_id ?? "").first<Purchase>();
     if (!purchase) return Response.json({ error: "Purchase not found." }, { status: 404 });
     // Legacy purchases have no processing metadata and retain their original ledger terms.
     const feeText = session.metadata?.musicbat_processing_cents;
@@ -69,17 +70,34 @@ export async function POST(request: Request) {
         console.error("Stripe checkout verification mismatch", event.id, purchase.id);
         return Response.json({ error: "Checkout verification failed." }, { status: 400 });
       }
+      const paidEventSecond = Number.isSafeInteger(event.created) && event.created! > 0 && event.data.object.payment_status === 'paid'
+        ? event.created! : 0;
       await env.DB.batch([
         env.DB.prepare("INSERT OR IGNORE INTO stripe_events (event_id, event_type) VALUES (?, ?)").bind(event.id, event.type),
-        env.DB.prepare(`UPDATE purchases SET status = 'paid', payment_intent_id = ?, paid_at = CURRENT_TIMESTAMP WHERE id = ? AND status NOT IN ('paid', 'refunded')`)
-          .bind(paymentIntentId(session), purchase.id),
+        // Evaluate against the durable cutoff inside the write: withdrawal may
+        // commit after the SELECT above. Stripe event seconds describe event
+        // creation, never use delivery time or Session/Intent creation as payment time.
+        env.DB.prepare(`UPDATE purchases SET
+          payment_intent_id=?, processor_session_id=COALESCE(processor_session_id, ?),
+          status=CASE WHEN
+            (sale_withdrawn_at IS NULL AND EXISTS(SELECT 1 FROM tracks t WHERE t.id=purchases.track_id AND t.status='active' AND t.rights_attested=1 AND t.sale_enabled=1 AND t.sale_rights_attested=1))
+            OR (sale_withdrawn_at>0 AND ? > 0 AND (? + 1)*1000 <= sale_withdrawn_at)
+            THEN 'paid' ELSE 'payment_review' END,
+          paid_at=COALESCE(paid_at, CURRENT_TIMESTAMP),
+          payment_review_reason=CASE WHEN sale_withdrawn_at IS NOT NULL AND NOT (sale_withdrawn_at>0 AND ? > 0 AND (? + 1)*1000 <= sale_withdrawn_at)
+            THEN 'withdrawal_payment_order_requires_review' ELSE NULL END,
+          cleanup_state=CASE WHEN sale_withdrawn_at IS NOT NULL THEN 'payment_review' ELSE cleanup_state END
+          WHERE id=? AND status NOT IN ('paid','refunded')`)
+          .bind(paymentIntentId(session), session.id, paidEventSecond, paidEventSecond, paidEventSecond, paidEventSecond, purchase.id),
+        env.DB.prepare(`UPDATE purchases SET cleanup_state=CASE WHEN status='paid' THEN 'settled_before_withdrawal' ELSE cleanup_state END
+          WHERE id=? AND sale_withdrawn_at IS NOT NULL`).bind(purchase.id),
       ]);
       return Response.json({ received: true });
     }
     if (event.type === "checkout.session.async_payment_failed" || event.type === "checkout.session.expired") {
       await env.DB.batch([
         env.DB.prepare("INSERT OR IGNORE INTO stripe_events (event_id, event_type) VALUES (?, ?)").bind(event.id, event.type),
-        env.DB.prepare("UPDATE purchases SET status = ? WHERE id = ? AND status NOT IN ('paid', 'refunded')").bind(event.type.endsWith("expired") ? "cancelled" : "failed", purchase.id),
+        env.DB.prepare("UPDATE purchases SET status = ? WHERE id = ? AND status NOT IN ('paid', 'refunded', 'payment_review')").bind(event.type.endsWith("expired") ? "cancelled" : "failed", purchase.id),
       ]);
       return Response.json({ received: true });
     }

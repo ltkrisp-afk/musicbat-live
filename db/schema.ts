@@ -96,9 +96,16 @@ export const purchases = sqliteTable("purchases", {
   paymentIntentId: text("payment_intent_id"),
   createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
   paidAt: text("paid_at"),
+  saleWithdrawnAt: integer("sale_withdrawn_at"),
+  checkoutRequestJson: text("checkout_request_json"),
+  cleanupState: text("cleanup_state"),
+  cleanupAttempts: integer("cleanup_attempts").notNull().default(0),
+  cleanupError: text("cleanup_error"),
+  paymentReviewReason: text("payment_review_reason"),
 }, (table) => [
   uniqueIndex("idx_purchases_processor_session").on(table.processorSessionId),
   index("idx_purchases_payment_intent").on(table.paymentIntentId),
+  index("idx_purchases_withdrawal_cleanup").on(table.trackId, table.cleanupState),
 ]);
 
 export const artistAccounts = sqliteTable("artist_accounts", {

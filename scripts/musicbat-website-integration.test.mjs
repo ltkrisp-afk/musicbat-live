@@ -40,7 +40,7 @@ test('fresh patron follows survive requests and never add Shock Room engagement;
   const shock=(await (await get(f,'shock-room')).json()).rows[0];assert.equal(shock.shock_score,0);assert.equal(shock.keep_count,0);assert.equal(shock.up_count,0);
   f.state.user={userId:'owner'};await f.route.POST(post({action:'delete_track',trackId:1}));
   f.state.user={userId:'patron'};const remaining=(await (await get(f,'artists')).json()).artists[0];assert.equal(remaining.slug,original.slug);assert.equal(remaining.track_count,0);assert.equal(remaining.following,1);
-  assert.equal((await (await get(f,'tracks')).json()).tracks.length,0);assert.equal(f.objects.size,1);
+  assert.equal((await (await get(f,'tracks')).json()).tracks.length,0);assert.equal(f.objects.size,0);
  }finally{f.sqlite.close()}
 });
 test('membership-specific qualification rejects Free Radio, records one choice, and updates genuine Shock Room counts',async()=>{
