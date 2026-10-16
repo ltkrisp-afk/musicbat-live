@@ -31,7 +31,8 @@ export function catalogBoundRadio(service: Pick<Fetcher,'fetch'> | undefined, db
     if (audio && !await check(await service.fetch(snapshotRequest))) return new Response(null,{status:403});
     // R2 is the authoritative private audio store when bound. Never fall back
     // to the sidecar filesystem if the R2 key or object is unavailable.
-    if (audio && bucket) {
+    if (audio) {
+      if (!bucket) return new Response(null,{status:503,headers:{'cache-control':'no-store'}});
       const before = await service.fetch(snapshotRequest);
       if (!await check(before)) return new Response(null,{status:403});
       const snap = (await before.json() as {snapshot:{channelId:string;performance:{trackId:string;authorityId:string}|null}}).snapshot;
