@@ -19,7 +19,8 @@
     "radio:import": "node --import ./scripts/register-typescript.mjs scripts/radio-import.mjs",
     "typecheck": "tsc --noEmit",
     "dev:acceptance": "node --import ./scripts/register-typescript.mjs scripts/local-acceptance-start.mjs",
-    "checkout:recover": "node --import ./scripts/register-typescript.mjs scripts/checkout-recovery-worker.mjs"
+    "checkout:recover": "node --import ./scripts/register-typescript.mjs scripts/checkout-recovery-worker.mjs",
+    "test:application:browser": "node scripts/musicbat-application.e2e.mjs"
   },
   "dependencies": {
     "@base-ui/react": "^1.7.0",

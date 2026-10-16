@@ -27,6 +27,13 @@ changed. This source already preserves 85/15 base purchase allocation, optional
 The published filesystem snapshot itself is not claimed to have been updated
 by Git operations.
 
+## Radio browser follow-up
+
+The later diagnosis and development repair are documented in
+[Radio timeout repair](radio-timeout-repair-2026-10-16.md). That report supersedes
+the unresolved-browser limitation below; the original observations remain as
+historical evidence. Hosted sandbox acceptance remains separate and pending.
+
 ## Executed verification
 
 On the exact original Phase 3 source:

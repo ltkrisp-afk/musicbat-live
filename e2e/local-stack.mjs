@@ -20,6 +20,9 @@ export async function localStack({databasePath, assetRoot, clock, port=0, host="
   const controls={offline:false};
   function session(id,territory='US') {const value=randomBytes(24).toString('hex');sessions.set(value,{id,territory});return value}
   const service=privateRadioService(internalOrigin,token,true);
+  // Share the fixture's HTTP listener with Vite's browser transport. Disabling
+  // WebSockets leaves the injected Vite client unable to complete its handshake.
+  const httpServer=createServer();
   const vite=await createViteServer({configFile:false,root:fileURLToPath(new URL('.',import.meta.url)),
     plugins:[react(),{name:'isolated-radio-gateway',configureServer(server){server.middlewares.use(async(req,res,next)=>{
       if(!req.url?.startsWith('/api/musicbat/'))return next();
@@ -37,8 +40,8 @@ export async function localStack({databasePath, assetRoot, clock, port=0, host="
         const response=await forwardRadio(request,service,authority?.id??null);
         await writeHttpResponse(response,res);
       }catch{res.writeHead(503);res.end()}
-    })}}],server:{middlewareMode:true,hmr:false,ws:false,host,port,strictPort:true,allowedHosts:['terminal.local'],fs:{allow:[fileURLToPath(new URL('..',import.meta.url))]}}});
-  const httpServer=createServer(vite.middlewares);
+    })}}],server:{middlewareMode:true,hmr:{server:httpServer},host,port,strictPort:true,allowedHosts:['terminal.local'],fs:{allow:[fileURLToPath(new URL('..',import.meta.url))]}}});
+  httpServer.on('request',vite.middlewares);
   httpServer.listen(port,host);await once(httpServer,'listening');
   const origin=`http://127.0.0.1:${httpServer.address().port}`;
   return {runtime,origin,session,controls,async close(){await vite.close();httpServer.closeAllConnections();await new Promise(r=>httpServer.close(r));privateServer.closeAllConnections();await new Promise(r=>privateServer.close(r));runtime.close()}};

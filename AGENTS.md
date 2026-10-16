@@ -6,7 +6,10 @@ do not create a Git worktree unless the user explicitly requests one. Do not
 restart onboarding or create redundant backups.
 
 Read `docs/cloud-engineering-continuation-2026-10-16.md` for the verified source,
-checks, and remaining Phase 4 prerequisites. Preserve the existing architecture,
+checks, and remaining Phase 4 prerequisites. See
+`docs/radio-timeout-repair-2026-10-16.md` for the resolved development WebSocket
+failure and application browser verification. Run timing-sensitive browser
+checks sequentially after builds/regressions to avoid CPU contention. Preserve the existing architecture,
 artist rights, free Radio, optional $3/month Radio Plus, and 85/15 base purchase
 allocation. Preserve recorded historical financial allocations and downloads.
 

@@ -23,7 +23,16 @@ export async function writeHttpResponse(response: Response, out: ServerResponse)
   try {
     while (!out.destroyed) {
       const { done, value } = await reader.read(); if (done) break;
-      if (!out.write(value)) await new Promise<void>(resolve => { out.once('drain', resolve); out.once('close', resolve); });
+      if (!out.write(value)) await new Promise<void>(resolve => {
+        const ready = () => {
+          out.off('drain', ready);
+          out.off('close', ready);
+          resolve();
+        };
+        out.once('drain', ready);
+        out.once('close', ready);
+        if (out.destroyed) ready();
+      });
     }
   } finally { await reader.cancel(); if (!out.destroyed) out.end(); }
 }
