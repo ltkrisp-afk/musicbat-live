@@ -137,17 +137,40 @@ and cleans up its private generated-audio stack. Do not overlap timing checks
 with CPU-intensive builds. The browser path uses this cloud image's system
 Chromium; it does not disable TLS or package integrity verification.
 
-## Phase 4 continuation
+## Phase 4 continuation and concurrent inventory
 
-Hosted sandbox acceptance is still blocked: the current machine has no
-`STRIPE_SECRET_KEY`, genuine `STRIPE_WEBHOOK_SECRET`, verified
-`MUSICBAT_PROCESSING_BPS`/`MUSICBAT_PROCESSING_FIXED_CENTS` bindings or existing
-`.env.local`. No approved isolated hosted target is available; the recorded
-project is production. Earlier missing reviewed Unity audio/ownership/account
-records were not fabricated or replaced. A hosted deployment, credentials and
-actual signed webhook delivery cannot be substituted by the offline fixture.
+The first push was rejected because the shared development branch advanced to
+`d5287cda93e1446ef528cffaa2395502c21bd582` during this work. That commit adds only
+`docs/phase4-hosted-sandbox-activation-2026-10-16.md`. It was fetched, read and
+merged without altering either original commit or forcing a push. No application
+files changed through that merge, so the passing code checks were not repeated.
 
-The remaining gate is an owner-authorized isolated target with secure test-mode
-bindings, reviewed assets/identity, compatible private Radio/D1/R2 and recovery
-execution. No public deployment, remote migration, production change, live key,
-real charge or Phase 5 load test was performed.
+That concurrent inventory supersedes the earlier absence of a known target:
+an existing **owner-only** isolated Site is identified as
+`appgprj_6ad26204823c81918260d33e13429074`, at
+`https://musicbat-stage4-sandbox-2026-10-16.ltkrisp.chatgpt.site`.
+It reports a paused test-mode environment and empty application/recovery catalog
+records, but no API key, genuine webhook signing secret, private Radio origin/token
+or unattended recovery. The inventory also records no registered Stripe webhook
+endpoint and requires reviewed association of the existing Connect account with
+an actual sandbox artist identity. These are that document's read-only observations,
+not fresh hosted inspection from this cloud machine.
+
+A non-mutating request from this machine to the isolated Site failed at the
+network proxy: `CONNECT tunnel failed, response 403`, endpoint HTTP code `000`.
+This is a network-access blocker, not proof that the Site is down or that its
+application returned 403. No hosting/Stripe/Render connector is available in
+this tool context to perform the recorded activation steps.
+
+The current machine still has no `STRIPE_SECRET_KEY`, genuine
+`STRIPE_WEBHOOK_SECRET`, verified `MUSICBAT_PROCESSING_BPS`/
+`MUSICBAT_PROCESSING_FIXED_CENTS` bindings or existing `.env.local`.
+Earlier missing reviewed Unity audio/ownership/account records were not
+fabricated or replaced. The existing isolated Site should be reused after
+explicit activation authorization; no duplicate target is needed.
+
+The remaining gate is supported access to that owner-only target, secure
+sandbox bindings, genuine webhook relay/delivery, reviewed assets/identity,
+compatible private Radio and unattended D1 recovery. The parallel inventory
+lists the specific activation decisions. No public deployment, remote migration,
+production change, live key, real charge or Phase 5 load test was performed.

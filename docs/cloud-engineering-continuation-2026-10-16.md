@@ -86,7 +86,16 @@ workflow is not proof that GitHub Actions has executed successfully.
 Eventual iPhone App Store distribution remains a product goal, not a verified
 capability of this web source or authorization to replace its architecture.
 
-## Phase 4 prerequisites observed now
+## Later hosted inventory
+
+The concurrently committed
+[hosted sandbox inventory](phase4-hosted-sandbox-activation-2026-10-16.md)
+identifies an existing owner-only isolated Site. It supersedes the earlier
+unknown-target observation below. Activation remains blocked by secure bindings,
+private Radio/webhook/recovery prerequisites and this cloud machine's proxy
+access denial. See the Radio repair report for the current probe and merge evidence.
+
+## Phase 4 prerequisites observed at initial continuation
 
 No approved sandbox URL is known. `.openai/hosting.json` declares only the
 existing project and `DB`/`BUCKET` bindings. Committed hosting observations
