@@ -34,7 +34,7 @@ These resource labels follow Stripe's published permission reference. This is th
 | Charges and Refunds | Read | GET /v1/charges/{id} verifies refund evidence; no refund creation calls |
 | Subscriptions | Write (includes Read) | GET /v1/subscriptions/{id}; POST /v1/subscriptions/{id} with cancel_at_period_end=true |
 | Invoices | Read | GET /v1/invoices/{id} verifies paid membership periods |
-| Events | None | Incoming events verified locally; no Events API calls |
+| Events | Read | Durable recovery now calls GET /v1/events for missed paid-event evidence; incoming webhooks still require local signature verification |
 | Webhook Endpoints, Event Destinations | None | No API registration or endpoint management |
 | Transfers, Payouts, Application Fees, Login Links | None for direct API calls | No direct calls; destination and fee are set within Checkout |
 

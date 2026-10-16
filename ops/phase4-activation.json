@@ -1,0 +1,133 @@
+{
+  "version": 1,
+  "source": {
+    "repository": "ltkrisp-afk/musicbat-live",
+    "branch": "engineering/phase4-acceptance-2026-10-16",
+    "verifiedBaseline": "e60c051d31d57a487d58e9b980cb48e0c902306f",
+    "requiredAncestor": "d5287cda93e1446ef528cffaa2395502c21bd582",
+    "history": {
+      "phase3": "b671d84e5783820352819fde24e05ac6bd38e92c",
+      "workflow": "1433110dfe236fc54cb21da21dac2ccfa286917a",
+      "parallelInventory": "d5287cda93e1446ef528cffaa2395502c21bd582",
+      "radioRepair": "202e5d4196af56913d632435f558a4fab330ae98",
+      "merge": "221dcc3d447b8814a89e05842305a12c095ed505",
+      "mergeParents": [
+        "202e5d4196af56913d632435f558a4fab330ae98",
+        "d5287cda93e1446ef528cffaa2395502c21bd582"
+      ]
+    }
+  },
+  "target": {
+    "siteProject": "appgprj_6ad26204823c81918260d33e13429074",
+    "siteOrigin": "https://musicbat-stage4-sandbox-2026-10-16.ltkrisp.chatgpt.site",
+    "access": "owner-only",
+    "renderWorkspace": "tea-da1njsjl550s739b50m0",
+    "renderServiceId": null,
+    "persistentDiskId": null,
+    "observations": "Existing committed inventory; not a fresh live inspection. Null service/disk fields mean unknown, never absent."
+  },
+  "authorization": {
+    "renderWorkspaceRead": true,
+    "resumeService": false,
+    "changeComputeOrDisk": false,
+    "publishOrDeploy": false,
+    "exposeWebhookRelay": false,
+    "registerStripeEndpoint": false,
+    "changeSandboxBindings": false,
+    "unpauseSandbox": false,
+    "productionChanges": false,
+    "livePayments": false
+  },
+  "siteRequiredBindings": [
+    "DB",
+    "BUCKET",
+    "MUSICBAT_BASE_URL",
+    "MUSICBAT_STRIPE_MODE",
+    "MUSICBAT_RELEASE_PAUSED",
+    "MUSICBAT_PROCESSING_BPS",
+    "MUSICBAT_PROCESSING_FIXED_CENTS",
+    "STRIPE_SECRET_KEY",
+    "STRIPE_WEBHOOK_SECRET",
+    "RADIO_RUNTIME_ORIGIN",
+    "RADIO_RUNTIME_TOKEN"
+  ],
+  "radioRequiredBindings": [
+    "MUSICBAT_RADIO_DATABASE",
+    "MUSICBAT_RADIO_ASSETS",
+    "MUSICBAT_RADIO_GATEWAY_TOKEN",
+    "MUSICBAT_RADIO_PORT"
+  ],
+  "stripe": {
+    "mode": "test",
+    "platformId": "acct_1UHA0OLKJHBmA7Jw",
+    "existingArtistAccountId": "acct_1UQrXtLKJHXYfqXB",
+    "verifyAccountOwnershipAndReadiness": true,
+    "createReplacementAccount": false,
+    "webhookEvents": [
+      "checkout.session.completed",
+      "checkout.session.async_payment_succeeded",
+      "checkout.session.async_payment_failed",
+      "checkout.session.expired",
+      "charge.refunded"
+    ],
+    "basePriceCents": 200,
+    "artistShareCents": 170,
+    "platformBaseShareCents": 30,
+    "retainedTestProcessingBps": 290,
+    "retainedTestProcessingFixedCents": 30,
+    "expectedScenarioProcessingCents": 37,
+    "expectedScenarioTotalCents": 237,
+    "expectedScenarioApplicationFeeCents": 67,
+    "processingRateVerifiedAgainstAccount": false
+  },
+  "persistentRecovery": {
+    "database": "existing isolated Site DB, not a local SQLite mirror",
+    "entrypoint": "runCheckoutRecovery",
+    "proposedBatchLimit": 10,
+    "maximumBatchLimit": 50,
+    "leaseMilliseconds": 120000,
+    "maximumAttempts": 10,
+    "executionMechanism": null,
+    "schedule": null,
+    "priceQuote": null
+  },
+  "costApproval": {
+    "existingPlan": null,
+    "existingDiskGiB": null,
+    "incrementalComputeMonthly": null,
+    "incrementalDiskMonthly": null,
+    "relayMonthly": null,
+    "recoveryMonthly": null,
+    "currency": null,
+    "approved": false
+  },
+  "acceptanceStatus": "blocked-not-executed",
+  "blockers": [
+    "Existing Render connector must expose workspace-scoped service/detail/disk/deployment reads to this task or supply its sanitized results; no new API key or workspace authorization requested.",
+    "Identify existing paused service and verify current plan, disk, region, autodeploy and incremental billing.",
+    "Approved sandbox-only TLS ingress and supported owner-only Site service authorization for the narrow webhook relay.",
+    "Existing working Stripe test credentials bound securely; no key rotation or value in chat.",
+    "Genuine Stripe endpoint signing secret and actual delivery.",
+    "Reviewed persistent Radio catalog/assets, actual artist/listener identity and account mapping.",
+    "Protected D1 recovery invocation and approved unattended execution.",
+    "Explicit activation approval for the exact existing target and quoted changes."
+  ],
+  "preparedTestAsset": {
+    "scope": "prepared generated test recording only; not uploaded or licensed by insertion",
+    "filename": "musicbat-stage4-generated.wav",
+    "contentType": "audio/wav",
+    "bytes": 960044,
+    "durationMilliseconds": 30000,
+    "sampleRate": 16000,
+    "sha256": "9642c22b8e33057c744c73d20fbaea785f951b3a3363a98772470c5dcfc78652",
+    "source": "e2e/fixtures.mjs tone(30000, 440)",
+    "hostedTrackId": null,
+    "authenticatedArtistId": null,
+    "reviewedBy": null,
+    "permissionActive": false,
+    "saleConsentRecorded": false,
+    "proposedBasePriceCents": 200,
+    "workspacePath": ".sites-runtime/stage4-prepared/musicbat-stage4-generated.wav",
+    "regenerateCommand": "node --input-type=module -e \"import {tone} from './e2e/fixtures.mjs'; import {mkdirSync,writeFileSync} from 'node:fs'; mkdirSync('.sites-runtime/stage4-prepared',{recursive:true}); writeFileSync('.sites-runtime/stage4-prepared/musicbat-stage4-generated.wav',tone(30000,440));\""
+  }
+}
