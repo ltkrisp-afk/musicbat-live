@@ -25,7 +25,7 @@ plan was supplied were removed; no purchase logic or product architecture was
 changed. This source already preserves 85/15 base purchase allocation, optional
 300-cent monthly Radio Plus, free Radio and reviewed artist permission boundaries.
 The published filesystem snapshot itself is not claimed to have been updated
-by a Git branch switch or by a future push.
+by Git operations.
 
 ## Executed verification
 
@@ -49,7 +49,13 @@ second two-listener check for over a minute. Chromium processes consumed CPU;
 the run also reported `MaxListenersExceededWarning` for ServerResponse close
 listeners. Terminating its browser ended the runner with exit 1. The remaining
 browser checks are **incomplete**, not passed; a cause has not been established.
-This separate browser result does not establish App Store/browser acceptance.
+A bounded diagnostic rerun with the same system Chromium 154 localized another
+failure to Playwright's initial `Play Radio` click: the element was visible,
+enabled and stable, but performing the click exceeded 30 seconds (exit 1).
+The diagnostic copy and log are ignored local files; application/test assertions
+were not weakened. Whether this is browser/runtime compatibility or application
+behavior remains unresolved. This separate browser result does not establish
+App Store/browser acceptance.
 
 Local raw logs remain in ignored `.sites-runtime/phase3-*.log`. CI uses the same
 locked install and four checks in `.github/workflows/verify.yml`. A committed
@@ -104,3 +110,15 @@ Phase 5 has not started.
 GitHub REST access through `gh api` returned Forbidden in this environment;
 HTTPS Git operations are verified separately. No personal access token is
 required merely because the API route is unavailable.
+
+
+## GitHub persistence
+
+Commit `f512014b3c5f2c620602b821d04bdbcfc3e78206` was pushed successfully to
+`engineering/phase4-acceptance-2026-10-16`; a subsequent `git ls-remote` returned
+that exact SHA. This verifies HTTPS Git read and write access. Its parent is
+original Phase 3 `b671d84`; original Phase 2 ancestry was checked as well. The
+push makes original history reachable through this new GitHub branch instead
+of substituting the recovered source checkpoint for its commit identity.
+Subsequent evidence-only commits may advance this branch. GitHub Actions
+execution was not observed because the REST route returned Forbidden.
