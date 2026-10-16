@@ -1,6 +1,6 @@
 import { env } from "cloudflare:workers";
 import { buyerIdentity } from "./buyer";
-import { connectReady, musicBatOrigin, StripeAccount, StripeCheckoutSession, StripeConfigurationError, stripeGet, stripePost, stripeModeMatches } from "../stripe/stripe";
+import { connectReady, musicBatOrigin, StripeAccount, StripeCheckoutSession, StripeConfigurationError, stripeGet, stripePost, stripeModeMatches, expireWithdrawnCheckouts } from "../stripe/stripe";
 
 type TrackForSale = {
   id: number;
@@ -52,7 +52,8 @@ async function existingCheckout(purchase: PurchaseDraft) {
   if (!purchase.processor_session_id) return null;
   const session = await stripeGet<StripeCheckoutSession>(env, `/v1/checkout/sessions/${encodeURIComponent(purchase.processor_session_id)}`);
   if (!stripeModeMatches(env, session.livemode)) throw new StripeConfigurationError("Stored Checkout Session mode does not match the configured mode.");
-  return session.status === "open" && session.url ? session.url : null;
+  if (session.id !== purchase.processor_session_id) throw new StripeConfigurationError("Stored Checkout identity mismatch.");
+  return session;
 }
 
 export async function POST(request: Request) {
@@ -96,12 +97,24 @@ export async function POST(request: Request) {
     }
     let purchase = await env.DB.prepare(`SELECT id, title, artist_name, processor_session_id FROM purchases
       WHERE buyer_hash = ? AND track_id = ? AND audio_path = ? AND amount_cents = ? AND processing_cents = ? AND status IN ('awaiting_checkout', 'pending')
-      AND created_at > datetime('now', '-1 day') ORDER BY created_at DESC LIMIT 1`)
+      AND sale_withdrawn_at IS NULL ORDER BY created_at DESC LIMIT 1`)
       .bind(buyer.hash, trackId, track.audio_url, track.sale_price_cents, surcharge).first<PurchaseDraft>();
     if (purchase) {
-      const checkoutUrl = await existingCheckout(purchase);
-      if (checkoutUrl) return response({ purchase: { ...purchase, trackId }, checkoutAvailable: true, checkoutUrl }, 200, buyer.cookie);
-      await env.DB.prepare("UPDATE purchases SET status = 'cancelled' WHERE id = ? AND status != 'paid'").bind(purchase.id).run();
+      if (!purchase.processor_session_id) return response({ error: "An earlier Checkout request is still being reconciled. Please try again later." }, 503, buyer.cookie);
+      const existingSession = await existingCheckout(purchase);
+      const reusable = await env.DB.prepare(`SELECT p.id FROM purchases p JOIN tracks t ON t.id=p.track_id
+        WHERE p.id=? AND p.sale_withdrawn_at IS NULL AND p.status='pending'
+        AND t.status='active' AND t.rights_attested=1 AND t.sale_enabled=1 AND t.sale_rights_attested=1`)
+        .bind(purchase.id).first();
+      if (!reusable) {
+        await expireWithdrawnCheckouts({ ...env, DB: env.DB }, trackId);
+        return response({ error: "This Checkout is no longer available." }, 409, buyer.cookie);
+      }
+      if (existingSession?.status === 'open' && existingSession.url && existingSession.payment_status !== 'paid')
+        return response({ purchase: { ...purchase, trackId }, checkoutAvailable: true, checkoutUrl: existingSession.url }, 200, buyer.cookie);
+      if (existingSession?.status !== 'expired' || existingSession.payment_status === 'paid')
+        return response({ error: "The earlier payment is awaiting verification." }, 409, buyer.cookie);
+      await env.DB.prepare("UPDATE purchases SET status = 'cancelled' WHERE id = ? AND status NOT IN ('paid','refunded')").bind(purchase.id).run();
       purchase = null;
     }
     const id = crypto.randomUUID();
@@ -109,14 +122,13 @@ export async function POST(request: Request) {
     purchase = await env.DB.prepare(`INSERT INTO purchases
       (id, buyer_hash, track_id, title, artist_name, artist_id, audio_path, status, amount_cents, artist_share_cents, platform_fee_cents, currency, processor_account_id, processing_cents)
       SELECT ?, ?, ?, ?, ?, ?, ?, 'awaiting_checkout', ?, ?, ?, 'usd', ?, ? FROM tracks
-      WHERE id=? AND status='active' AND sale_enabled=1 AND sale_rights_attested=1 AND artist_id=? AND audio_url=? AND sale_price_cents=?
+      WHERE id=? AND status='active' AND sale_enabled=1 AND sale_rights_attested=1 AND rights_attested=1 AND artist_id=? AND audio_url=? AND sale_price_cents=?
       RETURNING id, title, artist_name, processor_session_id`)
       .bind(id, buyer.hash, trackId, track.title, track.artist_name, track.artist_id, track.audio_url, track.sale_price_cents, artistShare, platformFee, track.stripe_account_id, surcharge,trackId,track.artist_id,track.audio_url,track.sale_price_cents).first<PurchaseDraft>();
     if (!purchase) return response({error:"The artist changed this song’s sale permissions or price. Refresh the catalog."},409,buyer.cookie);
     const base = musicBatOrigin(env, request);
     let checkout: StripeCheckoutSession;
-    try {
-      checkout = await stripePost<StripeCheckoutSession>(env, "/v1/checkout/sessions", {
+    const checkoutFields = {
         mode: "payment",
         // Sandbox accounts can default to merchant-of-record Managed Payments,
         // which does not support Connect destination charges or application fees.
@@ -140,17 +152,32 @@ export async function POST(request: Request) {
         "metadata[musicbat_purchase_id]": id,
         "metadata[musicbat_track_id]": String(track.id),
         "metadata[musicbat_processing_cents]": String(surcharge),
-      }, `musicbat-checkout-${id}`);
+      };
+    // Persist exact replay inputs before the external call. An ambiguous network
+    // failure must never discard the order or generate a replacement charge.
+    await env.DB.prepare('UPDATE purchases SET checkout_request_json=? WHERE id=?')
+      .bind(JSON.stringify(checkoutFields), id).run();
+    const allowed = await env.DB.prepare('SELECT id FROM purchases WHERE id=? AND sale_withdrawn_at IS NULL').bind(id).first();
+    if (!allowed) return response({ error: "The artist withdrew this song from sale." }, 409, buyer.cookie);
+    try {
+      checkout = await stripePost<StripeCheckoutSession>(env, "/v1/checkout/sessions", checkoutFields, `musicbat-checkout-${id}`);
     } catch (error) {
-      await env.DB.prepare("UPDATE purchases SET status = 'failed' WHERE id = ?").bind(id).run();
+      await env.DB.prepare("UPDATE purchases SET cleanup_state='retry', cleanup_error='checkout_creation_outcome_unknown' WHERE id=? AND status NOT IN ('paid','refunded')").bind(id).run();
       throw error;
     }
     if (!checkout.id || !checkout.url || !stripeModeMatches(env, checkout.livemode)) {
-      await env.DB.prepare("UPDATE purchases SET status = 'failed' WHERE id = ?").bind(id).run();
+      await env.DB.prepare("UPDATE purchases SET cleanup_state='retry', cleanup_error='invalid_checkout_response' WHERE id = ? AND status NOT IN ('paid','refunded')").bind(id).run();
       throw new Error("Stripe returned an invalid Checkout Session.");
     }
-    await env.DB.prepare("UPDATE purchases SET status = 'pending', processor_session_id = ? WHERE id = ?")
+    await env.DB.prepare("UPDATE purchases SET status = CASE WHEN status='awaiting_checkout' THEN 'pending' ELSE status END, processor_session_id = COALESCE(processor_session_id, ?) WHERE id = ?")
       .bind(checkout.id, id).run();
+    const deliverable = await env.DB.prepare(`SELECT p.id FROM purchases p JOIN tracks t ON t.id=p.track_id
+      WHERE p.id=? AND p.sale_withdrawn_at IS NULL AND p.status='pending'
+      AND t.status='active' AND t.rights_attested=1 AND t.sale_enabled=1 AND t.sale_rights_attested=1`).bind(id).first();
+    if (!deliverable) {
+      await expireWithdrawnCheckouts({ ...env, DB: env.DB }, trackId);
+      return response({ error: "The artist withdrew this song before Checkout was ready." }, 409, buyer.cookie);
+    }
     return response({ purchase: { ...purchase, trackId }, checkoutAvailable: true, checkoutUrl: checkout.url }, 201, buyer.cookie);
   } catch (error) {
     if (error instanceof StripeConfigurationError) return response({ error: error.message }, 503);

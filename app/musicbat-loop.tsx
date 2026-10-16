@@ -434,6 +434,10 @@ export default function MusicBatLoop({ displayName, artistSlug, initialTab }: { 
     setSignInRequired(false);
     try {
       const form = new FormData();
+      const fields=new FormData(event.currentTarget as HTMLFormElement);
+      const metadata:Record<string,unknown>={};
+      for(const key of ['album','isrc','iswc']) {const value=String(fields.get(key) ?? '').trim();if(value)metadata[key]=value;}
+      form.set('metadata',JSON.stringify(metadata));
       form.set("title", title);
       form.set("artistName", artistName);
       form.set("audio", audioFile);
@@ -679,6 +683,7 @@ export default function MusicBatLoop({ displayName, artistSlug, initialTab }: { 
                     <label className="block"><span className="mb-2 block text-sm font-semibold text-white/65">Price in USD</span><Input value={salePrice} onChange={(event) => setSalePrice(event.target.value)} required min="0.50" max="1000" step="0.01" type="number" inputMode="decimal" className="h-11 rounded-xl border-white/12 bg-black/20 px-4 text-white" /></label>
                     <label className="flex cursor-pointer items-start gap-3"><Checkbox checked={saleRightsAttested} onCheckedChange={(value) => setSaleRightsAttested(value === true)} className="mt-0.5 border-white/25 data-[state=checked]:border-[#ff3ea5] data-[state=checked]:bg-[#ff3ea5]" /><span className="text-sm leading-relaxed text-white/62">I authorize MusicBat to sell and deliver this recording to buyers.</span></label>
                   </div>}
+                  <details><summary className="cursor-pointer text-sm">Album and identifiers (optional)</summary><p className="text-xs text-white/60">No identifier is required. Add or correct credits later in Manage Songs.</p>{['album','isrc','iswc'].map(key=><label key={key} className="block text-sm">{key==='album'?'Album':key.toUpperCase()}<input name={key} maxLength={key==='album'?200:30} className="block w-full rounded border border-white/20 bg-black/30 p-2" /></label>)}</details>
                   <Button disabled={busy || !rightsAttested || !audioFile || !uploadGenre || (sellTrack && !saleRightsAttested)} type="submit" className="h-12 w-full rounded-xl bg-[#ff3ea5] text-base font-black text-white hover:bg-[#ff69bd]">{busy ? "Uploading your track…" : "Upload music"}</Button>
                   {uploadError && <p role="alert" className="text-sm text-[#ff9dcc]">{uploadError}{signInRequired && <> <a className="font-bold underline" href="/signin-with-chatgpt?return_to=%2F">Sign in to upload</a></>}</p>}
                 </div>
