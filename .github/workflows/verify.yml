@@ -1,0 +1,22 @@
+name: Verify MusicBat development
+on:
+  push:
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  regression:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24.19.0'
+      - run: npm install --global pnpm@11.25.0
+      - name: Install locked dependencies
+        run: CI=true bash scripts/sites-env.sh -- pnpm install --frozen-lockfile --store-dir .sites-runtime/pnpm-store
+      - run: pnpm test
+      - run: pnpm typecheck
+      - run: pnpm lint
+      - run: bash scripts/sites-env.sh -- pnpm build
