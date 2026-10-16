@@ -54,7 +54,9 @@ export async function readPrivateRadioObject(
   if (!safe) return new Response(null, { status: 403 });
   if (request.method !== 'GET' && request.method !== 'HEAD')
     return new Response(null, { status: 405 });
-  const object = await bucket.get(safe, { range: request.headers });
+  let object: R2ObjectBody | null;
+  try { object = await bucket.get(safe, { range: request.headers }); }
+  catch { return new Response(null, { status: 416, headers: { 'content-range': 'bytes */*', 'cache-control': 'no-store' } }); }
   if (!object) return new Response(null, { status: 404 });
   const size = object.size;
   const range = object.range;
