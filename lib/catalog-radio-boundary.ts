@@ -1,7 +1,8 @@
+import { currentRadioSource, readPrivateRadioObject, privateObjectKey } from './cloudflare-radio-source';
 import { authorizePlayback, type Permission } from './playback-authorization';
 /** The upload catalog remains authoritative for owner consent. A private runtime
  * import cannot bypass a later withdrawal or classification correction. */
-export function catalogBoundRadio(service: Pick<Fetcher,'fetch'> | undefined, db: D1Database): Pick<Fetcher,'fetch'> | undefined {
+export function catalogBoundRadio(service: Pick<Fetcher,'fetch'> | undefined, db: D1Database, bucket?: R2Bucket): Pick<Fetcher,'fetch'> | undefined {
   if (!service) return undefined;
   return { async fetch(input: RequestInfo | URL, init?: RequestInit) {
     const request = new Request(input,init), url = new URL(request.url);
@@ -28,6 +29,32 @@ export function catalogBoundRadio(service: Pick<Fetcher,'fetch'> | undefined, db
       return allowed && (!category || (!!row && category.genre===row.primary_genre && (!category.subgenre || category.subgenre===row.subgenre) && (!category.style || category.style===row.style)));
     }
     if (audio && !await check(await service.fetch(snapshotRequest))) return new Response(null,{status:403});
+    // R2 is the authoritative private audio store when bound. Never fall back
+    // to the sidecar filesystem if the R2 key or object is unavailable.
+    if (audio && bucket) {
+      const before = await service.fetch(snapshotRequest);
+      if (!await check(before)) return new Response(null,{status:403});
+      const snap = (await before.json() as {snapshot:{channelId:string;performance:{trackId:string;authorityId:string}|null}}).snapshot;
+      const id = Number(snap.performance?.trackId);
+      if (!Number.isSafeInteger(id) || id < 1 || !snap.performance ||
+          url.searchParams.get('channel') !== snap.channelId ||
+          url.searchParams.get('sequence') !== snap.performance.authorityId)
+        return new Response(null,{status:409});
+      const source = await currentRadioSource(db,id);
+      const key = source && privateObjectKey(source.audio_url);
+      if (!key || source?.status !== 'active' || source.radio_enabled !== 1)
+        return new Response(null,{status:403});
+      const response = await readPrivateRadioObject(bucket,key,request);
+      if (!response.ok) return response;
+      const after = await service.fetch(snapshotRequest);
+      const fresh = await currentRadioSource(db,id);
+      if (!await check(after) || !fresh || fresh.status !== 'active' ||
+          fresh.radio_enabled !== 1 || fresh.audio_url !== source!.audio_url) {
+        await response.body?.cancel();
+        return new Response(null,{status:409,headers:{'cache-control':'no-store'}});
+      }
+      return response;
+    }
     const response=await service.fetch(request);
     if (!response.ok) return response;
     if (!await check(audio ? await service.fetch(snapshotRequest) : response)) {
