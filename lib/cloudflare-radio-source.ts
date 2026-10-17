@@ -35,6 +35,10 @@ export async function currentRadioSource(db: D1Database, trackId: number): Promi
 
 /** Only opaque private object keys, never external URLs or filesystem paths. */
 export function privateObjectKey(value: string): string | null {
+  // Preserve existing hosted rows while moving delivery behind private R2.
+  // Only the exact legacy MusicBat asset route may be translated.
+  const legacy = /^\/api\/musicbat\/audio\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.(?:mp3|wav|flac))$/i.exec(value);
+  if (legacy) return `tracks/${legacy[1]}`;
   if (!value || value.length > 512 || value.startsWith('/') || value.includes('\\') ||
       value.includes('..') || /[?#\x00-\x1f]/.test(value) ||
       /^([a-z][a-z0-9+.-]*:|\/\/)/i.test(value)) return null;
@@ -68,11 +72,13 @@ export async function readPrivateRadioObject(
     etag: object.httpEtag,
   });
   let status = 200;
-  if (range && 'offset' in range) {
+  if (range && 'offset' in range &&
+      typeof range.offset === 'number' && typeof range.length === 'number') {
     const start = range.offset;
-    const end = start + range.length - 1;
+    const length = range.length;
+    const end = start + length - 1;
     headers.set('content-range', `bytes ${start}-${end}/${size}`);
-    headers.set('content-length', String(range.length));
+    headers.set('content-length', String(length));
     status = 206;
   } else {
     headers.set('content-length', String(size));
