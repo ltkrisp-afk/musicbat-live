@@ -1,10 +1,11 @@
 name: MusicBat browser recovery acceptance
 on:
   push:
-    branches: [engineering/phase4-acceptance-2026-10-16]
+    branches: [engineering/phase4-acceptance-2026-10-16, repair/mobile-player-occlusion-2026-10-17]
     paths:
       - .github/workflows/browser-recovery-acceptance.yml
       - scripts/musicbat-mobile-acceptance.e2e.mjs
+      - components/persistent-radio.tsx
 permissions:
   contents: read
 jobs:

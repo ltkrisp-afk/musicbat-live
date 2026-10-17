@@ -30,6 +30,11 @@ try {
     await page.setViewportSize({ width, height: 1000 });
     await knob.scrollIntoViewIfNeeded();
     assert.equal(await knob.isVisible(), true);
+    assert.equal(await knob.evaluate(button => {
+      const box = button.getBoundingClientRect();
+      const hit = document.elementFromPoint(box.x + box.width / 2, box.y + box.height / 2);
+      return !!hit && button.contains(hit);
+    }), true, 'persistent player obscures the dial at viewport ' + width);
     assert.equal(await page.getByRole('link', { name: 'MusicBat', exact: true }).first().isVisible(), true);
     const box = await console.boundingBox(), dial = await knob.boundingBox();
     assert.ok(box && dial);
