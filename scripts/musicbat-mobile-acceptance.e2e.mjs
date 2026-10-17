@@ -42,6 +42,41 @@ try {
     await page.screenshot({ path: '.sites-runtime/mobile-' + width + '.png', fullPage: true });
     evidence.checks.push({ width, consoleWidth: box.width, dialWidth: dial.width, dialLocked: await knob.isDisabled() });
   }
+  // Exercise the physical dial only after the existing fixture's signed invoice
+  // unlocks Plus. This is a simulated subscription; no Stripe API is called.
+  await console.getByRole('button', { name: 'Join Radio Plus · $3/month', exact: true }).click();
+  const dialog = page.getByRole('dialog', { name: 'Radio Plus', exact: true });
+  await dialog.getByRole('checkbox').check();
+  await dialog.getByRole('button', { name: 'Continue to test checkout', exact: true }).click();
+  await page.waitForURL('**/__local/plus-checkout/**');
+  await page.getByRole('button', { name: 'Simulate successful subscription payment', exact: true }).click();
+  await page.getByRole('tab', { name: 'Radio', exact: true }).click();
+  await page.waitForFunction(() => {
+    const button = document.querySelector('button[aria-label="Push dial to tune category"]');
+    return button && !button.disabled;
+  });
+  await knob.press('ArrowRight');
+  await console.getByText('Rock', { exact: true }).waitFor();
+  for (const category of [
+    { genre: 'Rock' },
+    { genre: 'Rock', subgenre: 'Punk' },
+    { genre: 'Rock', subgenre: 'Punk', style: 'Hardcore' },
+  ]) {
+    const responsePromise = page.waitForResponse(response =>
+      new URL(response.url()).pathname === '/api/musicbat/channel' && response.request().method() === 'POST');
+    await knob.click();
+    const response = await responsePromise;
+    assert.equal(response.status(), 200);
+    assert.deepEqual(response.request().postDataJSON(), { category });
+    assert.deepEqual((await response.json()).snapshot.category, category);
+  }
+  const freeResponse = page.waitForResponse(response =>
+    new URL(response.url()).pathname === '/api/musicbat/channel' && response.request().method() === 'POST');
+  await console.getByRole('button', { name: 'Free Radio · continuous discovery', exact: true }).click();
+  assert.equal((await (await freeResponse).json()).snapshot.category, null);
+  assert.equal(await page.locator('audio').count(), 1);
+  await page.screenshot({ path: '.sites-runtime/mobile-dial-plus.png', fullPage: true });
+  evidence.checks.push({ name: 'signed fixture membership unlocks physical Genre/Subgenre/Style push dial and returns to Free Radio', simulatedSubscription: true });
   assert.deepEqual(evidence.errors, []);
   process.stdout.write(JSON.stringify({ passed: evidence.checks.length, failed: 0, checks: evidence.checks }) + '\n');
 } catch (error) {
