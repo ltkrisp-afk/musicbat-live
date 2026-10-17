@@ -30,22 +30,22 @@ export function RetrofuturaRadio({options,snapshot,onTune}: {
  const fraction=performance?performance.offsetMs/(performance.endsAt-performance.startedAt):0;
  return <section aria-label="Bat Radio Retrofutura console" style={{
   background:'repeating-linear-gradient(2deg,#21150f 0px,#21150f 3px,#35241a 5px,#1a110d 9px)',
-  padding:18,borderRadius:18,boxShadow:'0 12px 40px #0008',color:'#eee',maxWidth:820}}>
-  <div style={{background:'linear-gradient(120deg,#6d6f70,#babcb9 40%,#7b7f80)',padding:24,borderRadius:8,border:'1px solid #d6d7d4'}}>
-   <header style={{display:'flex',justifyContent:'space-between',color:'#181a19',marginBottom:20}}>
-    <span style={{fontSize:22,letterSpacing:4,fontWeight:300}}>MUSICBAT</span>
+  padding:'clamp(8px, 2.5vw, 18px)',width:'100%',boxSizing:'border-box',minWidth:0,borderRadius:18,boxShadow:'0 12px 40px #0008',color:'#eee',maxWidth:820}}>
+  <div style={{background:'linear-gradient(120deg,#6d6f70,#babcb9 40%,#7b7f80)',padding:'clamp(10px, 3vw, 24px)',minWidth:0,boxSizing:'border-box',borderRadius:8,border:'1px solid #d6d7d4'}}>
+   <header style={{display:'flex',justifyContent:'space-between',flexWrap:'wrap',gap:8,color:'#181a19',marginBottom:20}}>
+    <span style={{fontSize:'clamp(15px, 4vw, 22px)',letterSpacing:'clamp(1px, 0.7vw, 4px)',fontWeight:300}}>MUSICBAT</span>
     <span style={{color:'#ff3ea5',background:'#171a19',padding:'5px 12px',letterSpacing:2}}>BAT RADIO</span>
    </header>
-   <div style={{display:'grid',gridTemplateColumns:'repeat(3,minmax(0,1fr))',gap:8}}>
+   <div style={{display:'grid',gridTemplateColumns:'repeat(3,minmax(0,1fr))',gap:'clamp(3px, 1vw, 8px)'}}>
     {(['Genre','Subgenre','Style'] as const).map((label,i)=><div key={label} style={{
-     background:'linear-gradient(#101714,#242b28)',boxShadow:'inset 0 2px 8px #000',border:'3px solid #555b57',padding:12,minHeight:84}}>
-     <div style={{fontSize:10,letterSpacing:2,color:'#959d95'}}>{label.toUpperCase()}</div>
-     <div style={{marginTop:10,color:'#b6ff32',overflowWrap:'anywhere',fontSize:16}}>{
+     background:'linear-gradient(#101714,#242b28)',boxShadow:'inset 0 2px 8px #000',border:'3px solid #555b57',padding:'clamp(3px, 1.5vw, 12px)',minWidth:0,minHeight:84,boxSizing:'border-box'}}>
+     <div style={{fontSize:'clamp(8px, 2vw, 10px)',letterSpacing:'clamp(0px, 0.4vw, 2px)',color:'#959d95'}}>{label.toUpperCase()}</div>
+     <div style={{marginTop:10,color:'#b6ff32',overflowWrap:'anywhere',fontSize:'clamp(11px, 3vw, 16px)'}}>{
       category?.[(['genre','subgenre','style'] as const)[i]] ?? '—'}</div>
     </div>)}
    </div>
-   <div style={{display:'flex',alignItems:'center',justifyContent:'space-around',flexWrap:'wrap',gap:24,marginTop:24}}>
-    <div style={{background:'#111a15',padding:16,borderRadius:4,minWidth:170,border:'3px solid #555b57'}}>
+   <div style={{display:'flex',alignItems:'center',justifyContent:'space-around',flexWrap:'wrap',gap:16,marginTop:24,minWidth:0}}>
+    <div style={{background:'#111a15',padding:12,borderRadius:4,minWidth:0,width:'min(100%, 220px)',boxSizing:'border-box',border:'3px solid #555b57'}}>
      <div style={{color:'#a7b3a4',fontSize:10,letterSpacing:2}}>CHANNEL POSITION</div>
      <progress aria-label="Shared channel position" value={Math.min(1,Math.max(0,fraction))} max={1}
       style={{width:'100%',accentColor:'#b6ff32',marginTop:14}} />
@@ -53,12 +53,12 @@ export function RetrofuturaRadio({options,snapshot,onTune}: {
      <div style={{color:'#a7b3a4',fontSize:11,marginTop:8}}>Turn to hear. Push to explore.</div>
     </div>
     <div style={{textAlign:'center',color:'#17201c'}}>
-     <div style={{display:'flex',alignItems:'center',gap:12}}>
+     <div style={{display:'flex',alignItems:'center',justifyContent:'center',gap:'clamp(4px, 2vw, 12px)'}}>
       <button type="button" aria-label="Turn dial backward" disabled={pending||!choices.length} onClick={()=>turn(-1)}>−</button>
       <button type="button" aria-label="Push dial to tune category" disabled={pending||!selected||selected.dormant||selected.locked}
        onClick={()=>void tune(selected!.category,true)} onWheel={e=>{e.preventDefault();if(!pending)turn(e.deltaY>0?1:-1)}}
        onKeyDown={e=>{if(e.key==='ArrowRight'||e.key==='ArrowUp'){e.preventDefault();turn(1)}if(e.key==='ArrowLeft'||e.key==='ArrowDown'){e.preventDefault();turn(-1)}}}
-       style={{width:112,height:112,borderRadius:'50%',border:'5px solid #4b514f',
+       style={{width:'clamp(88px, 28vw, 112px)',height:'clamp(88px, 28vw, 112px)',flexShrink:0,borderRadius:'50%',border:'5px solid #4b514f',
         background:'conic-gradient(#ddd,#777,#eee,#929695,#ddd)',boxShadow:'0 5px 8px #0006,inset 0 0 0 6px #a2a6a3',cursor:'pointer',color:'#171b19'}}>
        <span style={{display:'block',color:'#ff3ea5',fontSize:27}}>│</span><span style={{fontSize:10,letterSpacing:1}}>PUSH</span>
       </button>
