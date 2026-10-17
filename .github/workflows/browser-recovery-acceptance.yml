@@ -44,7 +44,8 @@ jobs:
         if: always()
         with:
           name: musicbat-browser-recovery-evidence
-          if-no-files-found: ignore
+          if-no-files-found: error
+          include-hidden-files: true
           path: |
             .sites-runtime/application-browser-evidence.json
             .sites-runtime/mobile-browser-evidence.json
