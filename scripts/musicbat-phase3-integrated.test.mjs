@@ -31,7 +31,7 @@ test('Phase 3: reviewed upload → Free Radio bytes → signed purchase/download
     publishCatalogRecording(runtime,track,permission,{artistIds:['phase3-artist'],albumId:'phase3-album',compilationIds:[],durationMs:30000,directRestrictions:null,metadataReviewed:true},{path:'recording.wav',sha256:hash(bytes),size:bytes.length,mediaType:'audio/wav',lawfulCopyReference:'Generated fixture',reviewedBy:'fixture',reviewedAt:now-1,durationEvidence:'PCM byte count',contractReference:'Generated fixture authorization',restrictionsReviewed:true});
     runtime.establishChannel('free',{category:null,mode:'free-radio',territory:'worldwide',minimumArtists:1,review:{reference:'Generated test channel',verifiedAt:now-1,expiresAt:now+86400000},gate:null});runtime.tick();
     f.state.env.RADIO_SERVICE={fetch:request=>{const headers=new Headers(request.headers);headers.set('authorization','Bearer '+token);return runtime.fetch(new Request(request,{headers}))}};
-    const radio=()=>catalogBoundRadio(membershipBoundRadio(f.state.env.RADIO_SERVICE,f.state.env.DB,false),f.state.env.DB);
+    const radio=()=>catalogBoundRadio(membershipBoundRadio(f.state.env.RADIO_SERVICE,f.state.env.DB,false),f.state.env.DB,f.state.env.BUCKET);
     const radioRequest=new Request('https://musicbat.audio/api/musicbat/channel');
     const beforeCalls=f.calls.length;
     const channel=await forwardRadio(radioRequest,radio(),'patron');assert.equal(channel.status,200);
