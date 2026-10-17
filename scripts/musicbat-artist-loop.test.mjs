@@ -49,7 +49,7 @@ test('connected upload → review → concurrent shared playback → response �
   runtime.establishChannel('rock',{category:{genre:'Rock'},mode:'radio-plus',territory:'worldwide',minimumArtists:1,review,gate:null});
   runtime.establishChannel('hardcore',{category:{genre:'Rock',subgenre:'Punk',style:'Hardcore'},mode:'radio-plus',territory:'worldwide',minimumArtists:1,review,gate:null});runtime.tick();
   f.state.env.RADIO_SERVICE={fetch:request=>{const h=new Headers(request.headers);h.set('authorization','Bearer '+token);return runtime.fetch(new Request(request,{headers:h}))}};
-  const service=catalogBoundRadio(f.state.env.RADIO_SERVICE,f.state.env.DB);
+  const service=catalogBoundRadio(f.state.env.RADIO_SERVICE,f.state.env.DB,f.state.env.BUCKET);
   const channel=(id='patron')=>new Request('https://radio.internal/channel',{headers:{'x-musicbat-listener':id,'x-musicbat-territory':'US'}});
   const [one,two]=await Promise.all([service.fetch(channel()),service.fetch(channel('listener-two'))]);assert.equal(one.status,200);assert.equal(two.status,200);const a=await one.json(),b=await two.json();assert.equal(a.snapshot.performance.authorityId,b.snapshot.performance.authorityId);assert.equal(a.snapshot.performance.trackId,String(row.id));
   let audio=new Request(new URL(a.mediaUrl.replace('/api/musicbat',''),'https://radio.internal'),{headers:channel().headers});assert.equal((await service.fetch(audio)).status,200);
