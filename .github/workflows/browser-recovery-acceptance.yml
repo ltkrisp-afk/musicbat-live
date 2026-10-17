@@ -1,0 +1,53 @@
+name: MusicBat browser recovery acceptance
+on:
+  push:
+    branches: [engineering/phase4-acceptance-2026-10-16]
+    paths:
+      - .github/workflows/browser-recovery-acceptance.yml
+      - scripts/musicbat-mobile-acceptance.e2e.mjs
+permissions:
+  contents: read
+jobs:
+  browser:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      MUSICBAT_PLAYWRIGHT_MODULE: ${{ runner.temp }}/musicbat-browser/node_modules/playwright
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24.19.0'
+      - run: npm install --global pnpm@11.25.0
+      - name: Install locked application dependencies
+        run: CI=true bash scripts/sites-env.sh -- pnpm install --frozen-lockfile --store-dir .sites-runtime/pnpm-store
+      - name: Install isolated browser test runtime
+        run: |
+          npm install --prefix "$RUNNER_TEMP/musicbat-browser" --no-save playwright@1.62.1
+          node "$RUNNER_TEMP/musicbat-browser/node_modules/playwright/cli.js" install --with-deps chromium
+      - name: Exercise shared Radio in Chromium
+        run: pnpm test:radio:browser
+      - name: Exercise actual application and mobile console
+        shell: bash
+        run: |
+          pnpm dev:acceptance > "$RUNNER_TEMP/musicbat-acceptance.log" 2>&1 &
+          server_pid=$!
+          trap 'kill "$server_pid" 2>/dev/null || true' EXIT
+          ready=0
+          for attempt in {1..60}; do
+            if curl --fail --silent http://127.0.0.1:5173/__local > /dev/null; then ready=1; break; fi
+            sleep 1
+          done
+          if [ "$ready" -ne 1 ]; then cat "$RUNNER_TEMP/musicbat-acceptance.log"; exit 1; fi
+          pnpm test:application:browser
+          node scripts/musicbat-mobile-acceptance.e2e.mjs
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: musicbat-browser-recovery-evidence
+          if-no-files-found: ignore
+          path: |
+            .sites-runtime/application-browser-evidence.json
+            .sites-runtime/mobile-browser-evidence.json
+            .sites-runtime/mobile-*.png
+            ${{ runner.temp }}/musicbat-acceptance.log
