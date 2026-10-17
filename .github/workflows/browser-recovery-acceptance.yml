@@ -11,8 +11,6 @@ jobs:
   browser:
     runs-on: ubuntu-latest
     timeout-minutes: 20
-    env:
-      MUSICBAT_PLAYWRIGHT_MODULE: ${{ runner.temp }}/musicbat-browser/node_modules/playwright
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -23,6 +21,7 @@ jobs:
         run: CI=true bash scripts/sites-env.sh -- pnpm install --frozen-lockfile --store-dir .sites-runtime/pnpm-store
       - name: Install isolated browser test runtime
         run: |
+          echo "MUSICBAT_PLAYWRIGHT_MODULE=$RUNNER_TEMP/musicbat-browser/node_modules/playwright" >> "$GITHUB_ENV"
           npm install --prefix "$RUNNER_TEMP/musicbat-browser" --no-save playwright@1.62.1
           node "$RUNNER_TEMP/musicbat-browser/node_modules/playwright/cli.js" install --with-deps chromium
       - name: Exercise shared Radio in Chromium
