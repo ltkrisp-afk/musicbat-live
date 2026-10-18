@@ -13,6 +13,20 @@ const { d1, r2 } = hostingConfig;
 const isCodexSeatbeltSandbox = process.env.CODEX_SANDBOX === "seatbelt";
 const managedLinux = readExecutionProfile() === "managed-linux";
 
+// Explicitly opt into real Cloudflare bindings only when the verified resource
+// identities have been provided. Never ship the local placeholder D1 ID.
+const independentCloudflare = process.env.MUSICBAT_INDEPENDENT_CLOUDFLARE === "1";
+const cloudflareDatabaseId = process.env.MUSICBAT_CLOUDFLARE_D1_DATABASE_ID;
+const cloudflareBucketName = process.env.MUSICBAT_CLOUDFLARE_R2_BUCKET_NAME;
+if (independentCloudflare) {
+  if (!cloudflareDatabaseId || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(cloudflareDatabaseId) || cloudflareDatabaseId === SITE_CREATOR_PLACEHOLDER_DATABASE_ID) {
+    throw new Error("Independent Cloudflare build requires a verified real D1 database ID.");
+  }
+  if (!cloudflareBucketName || !/^[a-z0-9][a-z0-9-]{1,61}[a-z0-9]$/.test(cloudflareBucketName)) {
+    throw new Error("Independent Cloudflare build requires a verified R2 bucket name.");
+  }
+}
+
 const localBindingConfig = {
   main: "vinext/server/fetch-handler",
   compatibility_flags: ["nodejs_compat"],
@@ -20,8 +34,8 @@ const localBindingConfig = {
     ? [
         {
           binding: d1,
-          database_name: "site-creator-d1",
-          database_id: SITE_CREATOR_PLACEHOLDER_DATABASE_ID,
+          database_name: independentCloudflare ? "musicbat-existing-d1" : "site-creator-d1",
+          database_id: independentCloudflare ? cloudflareDatabaseId : SITE_CREATOR_PLACEHOLDER_DATABASE_ID,
         },
       ]
     : [],
@@ -29,7 +43,7 @@ const localBindingConfig = {
     ? [
         {
           binding: r2,
-          bucket_name: "site-creator-r2",
+          bucket_name: independentCloudflare ? cloudflareBucketName : "site-creator-r2",
         },
       ]
     : [],
