@@ -1,7 +1,12 @@
 # MusicBat engineering continuity
 
-Use the published cloud environment and the existing `/workspace/musicbat-live`
-checkout as the standard development workspace. Each cloud task is isolated;
+Use the existing corrected 85/15 development source. The obsolete GitHub default
+`bat-radio-shock-room` at `61fc95f` contains executable 90/10 code and must not
+be used for development, acceptance, or deployment. Continue from
+`repair/85-15-authoritative-2026-10-18` (base `5a1bda3`).
+The resumed sandbox checkout is `/workspace/sites/musicbat-stage4-sandbox-2026-10-16`.
+Changing GitHub's default branch and removing the obsolete branch remains pending
+repository settings access; do not describe that cleanup as completed. Each cloud task is isolated;
 do not create a Git worktree unless the user explicitly requests one. Do not
 restart onboarding or create redundant backups.
 
