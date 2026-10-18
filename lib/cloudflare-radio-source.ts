@@ -23,7 +23,7 @@ export type RadioSourceRow = {
   territory: string | null;
 };
 
-export async function currentRadioSource(db: D1Database, trackId: number): Promise<RadioSourceRow | null> {
+export async function currentRadioSource(db: Pick<D1Database,'prepare'>, trackId: number): Promise<RadioSourceRow | null> {
   if (!Number.isSafeInteger(trackId) || trackId < 1) return null;
   return db.prepare(`SELECT t.id AS track_id, t.audio_url, t.status, t.radio_enabled,
     p.recording_basis, p.recording_evidence, p.composition_evidence,

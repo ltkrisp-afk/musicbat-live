@@ -1,6 +1,7 @@
 declare namespace Cloudflare {
   interface Env {
     RADIO_SERVICE?: Fetcher;
+    MUSICBAT_CLOUDFLARE_RADIO?: string;
     RADIO_RUNTIME_ORIGIN?: string;
     RADIO_RUNTIME_TOKEN?: string;
     DB?: D1Database;

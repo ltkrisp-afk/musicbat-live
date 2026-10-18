@@ -6,6 +6,9 @@ on:
       - .github/workflows/browser-recovery-acceptance.yml
       - scripts/musicbat-mobile-acceptance.e2e.mjs
       - components/persistent-radio.tsx
+      - lib/d1-*.ts
+      - lib/shared-radio-transport.ts
+      - scripts/musicbat-d1-radio.test.mjs
 permissions:
   contents: read
 jobs:

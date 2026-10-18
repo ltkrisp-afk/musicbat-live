@@ -149,6 +149,12 @@ function publicError(error: unknown) {
   return fail("MusicBat could not complete that action.", 500);
 }
 
+/** Explicit sandbox-only opt-in; no production or live-mode fallback. */
+async function cloudflareRadioService() {
+  if(env.MUSICBAT_CLOUDFLARE_RADIO!=='test' || env.MUSICBAT_STRIPE_MODE!=='test' || !env.DB || !env.BUCKET)return undefined;
+  return (await import('../../../lib/d1-radio-service')).d1RadioService(env.DB,env.BUCKET);
+}
+
 /** Consent is committed first. A failed sidecar sync never undoes withdrawal;
  * the channel gateway independently checks this catalog on every delivery. */
 async function syncArtistRadio(id: number) {
@@ -158,7 +164,8 @@ async function syncArtistRadio(id: number) {
     action:row.status==='active' && row.radio_enabled===1?'classify':'withdraw',
     category:{genre:row.primary_genre,...(row.subgenre?{subgenre:row.subgenre}:{}),...(row.style?{style:row.style}:{})}});
   try {
-    if (env.RADIO_SERVICE) return (await env.RADIO_SERVICE.fetch(new Request('https://radio.internal/catalog/control',{method:'POST',headers:{'authorization':'Bearer '+(env.RADIO_RUNTIME_TOKEN ?? '')},body}))).ok;
+    const service=env.RADIO_SERVICE ?? await cloudflareRadioService();
+    if (service) return (await service.fetch(new Request('https://radio.internal/catalog/control',{method:'POST',headers:{'authorization':'Bearer '+(env.RADIO_RUNTIME_TOKEN ?? '')},body}))).ok;
     if (!env.RADIO_RUNTIME_ORIGIN || !env.RADIO_RUNTIME_TOKEN) return false;
     const url=new URL(env.RADIO_RUNTIME_ORIGIN);
     if (url.protocol!=='https:' || url.pathname!=='/' || url.username || url.password || url.search || url.hash) return false;
@@ -172,7 +179,8 @@ async function assignedPerformance(userId: string, request: Request) {
     const membership=await database().prepare('SELECT paid_until,status FROM radio_plus_enrollments WHERE user_id=?').bind(userId).first<{paid_until:number;status:string}>();
     headers.set('x-musicbat-plus-until',String(env.MUSICBAT_RADIO_PLUS_ENABLED==='test' && env.MUSICBAT_STRIPE_MODE!=='live' && membership && ['active','past_due'].includes(membership.status) && Number.isSafeInteger(membership.paid_until) && membership.paid_until>Date.now()?membership.paid_until:0));
     let response;
-    if (env.RADIO_SERVICE) response=await env.RADIO_SERVICE.fetch(new Request('https://radio.internal/channel',{headers}));
+    const service=env.RADIO_SERVICE ?? await cloudflareRadioService();
+    if (service) response=await service.fetch(new Request('https://radio.internal/channel',{headers}));
     else if (env.RADIO_RUNTIME_ORIGIN && env.RADIO_RUNTIME_TOKEN) {
       const url=new URL(env.RADIO_RUNTIME_ORIGIN);
       if (url.protocol!=='https:' || url.pathname!=='/' || url.username || url.password || url.search || url.hash) return null;
@@ -189,7 +197,8 @@ async function registeredRadioTrack(id: number, category: {genre:string;subgenre
   try {
     let response;
     const path='/catalog/status?trackId='+id;
-    if (env.RADIO_SERVICE) response=await env.RADIO_SERVICE.fetch(new Request('https://radio.internal'+path,{headers}));
+    const service=env.RADIO_SERVICE ?? await cloudflareRadioService();
+    if (service) response=await service.fetch(new Request('https://radio.internal'+path,{headers}));
     else if (env.RADIO_RUNTIME_ORIGIN && env.RADIO_RUNTIME_TOKEN) {
       const origin=new URL(env.RADIO_RUNTIME_ORIGIN);
       if (origin.protocol!=='https:' || origin.pathname!=='/' || origin.username || origin.password || origin.search || origin.hash) return false;
