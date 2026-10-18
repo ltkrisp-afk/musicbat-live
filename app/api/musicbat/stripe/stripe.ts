@@ -236,7 +236,7 @@ async function recoveryEvidence(runtime: RecoveryRuntime, p: RecoveryPurchase, s
 /** A bounded pass used by both inline withdrawal and the automatic operator.
  * Claims and completion are fenced with a durable token and expiring lease.
  * Production scheduling is deliberately not installed by this development task. */
-export async function runCheckoutRecovery(runtime: RecoveryRuntime, options: { trackId?: number; limit?: number; now?: number; inline?: boolean; signal?: AbortSignal } = {}) {
+export async function runCheckoutRecovery(runtime: RecoveryRuntime, options: { trackId?: number; purchaseId?: string; limit?: number; now?: number; inline?: boolean; signal?: AbortSignal; processorGet?: typeof stripeGet } = {}) {
   recoverySandbox(runtime);
   const started = Date.now();
   const clock = () => options.now === undefined ? Date.now() : options.now + Date.now() - started;
@@ -247,8 +247,8 @@ export async function runCheckoutRecovery(runtime: RecoveryRuntime, options: { t
     .bind(now,recoveryMaxAttempts,now).run();
   const jobs = await runtime.DB.prepare(`SELECT j.purchase_id FROM checkout_recovery_jobs j JOIN purchases p ON p.id=j.purchase_id
     WHERE j.state IN ('pending','retrying','running') AND j.next_attempt_at<=? AND j.lease_until<=?
-    AND (? IS NULL OR p.track_id=?) ORDER BY j.next_attempt_at,j.purchase_id LIMIT ?`)
-    .bind(now, now, options.trackId ?? null, options.trackId ?? null, limit).all<{purchase_id: string}>();
+    AND (? IS NULL OR p.track_id=?) AND (? IS NULL OR p.id=?) ORDER BY j.next_attempt_at,j.purchase_id LIMIT ?`)
+    .bind(now, now, options.trackId ?? null, options.trackId ?? null, options.purchaseId ?? null, options.purchaseId ?? null, limit).all<{purchase_id: string}>();
   let processed = 0;
   for (const candidate of jobs.results) {
     if (options.signal?.aborted) break;
@@ -302,7 +302,7 @@ export async function runCheckoutRecovery(runtime: RecoveryRuntime, options: { t
         p.processor_session_id=found[0].id;
       }
       const path = `/v1/checkout/sessions/${encodeURIComponent(p.processor_session_id)}`;
-      session = await stripeGet<StripeCheckoutSession>(networkRuntime,path,{'expand[]':'payment_intent.latest_charge'});
+      session = await (options.processorGet ?? stripeGet)<StripeCheckoutSession>(networkRuntime,path,{'expand[]':'payment_intent.latest_charge'});
       // Inline legacy expiration keeps Phase 1's identity checks. Financial
       // checks are mandatory before recovery can grant any new entitlement.
       if (session.id!==p.processor_session_id || session.livemode!==false) throw new StripeConfigurationError('recovery_session_identity_or_mode_mismatch');
