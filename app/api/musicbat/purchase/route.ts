@@ -23,6 +23,8 @@ type PurchaseDraft = {
   title: string;
   artist_name: string;
   processor_session_id: string | null;
+  artist_share_cents?: number;
+  platform_fee_cents?: number;
 };
 
 function response(data: unknown, status = 200, cookie?: string | null) {
@@ -95,11 +97,16 @@ export async function POST(request: Request) {
         artistShareCents: split(track.sale_price_cents).artistShare,
       } }, 409, buyer.cookie);
     }
-    let purchase = await env.DB.prepare(`SELECT id, title, artist_name, processor_session_id FROM purchases
+    let purchase = await env.DB.prepare(`SELECT id, title, artist_name, processor_session_id, artist_share_cents, platform_fee_cents FROM purchases
       WHERE buyer_hash = ? AND track_id = ? AND audio_path = ? AND amount_cents = ? AND processing_cents = ? AND status IN ('awaiting_checkout', 'pending')
       AND sale_withdrawn_at IS NULL ORDER BY created_at DESC LIMIT 1`)
       .bind(buyer.hash, trackId, track.audio_url, track.sale_price_cents, surcharge).first<PurchaseDraft>();
     if (purchase) {
+      const allocation = split(track.sale_price_cents);
+      // Never reopen an old Checkout with superseded terms. Keep its immutable
+      // snapshot for signed settlement/recovery; do not create a second payment.
+      if (purchase.artist_share_cents !== allocation.artistShare || purchase.platform_fee_cents !== allocation.platformFee)
+        return response({ error: "This earlier Checkout uses superseded payment terms and must be reconciled before another purchase." }, 409, buyer.cookie);
       if (!purchase.processor_session_id) return response({ error: "An earlier Checkout request is still being reconciled. Please try again later." }, 503, buyer.cookie);
       const existingSession = await existingCheckout(purchase);
       const reusable = await env.DB.prepare(`SELECT p.id FROM purchases p JOIN tracks t ON t.id=p.track_id
