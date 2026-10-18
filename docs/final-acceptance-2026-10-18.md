@@ -93,3 +93,83 @@ recovery invocation and a real hosted transient-failure/backoff cycle were NOT v
 Do not describe the manual recovery pass as an unattended scheduler.
 
 No production rollout or final acceptance declaration is authorized by this evidence alone.
+
+## Continuation checkpoint — 2026-10-18 20:57 UTC
+
+This section updates the earlier limits without replacing historical evidence.
+
+Verified runtime GitHub commit: `356db58496bb2973b24b2a0934dbe1e62ea764d6`.
+Stage 4 Sandbox version 10: Sites source `d568469ce97c6afab7530d4f43b8d07c09440301`.
+Deployment `appgdep_6ad531dacc048191a31a2d56997cf786` succeeded, environment revision 6.
+The two repositories have different histories. Blob comparison of all 281 GitHub files
+found only `.openai/hosting.json` different (the required sandbox vs production project ID).
+Three additional local files are evidence/configuration documents. Runtime source matches.
+Documentation commits after this checkpoint do not change the tested runtime.
+
+### Executed checks
+
+- Fresh local full suite: 243 passed, zero failures/skips. TypeScript, lint and build passed.
+  A reserved variable name in the new probe test initially failed lint; it was renamed,
+  the three focused tests rerun, and lint/build passed before publication.
+- GitHub browser workflow [39165360047](https://github.com/ltkrisp-afk/musicbat-live/actions/runs/39165360047): passed.
+  243 regressions, 8 shared Radio checks, 4 actual-application browser checks,
+  6 responsive/dial checks. Chromium 151.0.7922.34; generated local fixtures.
+- GitHub development workflow [39165360052](https://github.com/ltkrisp-afk/musicbat-live/actions/runs/39165360052): passed.
+- Radio synchronization: initial pairwise drift 0.001389 seconds; sustained drift
+  0.066257 seconds, below the unchanged 0.350-second assertion. Correct each listener
+  at 100 ms instead of allowing 350 ms individually. No category scheduler, dial,
+  visual design, or persistent-player redesign.
+- Browser resilience: audio decoding, pause/resume, network loss/reconnect, withdrawal,
+  stale-range denial, empty-catalog silence and unauthorized commands passed.
+- Mobile: widths 320/375/390/768/1280, visible unobscured physical dial and three
+  windows, one persistent audio element, Plus fixture dial navigation and Free return.
+  This is Chromium responsive acceptance; it is not a physical iPhone/Safari test.
+- Reviewed checkout allocation and reuse, signed settlement/refunds, download ownership,
+  request body limits, artist authority, recovery due times/leases and MCP owner access.
+  No active 90/10 expression found in app/lib/components. Public purchase and artist
+  JSON now have a 16 KiB bound; multipart audio limit remains 25 MB. Probe body is 1 KiB.
+
+### Hosted D1 fault probe
+
+The owner-only `/api/musicbat/sandbox/recovery-probe` route operates on one explicitly
+labeled unpaid fixture, `acceptance-recovery-probe-2026-10-18`, in the existing DB.
+It creates no Stripe Session, charge, paid status or download entitlement. It copies
+the existing verified 85/15 test quote into a labeled cancelled fixture record.
+The injected processor adapter is limited to the fixture's synthetic Session ID.
+Production, other identities, foreign origins and oversized submissions are rejected.
+
+Actual browser POSTs and D1 records verified:
+
+1. Fixture started with `lease_until=1792356868809`, attempts 0, running.
+2. Pass while lease held: processed 0, lease and attempts unchanged.
+3. Pass after expiry: processed 1; injected 503 persisted as retrying, attempts 1,
+   `next_attempt_at=1792356880901`, `processor_temporarily_unavailable`, lease 0.
+4. Subsequent request after the due time: processed 1; injected expired/unpaid response
+   completed the fixture at attempts 2, purchase cancelled, cleanup expired, error null.
+5. Repeat request: processed 0, completed state and attempts preserved.
+
+The third request reached the server after its retry due time; do not claim that a
+premature hosted retry was tested. Early retry rejection passes the automated regression.
+Processor responses in this fault probe are injected, not a genuine Stripe outage or
+genuine Session expiration. Earlier genuine Stripe expiration evidence remains above.
+
+Read-only D1 verification preserved the original paid purchase at 200 base / 170 artist /
+30 platform / 37 processing, with its original Session/PaymentIntent and event evidence.
+Native sandbox recovery status now reports six completed jobs (the original five plus
+this fixture), with no pending/retrying/running/review/exhausted jobs. Repeated native
+recovery pass before the probe returned processed 0. No original job was reset or edited.
+
+### Remaining acceptance limits
+
+- Real separate listener: an actual OpenAI account chooser was presented through secure
+  browser authentication; the selected account was the same owner, Kris Prater
+  (ltkrisp@gmail.com). This does not satisfy separate-account acceptance. A different
+  existing test ChatGPT account must be selected through "Use another account".
+  Signed-out browser checks hid Manage Songs and Shock Room; they are not a substitute.
+- The hourly maintenance connection ran unattended and read the actual sandbox state.
+  Processing a due retry unattended has NOT been demonstrated. The D1 fault cycle above
+  used manual browser POSTs. Do not mark this remaining scheduling assertion complete.
+- Hosted catalog is quiet because the generated tone was withdrawn. Previous real Radio
+  playback evidence is preserved; no replacement upload or new charge was repeated.
+- Production/musicbat.audio, live credentials, existing webhook destinations, databases
+  and access policies were not changed by this continuation.
