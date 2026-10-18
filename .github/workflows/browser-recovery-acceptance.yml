@@ -1,7 +1,7 @@
 name: MusicBat browser recovery acceptance
 on:
   push:
-    branches: [engineering/phase4-acceptance-2026-10-16, repair/mobile-player-occlusion-2026-10-17]
+    branches: [engineering/phase4-acceptance-2026-10-16, repair/mobile-player-occlusion-2026-10-17, repair/85-15-authoritative-2026-10-18]
     paths:
       - .github/workflows/browser-recovery-acceptance.yml
       - scripts/musicbat-mobile-acceptance.e2e.mjs
@@ -9,6 +9,10 @@ on:
       - lib/d1-*.ts
       - lib/shared-radio-transport.ts
       - scripts/musicbat-d1-radio.test.mjs
+      - app/musicbat-loop.tsx
+      - app/mcp/route.ts
+      - app/api/musicbat/**
+      - scripts/musicbat-mcp-recovery.test.mjs
 permissions:
   contents: read
 jobs:
@@ -30,6 +34,8 @@ jobs:
           node "$RUNNER_TEMP/musicbat-browser/node_modules/playwright/cli.js" install --with-deps chromium
       - name: Exercise shared Radio in Chromium
         run: pnpm test:radio:browser
+      - name: Verify accounting, authorization and durable recovery regressions
+        run: pnpm test
       - name: Exercise actual application and mobile console
         shell: bash
         run: |

@@ -14,6 +14,13 @@ const run=(f,options={})=>runCheckoutRecovery(f.state.env,options);
 const evidence=(f,second,id='evt_evidence')=>f.events.push({id,type:'checkout.session.completed',created:second,livemode:false,data:{object:{id:[...f.sessions.keys()][0],livemode:false,payment_status:'paid'}}});
 const deferred=()=>{let resolve;const promise=new Promise(r=>resolve=r);return {promise,resolve}};
 
+test('recovery rejects live or absent credentials before claims, lease cleanup or any database operation',async()=>{
+ for(const config of [{MUSICBAT_STRIPE_MODE:'live',STRIPE_SECRET_KEY:'sk_live_fixture'},{MUSICBAT_STRIPE_MODE:'test'},{MUSICBAT_STRIPE_MODE:'test',STRIPE_SECRET_KEY:'sk_live_fixture'}]){
+  let calls=0;await assert.rejects(runCheckoutRecovery({...config,DB:{prepare(){calls++;throw new Error('Database must not be touched');}}}),/sandbox credentials/);
+  assert.equal(calls,0);
+ }
+});
+
 test('exponential backoff is bounded, deterministic and survives a closed file-backed DB',async()=>{
   const dir=await mkdtemp(join(tmpdir(),'bat-recovery-')),path=join(dir,'state.sqlite'),f=await setup(path);let reopened;
   try{

@@ -1,13 +1,17 @@
 import { env } from "cloudflare:workers";
+import { getChatGPTUser } from "../../../../chatgpt-auth";
 import { isStripeSandboxKey, StripeRequestError, stripeGet } from "../stripe";
 
 const sandboxOrigin = "https://musicbat-stage4-sandbox-2026-10-16.ltkrisp.chatgpt.site";
 const sandboxAccount = "acct_1UHA0OLKJHBmA7Jw";
 const json = (body: unknown, status = 200) => Response.json(body, { status, headers: { "cache-control": "private, no-store" } });
 
-// Read-only diagnostics behind the existing owner-private Sites boundary.
+// Explicit owner authorization also protects diagnostics on a public sandbox.
 // No visitor identity is invented, no purchases are enabled, no secrets returned.
 export async function GET(request: Request) {
+  const user = await getChatGPTUser();
+  if (!env.MUSICBAT_ACCEPTANCE_OWNER_ID || user?.userId !== env.MUSICBAT_ACCEPTANCE_OWNER_ID)
+    return json({ error: "Not available." }, 404);
   if (env.MUSICBAT_BASE_URL !== sandboxOrigin || new URL(request.url).origin !== sandboxOrigin || env.MUSICBAT_STRIPE_MODE !== "test")
     return json({ error: "Not available." }, 404);
   if (!isStripeSandboxKey(env.STRIPE_SECRET_KEY?.trim()))

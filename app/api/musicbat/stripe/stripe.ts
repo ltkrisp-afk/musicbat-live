@@ -238,6 +238,7 @@ async function recoveryEvidence(runtime: RecoveryRuntime, p: RecoveryPurchase, s
  * Claims and completion are fenced with a durable token and expiring lease.
  * Production scheduling is deliberately not installed by this development task. */
 export async function runCheckoutRecovery(runtime: RecoveryRuntime, options: { trackId?: number; limit?: number; now?: number; inline?: boolean; signal?: AbortSignal } = {}) {
+  recoverySandbox(runtime);
   const started = Date.now();
   const clock = () => options.now === undefined ? Date.now() : options.now + Date.now() - started;
   let now = clock();
