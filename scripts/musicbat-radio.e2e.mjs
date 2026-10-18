@@ -37,7 +37,7 @@ try {
   await two.page.getByRole('button',{name:'Play Radio',exact:true}).click();await waitPlaying(two.page);
   assert.equal(await one.page.getByTestId('performance').textContent(),await two.page.getByTestId('performance').textContent());
   const values=await Promise.all([metrics(one.page),metrics(two.page)]);const drift=Math.abs(values[0].time-values[1].time);assert.ok(drift<=0.35,'initial drift '+drift);
-  await one.page.waitForTimeout(1200);const next=await Promise.all([metrics(one.page),metrics(two.page)]);assert.ok(Math.abs(next[0].time-next[1].time)<=0.35);console.log('Measured drift seconds:',drift);
+  await one.page.waitForTimeout(1200);const next=await Promise.all([metrics(one.page),metrics(two.page)]);const laterDrift=Math.abs(next[0].time-next[1].time);assert.ok(laterDrift<=0.35,'sustained drift '+laterDrift);console.log('Measured drift seconds:',{initial:drift,sustained:laterDrift});
  });
  await check('Genre → Subgenre → Style switching uses real channel audio and no individual track commands',async()=>{
   await one.page.getByLabel('Radio genre',{exact:true}).selectOption('Rock');await waitPlaying(one.page);

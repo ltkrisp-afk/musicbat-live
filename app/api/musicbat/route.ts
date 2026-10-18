@@ -1,5 +1,5 @@
 import { env } from "cloudflare:workers";
-import { expireWithdrawnCheckouts } from "./stripe/stripe";
+import { expireWithdrawnCheckouts, readStripeWebhookBody, StripeWebhookBodyTooLarge } from "./stripe/stripe";
 import { getChatGPTUser } from "../../chatgpt-auth";
 
 type ActionBody = {
@@ -393,7 +393,9 @@ export async function POST(request: Request) {
       }
       return Response.json({ track }, { status: 201 });
     }
-    const body = (await request.json()) as ActionBody;
+    let body: ActionBody;
+    try { body = JSON.parse(await readStripeWebhookBody(request, 16384)) as ActionBody; }
+    catch (error) { return fail(error instanceof StripeWebhookBodyTooLarge ? "Action request is too large." : "A valid action is required.", error instanceof StripeWebhookBodyTooLarge ? 413 : 400); }
     if (!body || Array.isArray(body) || typeof body !== "object") return fail("A valid action is required.");
     for (const key of ["title","artistName","primaryGenre","subgenre","style","energyLane","representativeId"] as const) if (body[key] !== undefined && typeof body[key] !== "string") return fail("Metadata fields must be text.");
 

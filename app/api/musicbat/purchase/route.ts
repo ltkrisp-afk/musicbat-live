@@ -1,6 +1,6 @@
 import { env } from "cloudflare:workers";
 import { buyerIdentity } from "./buyer";
-import { connectReady, musicBatOrigin, StripeAccount, StripeCheckoutSession, StripeConfigurationError, stripeGet, stripePost, stripeModeMatches, expireWithdrawnCheckouts } from "../stripe/stripe";
+import { connectReady, musicBatOrigin, StripeAccount, StripeCheckoutSession, StripeConfigurationError, StripeWebhookBodyTooLarge, readStripeWebhookBody, stripeGet, stripePost, stripeModeMatches, expireWithdrawnCheckouts } from "../stripe/stripe";
 
 type TrackForSale = {
   id: number;
@@ -65,7 +65,9 @@ export async function POST(request: Request) {
     if (origin && origin !== new URL(request.url).origin) return response({ error: "Open MusicBat to buy this song." }, 403);
     if (!env.DB || !env.BUCKET) return response({ error: "Purchases are temporarily unavailable." }, 503);
     let body: { trackId?: unknown; confirmedTotalCents?: unknown };
-    try { body = await request.json(); } catch { return response({ error: "Choose a valid song." }, 400); }
+    try { body = JSON.parse(await readStripeWebhookBody(request, 16384)); }
+    catch (error) { return response({ error: error instanceof StripeWebhookBodyTooLarge ? "Purchase request is too large." : "Choose a valid song." }, error instanceof StripeWebhookBodyTooLarge ? 413 : 400); }
+    if (!body || typeof body !== 'object' || Array.isArray(body)) return response({ error: "Choose a valid song." }, 400);
     const trackId = Number(body.trackId);
     if (!Number.isInteger(trackId) || trackId < 1) return response({ error: "Choose a valid song." }, 400);
     const track = await env.DB.prepare(`

@@ -41,7 +41,9 @@ export function SharedRadioPlayer({onTrack,onError,onPlay,onProgress,onEnded,onI
     const offset=(p.offsetMs+elapsed)/1000;
     // Network failure/hidden tab cannot extend the last authority indefinitely.
     if(elapsed>3000 || v.delivery.snapshot.serverNow+elapsed>=p.endsAt){silence();return}
-    if(a.readyState>=1 && Math.abs(a.currentTime-offset)>0.35)a.currentTime=offset;
+    // Bound each listener's drift below the shared 350 ms pairwise budget.
+    // Allowing 350 ms per listener permits two listeners to diverge by 700 ms.
+    if(a.readyState>=1 && Math.abs(a.currentTime-offset)>0.1)a.currentTime=offset;
   },[silence]);
   const update=useCallback(async(category?:Category|null)=>{
     if(document.visibilityState==='hidden'){if(category!==undefined)throw new Error('Return to this tab to tune Radio.');return;}

@@ -5,6 +5,14 @@ import {readFile} from 'node:fs/promises';
 import ts from 'typescript';
 import {fixture,upload,post} from './website-fixture.mjs';
 import {readStripeWebhookBody,StripeWebhookBodyTooLarge,verifyStripeWebhook} from '../app/api/musicbat/stripe/stripe.ts';
+
+test('artist JSON actions are bounded independently of the authorized audio-upload limit',async()=>{
+ const f=await fixture();try{
+  const response=await f.route.POST(post({action:'set_artist_identity',artistName:'x'.repeat(16385)}));
+  assert.equal(response.status,413);assert.equal(f.sqlite.prepare('SELECT count(*) n FROM artist_profiles').get().n,0);
+  assert.equal((await f.route.POST(new Request('https://musicbat.audio/api/musicbat',{method:'POST',body:'null'}))).status,400);
+ }finally{f.sqlite.close();}
+});
 import {buyerIdentity} from '../app/api/musicbat/purchase/buyer.ts';
 
 test('webhook raw body bounds ignore forged length, cancel streams, and retain signed Unicode bytes',async()=>{

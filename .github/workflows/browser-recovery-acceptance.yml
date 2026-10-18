@@ -10,6 +10,8 @@ on:
       - lib/shared-radio-transport.ts
       - scripts/musicbat-d1-radio.test.mjs
       - app/musicbat-loop.tsx
+      - components/shared-radio-player.tsx
+      - scripts/musicbat-radio.e2e.mjs
       - app/mcp/route.ts
       - app/api/musicbat/**
       - scripts/musicbat-mcp-recovery.test.mjs

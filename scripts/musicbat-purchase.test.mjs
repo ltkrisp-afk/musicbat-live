@@ -93,6 +93,16 @@ function post(trackId = 1, cookie = null, additions = {}) {
   });
 }
 
+test('public purchase parsing bounds chunked JSON and rejects null before Stripe or draft writes',async()=>{
+ const f=await fixture();try{
+  let cancelled=false;
+  const oversized=new Request('https://musicbat.audio/api/musicbat/purchase',{method:'POST',duplex:'half',headers:{'content-type':'application/json'},body:new ReadableStream({start(c){c.enqueue(new Uint8Array(16385));},cancel(){cancelled=true;}})});
+  assert.equal((await f.purchase.POST(oversized)).status,413);assert.equal(cancelled,true);
+  for(const body of ['null','[]','{'])assert.equal((await f.purchase.POST(new Request('https://musicbat.audio/api/musicbat/purchase',{method:'POST',body}))).status,400);
+  assert.equal(f.sqlite.prepare('SELECT count(*) n FROM purchases').get().n,0);assert.deepEqual(f.state.requests,[]);
+ }finally{f.sqlite.close();}
+});
+
 function get(id, cookie, download = false) {
   return new Request(`https://musicbat.audio/api/musicbat/purchase${download ? `/${id}/download` : `?id=${id}`}`, { headers: { cookie } });
 }

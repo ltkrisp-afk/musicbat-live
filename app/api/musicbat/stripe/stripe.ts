@@ -46,8 +46,7 @@ export class StripeRequestError extends Error {
 export class StripeWebhookBodyTooLarge extends Error {}
 
 /** Bound unauthenticated delivery before decoding; preserve the raw signed text. */
-export async function readStripeWebhookBody(request: Request) {
-  const limit = 1024 * 1024;
+export async function readStripeWebhookBody(request: Request, limit = 1024 * 1024) {
   const reader = request.body?.getReader();
   if (!reader) return "";
   const chunks: Uint8Array[] = [];
@@ -55,7 +54,7 @@ export async function readStripeWebhookBody(request: Request) {
   try {
     if (Number(request.headers.get("content-length")) > limit) {
       await reader.cancel();
-      throw new StripeWebhookBodyTooLarge("Webhook body exceeds 1 MiB.");
+      throw new StripeWebhookBodyTooLarge("Request body exceeds its permitted size.");
     }
     while (true) {
       const { done, value } = await reader.read();
@@ -63,7 +62,7 @@ export async function readStripeWebhookBody(request: Request) {
       size += value.byteLength;
       if (size > limit) {
         await reader.cancel();
-        throw new StripeWebhookBodyTooLarge("Webhook body exceeds 1 MiB.");
+        throw new StripeWebhookBodyTooLarge("Request body exceeds its permitted size.");
       }
       chunks.push(value);
     }
