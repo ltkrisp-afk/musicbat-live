@@ -1,8 +1,8 @@
 /**
  * Cloudflare D1/R2 radio source adapter.
  * No Node runtime, filesystem, local SQLite, or Render dependency.
- * This module is intentionally not wired to the existing synchronous radio engine:
- * that engine requires an atomic asynchronous D1 state-machine migration first.
+ * The original synchronous engine remains SQLite-only. The explicit sandbox
+ * opt-in uses D1SharedRadioEngine with guarded asynchronous D1 transactions.
  */
 export type RadioSourceRow = {
   track_id: number;

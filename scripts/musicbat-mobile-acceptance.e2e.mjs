@@ -31,13 +31,21 @@ try {
   const knob = console.getByRole('button', { name: 'Push dial to tune category', exact: true });
   for (const width of [320, 375, 390, 768, 1280]) {
     await page.setViewportSize({ width, height: 1000 });
-    const controls = console.getByLabel('Radio playback controls', { exact: true });
-    const position = console.getByLabel('Shared channel position', { exact: true });
-    const genre = console.getByText('GENRE', { exact: true });
-    const controlBox = await controls.boundingBox(), positionBox = await position.boundingBox(), genreBox = await genre.boundingBox();
-    assert.ok(controlBox && positionBox && genreBox);
-    assert.ok(positionBox.y + positionBox.height <= controlBox.y, 'playback must follow channel position');
-    assert.ok(controlBox.y + controlBox.height <= genreBox.y, 'playback must precede genre windows');
+    // Read all geometry in one DOM snapshot. Channel polling can remove the
+    // connection message between separate awaited boundingBox calls.
+    const geometry = await console.evaluate(element => {
+      const box = selector => {
+        const node = element.querySelector(selector);
+        if (!node) return null;
+        const rect = node.getBoundingClientRect();
+        return { y: rect.y, bottom: rect.bottom };
+      };
+      const genre = [...element.querySelectorAll('div')].find(node => node.textContent === 'GENRE');
+      return { controls: box('[aria-label="Radio playback controls"]'), position: box('[aria-label="Shared channel position"]'), genreY: genre?.getBoundingClientRect().y };
+    });
+    assert.ok(geometry.controls && geometry.position && geometry.genreY !== undefined);
+    assert.ok(geometry.position.bottom <= geometry.controls.y, 'playback must follow channel position');
+    assert.ok(geometry.controls.bottom <= geometry.genreY, 'playback must precede genre windows');
     await knob.scrollIntoViewIfNeeded();
     assert.equal(await knob.isVisible(), true);
     assert.equal(await knob.evaluate(button => {
