@@ -1,6 +1,6 @@
 "use client";
 
-import { useState,type ReactNode } from 'react';
+import { useRef, useState,type ReactNode } from 'react';
 import { RadioPlusMembership } from './radio-plus-membership';
 import { backDial, dialChoices, exploreDial, rotateDial, type DialState } from '../lib/radio-dial';
 import type { Category } from '../lib/radio-category';
@@ -14,12 +14,22 @@ export function RetrofuturaRadio({options,snapshot,onTune,playback}: {
  onTune: (category: Category | null) => Promise<void>;
 }) {
  const [dial,setDial]=useState<DialState>({parent:null,index:0});
+ const touchStartY=useRef<number|null>(null);
+ const suppressTouchClick=useRef(false);
  const [pending,setPending]=useState(false);
  const [message,setMessage]=useState('Turn to browse. Push to tune and explore.');
  const choices=dialChoices(options,dial);
  const selected=choices[dial.index%Math.max(choices.length,1)];
  const category=selected?.category ?? dial.parent;
- const turn=(amount:number)=>setDial(s=>rotateDial(s,amount,choices.length));
+ const turn=(amount:number)=>setDial(s=>rotateDial(s,amount,dialChoices(options,s).length));
+ const finishTouch=(endY:number)=>{
+  if(touchStartY.current===null)return;
+  const distance=touchStartY.current-endY;
+  touchStartY.current=null;
+  if(Math.abs(distance)<24)return;
+  suppressTouchClick.current=true;
+  turn(distance>0?1:-1);
+ };
  async function tune(c:Category|null,explore:boolean) {
   if (pending) return;
   setPending(true);
@@ -58,10 +68,10 @@ export function RetrofuturaRadio({options,snapshot,onTune,playback}: {
      <div style={{display:'flex',alignItems:'center',justifyContent:'center',gap:'clamp(4px, 2vw, 12px)'}}>
       <button type="button" aria-label="Turn dial backward" disabled={pending||!choices.length} onClick={()=>turn(-1)}>−</button>
       <button type="button" aria-label="Push dial to tune category" disabled={pending||!selected||selected.dormant||selected.locked}
-       onClick={()=>void tune(selected!.category,true)} onWheel={e=>{e.preventDefault();if(!pending)turn(e.deltaY>0?1:-1)}}
+       onClick={()=>{if(suppressTouchClick.current){suppressTouchClick.current=false;return;}void tune(selected!.category,true);}} onTouchStart={e=>{touchStartY.current=e.touches[0]?.clientY??null;}} onTouchEnd={e=>finishTouch(e.changedTouches[0]?.clientY??0)} onTouchCancel={()=>{touchStartY.current=null;}} onWheel={e=>{e.preventDefault();if(!pending)turn(e.deltaY>0?1:-1)}}
        onKeyDown={e=>{if(e.key==='ArrowRight'||e.key==='ArrowUp'){e.preventDefault();turn(1)}if(e.key==='ArrowLeft'||e.key==='ArrowDown'){e.preventDefault();turn(-1)}}}
        style={{width:'clamp(88px, 28vw, 112px)',height:'clamp(88px, 28vw, 112px)',flexShrink:0,borderRadius:'50%',border:'5px solid #4b514f',
-        background:'conic-gradient(#ddd,#777,#eee,#929695,#ddd)',boxShadow:'0 5px 8px #0006,inset 0 0 0 6px #a2a6a3',cursor:'pointer',color:'#171b19'}}>
+        background:'conic-gradient(#ddd,#777,#eee,#929695,#ddd)',boxShadow:'0 5px 8px #0006,inset 0 0 0 6px #a2a6a3',cursor:'pointer',touchAction:'pan-x',color:'#171b19'}}>
        <span style={{display:'block',color:'#ff3ea5',fontSize:27}}>│</span><span style={{fontSize:10,letterSpacing:1}}>PUSH</span>
       </button>
       <button type="button" aria-label="Turn dial forward" disabled={pending||!choices.length} onClick={()=>turn(1)}>+</button>
