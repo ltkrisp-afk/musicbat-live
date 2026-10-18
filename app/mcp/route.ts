@@ -1,11 +1,13 @@
 import {env} from 'cloudflare:workers';
 import {getChatGPTUser} from '../chatgpt-auth';
 import {checkoutRecoveryStatus,isStripeSandboxKey,runCheckoutRecovery} from '../api/musicbat/stripe/stripe';
+import {queueUnattendedProbe,unattendedProbeStatus} from '../../lib/sandbox-recovery-probe';
 
 const sandbox='https://musicbat-stage4-sandbox-2026-10-16.ltkrisp.chatgpt.site';
 const tools=[
  {name:'musicbat_recovery_status',description:'Read durable Checkout recovery counts in MusicBat Stage 4 Sandbox. Owner only; no buyer details or credentials.',inputSchema:{type:'object',properties:{},additionalProperties:false},annotations:{readOnlyHint:true,openWorldHint:false}},
  {name:'musicbat_run_checkout_recovery',description:'Run one bounded durable recovery pass in MusicBat Stage 4 Sandbox and read back job counts. Test mode only. Expires withdrawn unpaid Checkouts; preserves paid purchases. Does not create a charge or change production.',inputSchema:{type:'object',properties:{},additionalProperties:false},annotations:{readOnlyHint:false,destructiveHint:false,idempotentHint:true,openWorldHint:false}},
+ {name:'musicbat_queue_unattended_probe',description:'Queue one fixed zero-value synthetic retry fixture for the existing scheduled sandbox maintenance. Does not run recovery, create a Stripe Session, charge, refund, or download entitlement. Idempotent; cannot reset or retarget an existing fixture.',inputSchema:{type:'object',properties:{},additionalProperties:false},annotations:{readOnlyHint:false,destructiveHint:false,idempotentHint:true,openWorldHint:false}},
 ];
 const json=(body:unknown,status=200)=>Response.json(body,{status,headers:{'cache-control':'private, no-store'}});
 export async function POST(request:Request){
@@ -34,8 +36,10 @@ export async function POST(request:Request){
  if(!args||typeof args!=='object'||Array.isArray(args)||Object.keys(args).length)return error(-32602,'This tool accepts no arguments');
  if(!tools.some(tool=>tool.name===name))return error(-32602,'Unknown tool');
  try{
+  if(name==='musicbat_queue_unattended_probe')return reply({content:[{type:'text',text:JSON.stringify({sandbox:true,queued:await queueUnattendedProbe({...env,DB:env.DB}),recovery_invoked:false})}],isError:false});
   const pass=name==='musicbat_run_checkout_recovery'?await runCheckoutRecovery({...env,DB:env.DB},{limit:10}):null;
   const status=await checkoutRecoveryStatus({DB:env.DB});
-  return reply({content:[{type:'text',text:JSON.stringify({sandbox:true,...pass,status})}],isError:false});
+  const unattended_probe=await unattendedProbeStatus({...env,DB:env.DB});
+  return reply({content:[{type:'text',text:JSON.stringify({sandbox:true,...pass,status,unattended_probe})}],isError:false});
  }catch{return reply({content:[{type:'text',text:'Sandbox recovery could not complete. Durable jobs are retained for retry.'}],isError:true});}
 }
