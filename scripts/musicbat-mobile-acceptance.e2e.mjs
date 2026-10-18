@@ -25,9 +25,19 @@ try {
   await page.getByRole('tab', { name: 'Radio', exact: true }).click();
   const console = page.getByRole('region', { name: 'Bat Radio Retrofutura console', exact: true });
   await console.waitFor();
+  assert.equal(await page.getByRole('region', { name: 'Persistent MusicBat player' }).count(), 0);
+  assert.equal(await page.getByRole('link', { name: 'Open Radio', exact: true }).count(), 0);
+  assert.equal(await console.getByLabel('Radio playback controls', { exact: true }).count(), 1);
   const knob = console.getByRole('button', { name: 'Push dial to tune category', exact: true });
   for (const width of [320, 375, 390, 768, 1280]) {
     await page.setViewportSize({ width, height: 1000 });
+    const controls = console.getByLabel('Radio playback controls', { exact: true });
+    const position = console.getByLabel('Shared channel position', { exact: true });
+    const genre = console.getByText('GENRE', { exact: true });
+    const controlBox = await controls.boundingBox(), positionBox = await position.boundingBox(), genreBox = await genre.boundingBox();
+    assert.ok(controlBox && positionBox && genreBox);
+    assert.ok(positionBox.y + positionBox.height <= controlBox.y, 'playback must follow channel position');
+    assert.ok(controlBox.y + controlBox.height <= genreBox.y, 'playback must precede genre windows');
     await knob.scrollIntoViewIfNeeded();
     assert.equal(await knob.isVisible(), true);
     assert.equal(await knob.evaluate(button => {

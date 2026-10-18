@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from 'react';
+import { useState,type ReactNode } from 'react';
 import { RadioPlusMembership } from './radio-plus-membership';
 import { backDial, dialChoices, exploreDial, rotateDial, type DialState } from '../lib/radio-dial';
 import type { Category } from '../lib/radio-category';
@@ -8,7 +8,8 @@ import type { ChannelOption, ChannelSnapshot } from '../lib/shared-radio-engine'
 
 /** Server-connected presentation contract. The parent supplies server snapshots and a category-only
  * tune operation. This component never chooses tracks, rewinds media or resets a ledger. */
-export function RetrofuturaRadio({options,snapshot,onTune}: {
+export function RetrofuturaRadio({options,snapshot,onTune,playback}: {
+ playback?:ReactNode;
  options: ChannelOption[]; snapshot: ChannelSnapshot | null;
  onTune: (category: Category | null) => Promise<void>;
 }) {
@@ -36,6 +37,14 @@ export function RetrofuturaRadio({options,snapshot,onTune}: {
     <span style={{fontSize:'clamp(15px, 4vw, 22px)',letterSpacing:'clamp(1px, 0.7vw, 4px)',fontWeight:300}}>MUSICBAT</span>
     <span style={{color:'#ff3ea5',background:'#171a19',padding:'5px 12px',letterSpacing:2}}>BAT RADIO</span>
    </header>
+    <div style={{background:'#111a15',padding:12,borderRadius:4,minWidth:0,width:'min(100%, 220px)',boxSizing:'border-box',border:'3px solid #555b57'}}>
+     <div style={{color:'#a7b3a4',fontSize:10,letterSpacing:2}}>CHANNEL POSITION</div>
+     <progress aria-label="Shared channel position" value={Math.min(1,Math.max(0,fraction))} max={1}
+      style={{width:'100%',accentColor:'#b6ff32',marginTop:14}} />
+     <div style={{color:'#ff3ea5',fontSize:12,marginTop:12}}>{snapshot?.status==='playing'?'SHARED SIGNAL':'STATION QUIET'}</div>
+     <div style={{color:'#a7b3a4',fontSize:11,marginTop:8}}>Turn to hear. Push to explore.</div>
+    </div>
+   {playback}
    <div style={{display:'grid',gridTemplateColumns:'repeat(3,minmax(0,1fr))',gap:'clamp(3px, 1vw, 8px)'}}>
     {(['Genre','Subgenre','Style'] as const).map((label,i)=><div key={label} style={{
      background:'linear-gradient(#101714,#242b28)',boxShadow:'inset 0 2px 8px #000',border:'3px solid #555b57',padding:'clamp(3px, 1.5vw, 12px)',minWidth:0,minHeight:84,boxSizing:'border-box'}}>
@@ -45,13 +54,6 @@ export function RetrofuturaRadio({options,snapshot,onTune}: {
     </div>)}
    </div>
    <div style={{display:'flex',alignItems:'center',justifyContent:'space-around',flexWrap:'wrap',gap:16,marginTop:24,minWidth:0}}>
-    <div style={{background:'#111a15',padding:12,borderRadius:4,minWidth:0,width:'min(100%, 220px)',boxSizing:'border-box',border:'3px solid #555b57'}}>
-     <div style={{color:'#a7b3a4',fontSize:10,letterSpacing:2}}>CHANNEL POSITION</div>
-     <progress aria-label="Shared channel position" value={Math.min(1,Math.max(0,fraction))} max={1}
-      style={{width:'100%',accentColor:'#b6ff32',marginTop:14}} />
-     <div style={{color:'#ff3ea5',fontSize:12,marginTop:12}}>{snapshot?.status==='playing'?'SHARED SIGNAL':'STATION QUIET'}</div>
-     <div style={{color:'#a7b3a4',fontSize:11,marginTop:8}}>Turn to hear. Push to explore.</div>
-    </div>
     <div style={{textAlign:'center',color:'#17201c'}}>
      <div style={{display:'flex',alignItems:'center',justifyContent:'center',gap:'clamp(4px, 2vw, 12px)'}}>
       <button type="button" aria-label="Turn dial backward" disabled={pending||!choices.length} onClick={()=>turn(-1)}>−</button>

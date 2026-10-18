@@ -100,7 +100,7 @@ try {
     await artist.click();
     await page.waitForURL(new URL(target, origin).href);
     assert.equal(await page.evaluate(() => window.musicbatOriginalAudio === document.querySelector('audio')), true);
-    await page.getByRole('link', { name: 'Open Radio', exact: true }).click();
+    await page.getByRole('link', { name: 'MusicBat', exact: true }).first().click();
     await page.getByRole('tab', { name: 'Radio', exact: true }).waitFor();
     await page.waitForFunction(() => document.querySelector('[role="tab"][data-state="active"]')?.textContent.trim() === 'Radio');
     assert.equal(await page.evaluate(() => window.musicbatOriginalAudio === document.querySelector('audio')), true);

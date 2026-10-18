@@ -1,33 +1,30 @@
 "use client";
 import {createContext,useCallback,useContext,useEffect,useMemo,useRef,useState,type ReactNode} from 'react';
-import Link from 'next/link';
-import {SharedRadioPlayer,type RadioConsoleState} from './shared-radio-player';
+import {SharedRadioPlayer,RadioPlaybackControls,type RadioConsoleState,type RadioPlaybackState} from './shared-radio-player';
 import {RetrofuturaRadio} from './retrofutura-radio';
 type Callbacks={onError:(message:string)=>void;onPlay:()=>void;onProgress:(seconds:number)=>void;onEnded:()=>void};
 const empty:Callbacks={onError:()=>{},onPlay:()=>{},onProgress:()=>{},onEnded:()=>{}};
 const initialConsole:RadioConsoleState={options:[],snapshot:null,onTune:async()=>{}};
-type Session={trackId:string|null;performanceKey:string;interactive:boolean;console:RadioConsoleState;attach:(callbacks:Callbacks)=>()=>void};
-const RadioContext=createContext<Session>({trackId:null,performanceKey:'',interactive:false,console:initialConsole,attach:()=>()=>{}});
+const initialPlayback:RadioPlaybackState={available:false,playing:false,muted:false,volume:1,message:'Connecting to Radio. Playback waits for an authorized station.',onToggle:()=>{},onMute:()=>{},onVolume:()=>{}};
+type Session={playback:RadioPlaybackState;error:string;trackId:string|null;performanceKey:string;interactive:boolean;console:RadioConsoleState;attach:(callbacks:Callbacks)=>()=>void};
+const RadioContext=createContext<Session>({playback:initialPlayback,error:'',trackId:null,performanceKey:'',interactive:false,console:initialConsole,attach:()=>()=>{}});
 /** The root layout owns one audio element. Screens only observe it and attach
  * signal callbacks; replacing a screen never pauses or recreates the player. */
 export function PersistentRadioProvider({children}:{children:ReactNode}) {
   const callbacks=useRef(empty);
   const [trackId,setTrackId]=useState<string|null>(null),[performanceKey,setPerformanceKey]=useState(''),[interactive,setInteractive]=useState(false);
   const [consoleState,setConsole]=useState(initialConsole),[error,setError]=useState('');
+  const [playback,setPlayback]=useState(initialPlayback);
   const attach=useCallback((next:Callbacks)=>{callbacks.current=next;return()=>{if(callbacks.current===next)callbacks.current=empty;};},[]);
   const onTrack=useCallback((id:string|null,key:string)=>{setTrackId(id);setPerformanceKey(key);},[]);
   const onError=useCallback((message:string)=>{setError(message);callbacks.current.onError(message);},[]);
   const onPlay=useCallback(()=>{setError('');callbacks.current.onPlay();},[]);
   const onProgress=useCallback((seconds:number)=>callbacks.current.onProgress(seconds),[]);
   const onEnded=useCallback(()=>callbacks.current.onEnded(),[]);
-  const value=useMemo(()=>({trackId,performanceKey,interactive,console:consoleState,attach}),[trackId,performanceKey,interactive,consoleState,attach]);
+  const value=useMemo(()=>({trackId,performanceKey,interactive,console:consoleState,attach,playback,error}),[trackId,performanceKey,interactive,consoleState,attach,playback,error]);
   return <RadioContext.Provider value={value}>
-    <div style={{paddingBottom:190}}>{children}</div>
-    <section aria-label="Persistent MusicBat player" style={{position:'fixed',bottom:0,left:0,right:0,zIndex:40,background:'#111018',borderTop:'1px solid #ff3ea566',padding:'8px 20px',color:'#eee',maxHeight:'35vh',overflowY:'auto'}}>
-      <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',gap:16}}><span>Bat Radio · {consoleState.snapshot?.category?.genre??'Free Radio'}</span><Link href="/?view=radio" onNavigate={()=>window.dispatchEvent(new Event('musicbat:open-radio'))} style={{color:'#ff69bd'}}>Open Radio</Link></div>
-      <SharedRadioPlayer hideTuning onConsole={setConsole} onTrack={onTrack} onInteractive={setInteractive} onError={onError} onPlay={onPlay} onProgress={onProgress} onEnded={onEnded} />
-      {error&&<p role="status" style={{margin:0,fontSize:12}}>{error}</p>}
-    </section>
+    {children}
+    <SharedRadioPlayer hideTuning hidePlayback onPlayback={setPlayback} onConsole={setConsole} onTrack={onTrack} onInteractive={setInteractive} onError={onError} onPlay={onPlay} onProgress={onProgress} onEnded={onEnded} />
   </RadioContext.Provider>;
 }
 export function usePersistentRadio(){return useContext(RadioContext);}
@@ -37,7 +34,7 @@ export function useRadioCallbacks(callbacks:Callbacks) {
   useEffect(()=>attach({onError:m=>latest.current.onError(m),onPlay:()=>latest.current.onPlay(),onProgress:s=>latest.current.onProgress(s),onEnded:()=>latest.current.onEnded()}),[attach]);
 }
 export function RadioConsole() {
-  const {console:state}=usePersistentRadio();
+  const {console:state,playback,error}=usePersistentRadio();
   const [busy,setBusy]=useState(false),category=state.snapshot?.category;
   async function tune(next:Parameters<RadioConsoleState['onTune']>[0]){setBusy(true);try{await state.onTune(next);}finally{setBusy(false);}}
   function choose(depth:'genre'|'subgenre'|'style',value:string){
@@ -46,7 +43,7 @@ export function RadioConsole() {
     void tune(next).catch(()=>{});
   }
   return <div className="mb-6 space-y-3">
-    <RetrofuturaRadio options={state.options} snapshot={state.snapshot} onTune={tune} />
+    <RetrofuturaRadio options={state.options} snapshot={state.snapshot} onTune={tune} playback={<><RadioPlaybackControls state={playback} />{error&&<p role="status" style={{color:'#17201c',fontSize:12}}>{error}</p>}</>} />
     <div style={{display:'flex',alignItems:'center',flexWrap:'wrap',gap:16}}>
       <button type="button" disabled={busy} onClick={()=>void tune(null).catch(()=>{})}>Free Radio</button>
       {(['genre','subgenre','style'] as const).map(depth=>{

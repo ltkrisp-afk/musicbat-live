@@ -3,8 +3,7 @@ import assert from 'node:assert/strict';
 import {test} from 'node:test';
 import React from 'react';
 import {create,act} from 'react-test-renderer';
-const {PersistentRadioProvider,useRadioCallbacks}=await import('../components/persistent-radio.tsx');
-const {RadioPlusMembership}=await import('../components/radio-plus-membership.tsx');
+const {PersistentRadioProvider,useRadioCallbacks,RadioConsole}=await import('../components/persistent-radio.tsx');
 
 test('one live audio element and volume survive screen replacement and membership dialog',async()=>{
  const saved={document:globalThis.document,window:globalThis.window,self:globalThis.self,fetch:globalThis.fetch,act:globalThis.IS_REACT_ACT_ENVIRONMENT};
@@ -16,7 +15,7 @@ test('one live audio element and volume survive screen replacement and membershi
  const audio={paused:true,muted:false,volume:1,currentTime:0,readyState:0,src:'',pauses:0,loads:0,getAttribute(name){return name==='src'?this.src:null;},removeAttribute(){this.src='';},load(){this.loads++;},play(){this.paused=false;return Promise.resolve();},pause(){this.paused=true;this.pauses++;}};
  let audioRefs=0,tree;const heard=[];let opened=false;
  const mocks=node=>node.type==='audio'?(audioRefs++,audio):node.type==='dialog'?{showModal(){opened=true;},close(){opened=false;}}:{};
- function Screen({name}){useRadioCallbacks({onError:()=>{},onPlay:()=>heard.push(name),onProgress:()=>{},onEnded:()=>{}});return React.createElement('div',null,name,React.createElement(RadioPlusMembership));}
+ function Screen({name}){useRadioCallbacks({onError:()=>{},onPlay:()=>heard.push(name),onProgress:()=>{},onEnded:()=>{}});return React.createElement('div',null,name,React.createElement(RadioConsole));}
  const view=name=>React.createElement(PersistentRadioProvider,null,React.createElement(Screen,{name,key:name}));
  try {
   await act(async()=>{tree=create(view('Radio'),{createNodeMock:mocks});await new Promise(r=>setTimeout(r,10));});
@@ -26,9 +25,9 @@ test('one live audio element and volume survive screen replacement and membershi
   await act(async()=>tree.root.findByProps({'aria-label':'Volume'}).props.onChange({target:{value:'0.35'}}));
   await act(async()=>tree.root.findByProps({'aria-label':'Mute Radio'}).props.onClick());assert.equal(audio.muted,true);
   const loads=audio.loads,pauses=audio.pauses,src=audio.src;
-  let radioRequested=0;window.addEventListener('musicbat:open-radio',()=>radioRequested++);
-  await act(async()=>tree.root.findAllByProps({children:'Open Radio'}).find(node=>node.props.onNavigate).props.onNavigate());
-  assert.equal(radioRequested,1);assert.equal(audio.pauses,pauses);assert.equal(audio.loads,loads);
+  assert.equal(tree.root.findAllByProps({children:'Open Radio'}).length,0);
+  const console=tree.root.findByProps({'aria-label':'Bat Radio Retrofutura console'});
+  assert.equal(console.findAllByProps({'aria-label':'Radio playback controls'}).length,1);
   for(const name of ['Discovery','Artist page','Manage Songs','Radio']){
    await act(async()=>tree.update(view(name)));
    assert.equal(audioRefs,1);assert.equal(tree.root.findAllByType('audio').length,1);assert.equal(audio.volume,0.35);assert.equal(audio.muted,true);assert.equal(audio.paused,false);assert.equal(audio.src,src);assert.equal(audio.loads,loads);assert.equal(audio.pauses,pauses);

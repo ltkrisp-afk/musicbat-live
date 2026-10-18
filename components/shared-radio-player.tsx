@@ -5,10 +5,19 @@ import type { Category } from '../lib/radio-category';
 import type { ChannelOption, ChannelSnapshot } from '../lib/shared-radio-engine';
 import { createRadioRequestQueue } from '../lib/radio-request-queue';
 type Delivery = {snapshot:ChannelSnapshot;navigation:ChannelOption[];mediaUrl:string|null};
+export type RadioPlaybackState={available:boolean;playing:boolean;muted:boolean;volume:number;message:string;onToggle:()=>void;onMute:()=>void;onVolume:(volume:number)=>void};
+export function RadioPlaybackControls({state}:{state:RadioPlaybackState}) {
+ return <div aria-label="Radio playback controls" style={{display:'flex',alignItems:'center',flexWrap:'wrap',gap:12,padding:'12px',background:'#171a19',borderRadius:6,margin:'14px 0',minWidth:0}}>
+  <button type="button" disabled={!state.available} aria-label={state.playing?'Pause Radio':'Play Radio'} style={{minWidth:76,minHeight:44,padding:'8px 16px',border:'1px solid #ff3ea5',borderRadius:24,background:'#ff3ea522',color:'#fff',flexShrink:0,cursor:'pointer'}} onClick={state.onToggle}>{state.playing?'Pause':'Play'}</button>
+  <label style={{display:'flex',alignItems:'center',gap:8,minHeight:44,flex:'1 1 130px',minWidth:0,color:'#eee'}}><span>Volume</span><input aria-label="Volume" style={{width:'100%',maxWidth:180,minWidth:0,accentColor:'#ff3ea5'}} type="range" min="0" max="1" step="0.05" value={state.volume} onChange={e=>state.onVolume(Number(e.target.value))} /></label>
+  <button type="button" aria-label={state.muted?'Unmute Radio':'Mute Radio'} aria-pressed={state.muted} style={{minHeight:44,padding:'8px 12px',border:'1px solid #ffffff33',borderRadius:24,color:'#eee'}} onClick={state.onMute}>{state.muted?'Unmute':'Mute'}</button>
+  {state.message&&<p role="status" style={{width:'100%',fontSize:12,margin:0,color:'#eee'}}>{state.message}</p>}
+ </div>;
+}
 export type RadioConsoleState={options:ChannelOption[];snapshot:ChannelSnapshot|null;onTune:(category:Category|null)=>Promise<void>};
 
 /** No local track selection. Silence and failed authority immediately unload audio. */
-export function SharedRadioPlayer({onTrack,onError,onPlay,onProgress,onEnded,onInteractive,hideTuning=false,onConsole}:{hideTuning?:boolean;onConsole?:(state:RadioConsoleState)=>void;onInteractive?:(enabled:boolean)=>void;onTrack:(id:string|null,key:string)=>void;onError:(message:string)=>void;onPlay:()=>void;onProgress:(seconds:number)=>void;onEnded:()=>void}) {
+export function SharedRadioPlayer({onTrack,onError,onPlay,onProgress,onEnded,onInteractive,hideTuning=false,onConsole,hidePlayback=false,onPlayback}:{hidePlayback?:boolean;onPlayback?:(state:RadioPlaybackState)=>void;hideTuning?:boolean;onConsole?:(state:RadioConsoleState)=>void;onInteractive?:(enabled:boolean)=>void;onTrack:(id:string|null,key:string)=>void;onError:(message:string)=>void;onPlay:()=>void;onProgress:(seconds:number)=>void;onEnded:()=>void}) {
   const audio=useRef<HTMLAudioElement>(null), generation=useRef(0), wanted=useRef(false);
   const requests=useRef(createRadioRequestQueue());
   const authority=useRef<{delivery:Delivery;received:number}|null>(null);
@@ -17,6 +26,7 @@ export function SharedRadioPlayer({onTrack,onError,onPlay,onProgress,onEnded,onI
   const [delivery,setDelivery]=useState<Delivery|null>(null);
   const [playing,setPlaying]=useState(false);
   const [muted,setMuted]=useState(false);
+  const [volume,setVolume]=useState(1);
   const [busy,setBusy]=useState(false);
   const heard=useRef({key:"",seconds:0,last:0});
   const silence=useCallback(()=>{
@@ -80,6 +90,25 @@ export function SharedRadioPlayer({onTrack,onError,onPlay,onProgress,onEnded,onI
     if(depth==='style')next.style=value;
     void update(next).catch(()=>undefined);
   }
+  const togglePlayback=useCallback(()=>{
+    wanted.current=!playing;
+    if(playing)audio.current?.pause();else{
+      synchronize();
+      // Keep playback in the user's click gesture, including mobile browsers.
+      const element=audio.current;
+      if(element?.getAttribute('src'))void element.play().catch(()=>{
+        wanted.current=false;callbacks.current.onError('Radio could not start. Press Play to try again.');
+      });
+      void update();
+    }
+  },[playing,synchronize,update]);
+  const toggleMute=useCallback(()=>{const next=!muted;setMuted(next);if(audio.current)audio.current.muted=next;},[muted]);
+  const changeVolume=useCallback((next:number)=>{setVolume(next);if(audio.current)audio.current.volume=next;},[]);
+  const playbackMessage=delivery?.mediaUrl?'':delivery?.snapshot.reason==='category-dormant'
+    ? 'This station has no eligible music right now. Choose an available genre or Free Radio.'
+    : delivery?.snapshot.status==='silent' ? 'No eligible recording is available on this station right now.'
+    : 'Connecting to Radio. Playback waits for an authorized station.';
+  useEffect(()=>{onPlayback?.({available:!!delivery?.mediaUrl,playing,muted,volume,message:playbackMessage,onToggle:togglePlayback,onMute:toggleMute,onVolume:changeVolume});},[delivery?.mediaUrl,playing,muted,volume,playbackMessage,togglePlayback,toggleMute,changeVolume,onPlayback]);
   return <div className={hideTuning?undefined:"mb-6 space-y-3"}>
     {!hideTuning&&<>
     <RetrofuturaRadio options={options} snapshot={delivery?.snapshot ?? null} onTune={update} />
@@ -103,29 +132,6 @@ export function SharedRadioPlayer({onTrack,onError,onPlay,onProgress,onEnded,onI
         if(a&&!a.paused&&authority.current){if(heard.current.last)heard.current.seconds+=Math.min(1,(now-heard.current.last)/1000);heard.current.last=now;callbacks.current.onPlay();callbacks.current.onProgress(heard.current.seconds)}
       }}
       onEnded={()=>{callbacks.current.onEnded();void update()}} onError={()=>{silence();callbacks.current.onError('Audio unavailable. Radio will reconnect.')}} />
-    <div aria-label="Radio playback controls" style={{display:'flex',alignItems:'center',flexWrap:'wrap',gap:24,padding:'12px 0'}}>
-    <button type="button" disabled={!delivery?.mediaUrl} aria-label={playing?'Pause Radio':'Play Radio'} style={{minWidth:96,minHeight:44,padding:'10px 20px',border:'1px solid #ff3ea5',borderRadius:24,background:'#ff3ea522',color:'#fff',flexShrink:0,cursor:'pointer'}} onClick={()=>{
-      wanted.current=!playing;
-      if(playing)audio.current?.pause();else{
-        synchronize();
-        // Start existing authorized media in the click gesture. Waiting for a
-        // channel fetch can lose browser playback permission (notably Firefox).
-        const element=audio.current;
-        if(element?.getAttribute('src'))void element.play().catch(()=>{
-          wanted.current=false;callbacks.current.onError('Radio could not start. Press Play to try again.');
-        });
-        void update();
-      }
-    }}>{playing?'Pause':'Play'}</button>
-    <label style={{display:'flex',alignItems:'center',gap:12,minHeight:44,maxWidth:'100%',color:'#eee'}}>
-      <span>Volume</span>
-      <input aria-label="Volume" style={{width:180,maxWidth:'100%',minWidth:0,accentColor:'#ff3ea5'}} type="range" min="0" max="1" step="0.05" defaultValue="1" onChange={e=>{if(audio.current)audio.current.volume=Number(e.target.value)}} />
-    </label>
-    <button type="button" aria-label={muted?'Unmute Radio':'Mute Radio'} aria-pressed={muted} style={{minHeight:44,padding:'10px 16px',border:'1px solid #ffffff33',borderRadius:24,color:'#eee'}} onClick={()=>{const next=!muted;setMuted(next);if(audio.current)audio.current.muted=next;}}>{muted?'Unmute':'Mute'}</button>
-    </div>
-    {!delivery?.mediaUrl&&<p role="status">{delivery?.snapshot.reason==='category-dormant'
-      ? 'This station has no eligible music right now. Choose an available genre or Free Radio.'
-      : delivery?.snapshot.status==='silent' ? 'No eligible recording is available on this station right now.'
-      : 'Connecting to Radio. Playback waits for an authorized station.'}</p>}
+    {!hidePlayback&&<RadioPlaybackControls state={{available:!!delivery?.mediaUrl,playing,muted,volume,message:playbackMessage,onToggle:togglePlayback,onMute:toggleMute,onVolume:changeVolume}} />}
   </div>;
 }
