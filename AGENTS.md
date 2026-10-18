@@ -5,8 +5,8 @@ Use the existing corrected 85/15 development source. The obsolete GitHub default
 be used for development, acceptance, or deployment. Continue from
 `repair/85-15-authoritative-2026-10-18` (base `5a1bda3`).
 The resumed sandbox checkout is `/workspace/sites/musicbat-stage4-sandbox-2026-10-16`.
-Changing GitHub's default branch and removing the obsolete branch remains pending
-repository settings access; do not describe that cleanup as completed. Each cloud task is isolated;
+The owner changed GitHub's default to the authoritative branch and deleted the obsolete
+branch; both were verified through GitHub. This does not itself update a deployment. Each cloud task is isolated;
 do not create a Git worktree unless the user explicitly requests one. Do not
 restart onboarding or create redundant backups.
 

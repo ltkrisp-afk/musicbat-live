@@ -607,12 +607,13 @@ export default function MusicBatLoop({ displayName, artistSlug, initialTab }: { 
             {canManage && <TabsTrigger value="shock" className="h-10 rounded-lg px-4 text-white/55 data-[state=active]:bg-[#ff3ea5] data-[state=active]:text-white"><Gauge /> Shock Room</TabsTrigger>}
           {canManage && <TabsTrigger value="rotunda" className="h-10 rounded-lg px-4 text-white/55 data-[state=active]:bg-[#ff3ea5] data-[state=active]:text-white">Manage Songs</TabsTrigger>}</TabsList>
 
+          {purchaseMessage && <p role="status" aria-live="polite" className="mt-3 text-sm leading-relaxed text-white/65">{purchaseMessage}{purchaseDownloadUrl && <> <a className="font-black text-[#ff69bd] underline" href={purchaseDownloadUrl}>Download track</a></>}</p>}
           <TabsContent value="discover">
             <ArtistDiscovery artists={artists} tracks={tracks} artistSlug={artistSlug} search={search} onSearch={setSearch}
               followingOnly={followingOnly} onFollowingOnly={setFollowingOnly} loading={artistLoading} error={artistError}
               onRetry={()=>void loadArtists().catch(()=>{})} followBusy={followBusy} onFollow={a=>void followArtist(a)}
               purchaseBusy={purchaseBusy} onBuy={t=>void buyCurrentTrack(t as Track)}
-              onRadio={()=>{openRadio();setTab('radio');}} message={purchaseMessage || message} />
+              onRadio={()=>{openRadio();setTab('radio');}} message={message} />
           </TabsContent>
           <TabsContent value="radio">
             <section className="grid gap-5 lg:grid-cols-[minmax(0,1.55fr)_minmax(310px,.65fr)]">
@@ -631,7 +632,6 @@ export default function MusicBatLoop({ displayName, artistSlug, initialTab }: { 
                       </div>
                     </div>
                     {feedbackHint && <p id="radio-feedback-help" role="status" aria-live="polite" className="mt-3 text-sm leading-relaxed text-white/65">{feedbackHint}</p>}
-                    {purchaseMessage && <p role="status" aria-live="polite" className="mt-3 text-sm leading-relaxed text-white/65">{purchaseMessage}{purchaseDownloadUrl && <> <a className="font-black text-[#ff69bd] underline" href={purchaseDownloadUrl}>Download track</a></>}</p>}
                     <div className="mt-6 flex flex-wrap gap-3">
                       <Button aria-pressed={keepActive} aria-describedby={feedbackHint ? "radio-feedback-help" : undefined} style={!canRespond ? {opacity:0.45,cursor:'not-allowed'} : undefined} disabled={busy || !canRespond} onClick={() => void toggleKeep(current)} title={feedbackHint ?? "Keep this track in rotation or remove your keep."} className={keepActive ? "h-11 rounded-full border border-[#ff69bd] bg-[#ff3ea5] px-5 text-white" : "h-11 rounded-full border border-white/15 bg-white/[0.045] px-5 text-white"}>Keep in rotation</Button>
                     </div>
