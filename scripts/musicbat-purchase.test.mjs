@@ -232,6 +232,33 @@ test("processing charge stays with platform and checkout amount preserves artist
   sqlite.close();
 });
 
+test("superseded pending 90/10 Checkout cannot be reopened or create a second charge", async () => {
+  const { sqlite, state, purchase } = await fixture();
+  const checkout = await purchase.POST(post());
+  const cookie = checkout.headers.get('set-cookie').split(';')[0];
+  const { purchase: draft } = await checkout.json();
+  sqlite.prepare('UPDATE purchases SET artist_share_cents=900, platform_fee_cents=100 WHERE id=?').run(draft.id);
+  const before = sqlite.prepare('SELECT * FROM purchases WHERE id=?').get(draft.id);
+  const requests = state.requests.length;
+  const retry = await purchase.POST(post(1, cookie));
+  assert.equal(retry.status, 409);
+  assert.equal((await retry.json()).checkoutUrl, undefined);
+  assert.equal(state.requests.filter(r => r.init.method === 'POST' && r.url.endsWith('/v1/checkout/sessions')).length, 1);
+  assert.ok(state.requests.length >= requests);
+  assert.deepEqual(sqlite.prepare('SELECT * FROM purchases WHERE id=?').get(draft.id), before);
+  assert.equal(sqlite.prepare('SELECT count(*) AS n FROM purchases').get().n, 1);
+  sqlite.close();
+});
+
+test("active commerce disclosures reject obsolete allocation", async () => {
+  for (const path of ['../app/musicbat-loop.tsx', '../README.md']) {
+    const source = await readFile(new URL(path, import.meta.url), 'utf8');
+    assert.doesNotMatch(source, /90\s*%|90\s*\/\s*10/);
+    assert.match(source, /85%/);
+    assert.match(source, /15%/);
+  }
+});
+
 test("legacy purchase snapshot still accepts historical fee and total", async () => {
   const {sqlite,state,purchase}=await fixture();
   const {purchase:draft}=await (await purchase.POST(post())).json();
