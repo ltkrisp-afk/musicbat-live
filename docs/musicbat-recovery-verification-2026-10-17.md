@@ -1,0 +1,111 @@
+# MusicBat recovery and Stage 4 evidence — October 17, 2026
+
+Status: recovery investigation and local verification executed; hosted Stage 4 acceptance is incomplete. This report distinguishes source, deployment, data, local fixtures, browser execution and genuine Stripe evidence. No production change is authorized by this report.
+
+## Exact application identities
+
+The complete owned Sites inventory returned exactly two entries, with no next page:
+
+| Purpose | Existing project | Address | Saved version / source |
+| --- | --- | --- | --- |
+| Public original application, titled Musicbat-Minimum-Loop | `appgprj_6aaa2f4673e88191b504cf941f475802` | https://musicbat.audio | v16 / `3d0b7e98bfc3180c37a4d90395ffcaaf5806efbe` |
+| Isolated owner-private Stage 4 sandbox | `appgprj_6ad26204823c81918260d33e13429074` | https://musicbat-stage4-sandbox-2026-10-16.ltkrisp.chatgpt.site | v1 / `b42f746879862ee6b716e4de1c5269d856c5c6b1` |
+
+`https://musicbat-minimum-loop.ltkrisp.chatgpt.site` is the platform address returned for the production project's deployment, not a third owned application. A Sites/output title, its custom domain, its repository and its local source checkout are different identifiers. No additional hosting project, database or application was created during this recovery.
+
+Production deployment `appgdep_6ad38010c47881918c6ca916b53b4f8e` succeeded at `2026-10-17T14:03:46.665356Z`, using saved version `appgprj_6aaa2f4673e88191b504cf941f475802~appgver_d95b0fb2a0ac81918af7a196a05566b0`, environment revision 10. The currently configured production environment is revision 11; its sandbox key is masked by the platform, not readable here. Do not confuse a masked value with an absent key.
+
+Sandbox deployment remains `appgdep_6ad26321b0fc8191b9ee83fb9243e832`, saved version `appgprj_6ad26204823c81918260d33e13429074~appgver_008abf007024819192ab231adeef10e5`. Its configuration remains revision 1, test mode and release paused. It has no Stripe API/signing secret entry, Radio origin/token or attached automation. No sandbox deployment was performed during this recovery.
+
+## Preserved source and the previous merge
+
+The previous turn merged PR #2 into the Cloudflare Radio development branch, then PR #1 into `engineering/phase4-acceptance-2026-10-16`, before the user's later instruction to freeze unverified merges. These events are acknowledged, not hidden or undone by rewriting history:
+
+- Mobile change: `f40e9d1eafaa98751cbe8ae85b5f1fb6de8f98f4`.
+- PR #2 merge: `0a85df3aacb5f455ea336b62e012a523389a7d9c`.
+- Combined Phase 4 merge: `ceb34a998ada5d9b8b54a01eaad55dc098db46d9`.
+- Subsequent browser-verification-only commits: `e82d11614a778a8ccf1736ec36c38bae99a825a1`, then workflow correction `6d22b34c193752437fc015af7412d38192c2568f`.
+
+GitHub independently returned the combined development branch SHA after the merge. Comparing original Phase 2 `0683cdfe6869468076fbcdff6602ef2b41b13435` against `ceb34a9` returned ahead=21, behind=0 and that original Phase 2 SHA as the merge base. Comparing `f40e9d1` against it returned ahead=2, behind=0 and `f40e9d1` as the merge base. Original history and the mobile changes are therefore reachable through the combined development branch. Existing branches and original-history recovery materials were not removed, rewritten or duplicated.
+
+Earlier temporary checkouts were removed by automated workspace maintenance. The existing sandbox source was reopened through its supported Sites source repository at `/workspace/sites/musicbat-stage4-sandbox-2026-10-16`, exactly `b42f746`. The production source was opened separately for read-only inspection at `/workspace/sites/musicbat-production-inspection`, exactly `3d0b7e9`; that checkout remains clean.
+
+For local verification, the 18 changed GitHub blobs from original Phase 3 to the combined development commit were imported into a local sandbox recovery branch. Every imported blob's actual Git object SHA was checked against GitHub before writing it. This is an exact source projection for testing, not a claim that the Sites repository has the original GitHub commit ancestry. The sandbox manifest continues to identify only the sandbox. No GitHub default branch or production source was changed by this recovery.
+
+The original local-only documentation checkpoint `6079b8d` is not the verified remote checkpoint for this recovery. Its previous scratch repository is no longer present. The original application history is preserved through the native development ancestry described above; do not claim an independent push or recovery of `6079b8d` itself.
+
+## Audit of f40e9d1 and production
+
+The `f40e9d1` diff changes only responsive inline styles in `components/retrofutura-radio.tsx`: wrapping, clamped padding/font/dial sizes, min-width and box sizing. It retains the three Genre/Subgenre/Style windows, woodgrain/metal presentation, push dial, turn buttons, keyboard/wheel handlers, membership and Free Radio controls. It changes no music, rights, artist ownership, sale pricing, Stripe handling or allocation logic. This source inspection alone does not prove browser usability.
+
+Neither existing deployed source SHA equals this repair or the combined merge. The production repository's actual v15→v16 diff contains exactly one changed file: `app/api/musicbat/audio/[assetId]/route.ts`. It replaces track-addressable audio responses with unconditional HTTP 410 for GET and HEAD, directing users to `/channel/audio`.
+
+However, the same deployed production source still renders `MusicBatPlayer` with `src={current.audio_url}` in `app/musicbat-loop.tsx`. All five current production track rows still point to those legacy audio URLs. This is a demonstrated source-level player/endpoint incompatibility introduced in production v16, separate from f40e9d1. Read-only direct HTTPS probes from this environment returned HTTP 403 for both the home page and an audio path; they did not establish an actual browser-visible 410. The deployed code comparison supplies the incompatibility evidence.
+
+Production D1 still contains the five active song records: It's A lie, Surfin' Baghdad, New Way Down, Punk Rock Blues and Unity. These are catalog-presence observations, not fresh verification of each R2 object or checksum. Production has eight user tables; sandbox has 28, including recovery/evidence/rights tables. The sandbox tracks and artist_accounts tables are empty. No production catalog, identity, database row or audio object was copied or modified. In particular, per-Site user IDs cannot be copied into the sandbox as if they authenticated there.
+
+Production is frozen under the user's explicit instruction. Restoring unrestricted legacy audio would conflict with the private authorized-Radio boundary; it was not used as a quick playback workaround. Correct deployment requires a compatible player, authorized Radio service and schema together, followed by explicit production authorization. No incomplete production patch or rollback was published.
+
+## Executed automated verification
+
+On the exact combined application source projected into the existing sandbox checkout:
+
+- `npm test`: **211 tests, 211 passed, 0 failed, 0 skipped, 0 cancelled**, 32335.82801 ms.
+- `npm run typecheck`: exit 0.
+- `npm run lint`: exit 0, no reported lint errors/warnings.
+- `npm run build`: exit 0, all five Vinext build environments completed.
+- `git diff --check`: passed.
+- New mobile browser script: JavaScript syntax check passed.
+
+The previous 209 passing tests were preserved; the two additional existing tests exercise slow-client stream backpressure/listener cleanup and disconnect cancellation. The suite includes the connected upload/Radio/signed-fixture purchase/download/withdrawal/restart lifecycle, identity separation, rights, radio signals, duplicate events, concurrency and ambiguous payment races. SQLite and generated WAV audio are real local execution; Stripe, hosted identity and R2 remain fixtures in these tests.
+
+GitHub's combined merge had a successful regression check. Separate CI is running against the browser-test additions; outcomes below must be filled from terminal run evidence, never inferred from a committed workflow.
+
+## Browser verification
+
+The current managed Work runtime has no supported control-browser capability; no ad hoc local browser or preview server was installed. Instead, the existing repository browser harnesses are being executed in a separate normal GitHub Actions runner, using generated fixtures and loopback-only endpoints. This is actual Chromium fixture-application integration, not authenticated hosted acceptance.
+
+The browser job runs shared Radio playback/concurrency/reconnect/withdrawal tests, the actual Vinext application playback/control/navigation checks, and additional 320/375/390/768/1280-pixel console/wordmark/dial checks with screenshots. It uses no hosted identity, secret, production data or Stripe charge.
+
+The initial verification workflow failed validation before starting a job because `runner.temp` was referenced in job-level env, where the runner context is unavailable. That workflow defect was corrected in `6d22b34` by setting the runtime module path within a runner step. No assertions were removed. The failed initial run is retained: https://github.com/ltkrisp-afk/musicbat-live/actions/runs/39056904530 . Corrected browser run: https://github.com/ltkrisp-afk/musicbat-live/actions/runs/39056980818 .
+
+The corrected browser run `39056980818` passed 8 shared-Radio checks, 4 actual-application checks and 5 width checks (17 total). Later run `39057421077` also passed physical Genre/Subgenre/Style tuning through a signed local subscription fixture. These are genuine Chromium executions with simulated subscription payments, not genuine Stripe webhook evidence.
+
+Screenshot inspection showed that layout visibility alone missed a defect: the fixed bottom player could cover the mobile knob. Stronger hit-testing reproduced it in run `39057567452`, failing with `persistent player obscures the dial at viewport 320`. That failure was retained rather than weakening the assertion.
+
+At the owner's explicit direction on October 17, the development repair `eb0720dbc633ef924779aea0abb675d4c3d15b4a` removes the detached bottom bar and its Open Radio link. Playback controls are displayed inside the Retrofutura console between channel position and the genre windows. The root-owned audio element remains mounted, preserving playback, mute and volume across navigation. The console header, woodgrain, glass windows and physical tuning knob are preserved. No future design or interaction changes are authorized by this correction; bring those proposals to the owner before implementation.
+
+Post-correction local results: 211 tests passed, zero failures/skips/cancellations (33132.698233 ms); TypeScript, lint, production build and diff whitespace checks passed. Browser run `39099741903` completed successfully: 8 shared-Radio checks, 4 actual-application checks and 6 mobile/physical-dial checks, 18 total with zero failures. It verifies control placement between channel position and genre windows, removal of the bottom bar, real knob hit-testing at 320/375/390/768/1280 pixels, one live audio element across navigation, and mute/volume/pause/resume. Chromium 151.0.7922.34 used generated audio and signed local subscription fixtures. No Stripe API payment was created. Screenshot inspection confirmed the controls are inside the existing woodgrain/metal console at 320 and 1280 pixels.
+
+Regression CI run `39099741848` also completed successfully: 211 tests passed, zero failed (33561.603458 ms), TypeScript, lint and production build passed. Browser artifact `12125848499` has ZIP SHA-256 `f178c50b6223bec4dd1641a0ca94b704606f570e1dec6a2a12b697048d7a0286`; it was downloaded and its hash matched. Screenshots and JSON are retained in that GitHub Actions artifact.
+
+Independent GitHub ref retrieval confirmed repair branch `repair/mobile-player-occlusion-2026-10-17` at `eb0720dbc633ef924779aea0abb675d4c3d15b4a`. The Phase 2 comparison returned merge base `0683cdfe6869468076fbcdff6602ef2b41b13435`, ahead 27, behind 0. Every GitHub application blob matched the local sandbox projection, excluding the intentionally different Site manifest. No default-branch update or repair merge was performed.
+
+## Genuine Stripe sandbox evidence and remaining gates
+
+The already-connected Stripe integration returned exactly MusicBat.audio sandbox, context `acct_1UHA0OLKJHBmA7Jw`, livemode=false. No repeated account-selection or key-generation request was submitted.
+
+Fresh read-only Stripe retrieval confirmed historical PaymentIntent `pi_3UQw4cLKJHBmA7Jw0F0cEpwp`: succeeded, livemode=false, received 237 USD cents, application fee 67 cents, destination `acct_1UQrXtLKJHXYfqXB`, purchase metadata `8006e921-f76f-4eae-a6b5-e7cce99ae819`. Historical Checkout line-item retrieval independently returned existing prices of 200 and 37 cents. Thus the destination amount is 170 cents; the documented base split is 170/30, with 37 cents collected separately for processing. This does not verify actual processor cost, final settlement, a new payment, fresh webhook delivery or hosted download authorization.
+
+No new checkout was created. The connected tool's operation discovery did not expose an expiration write operation; that is not proof of a particular API-key permission error. More importantly, the hosted application has no runtime API/signing-secret bindings, and connector authorization is not exported as `STRIPE_SECRET_KEY`. The masked key on production cannot be read or transferred through these tools. No evidence justifies replacing an existing key.
+
+There are also unresolved internal engineering gates: the current Radio source adapter supplies private R2 bytes and D1 permission checks but remains dependent on the synchronous Node/SQLite scheduling service. Its source explicitly says D1 requires an asynchronous atomic state-machine adaptation. That migration and hosted unattended recovery integration have not been completed; they must not be disguised as external authentication problems or declared done after a source merge.
+
+Hosted Stage 4 cannot pass until the supported existing sandbox runtime secret bindings and genuine webhook delivery path are available, the Radio scheduling/recovery integration is completed, actual per-Site artist/patron identities and rights-reviewed test audio are established, and the full hosted journey executes. Preserve owner-only access; do not silently make the sandbox public to receive Stripe webhooks. No live Stripe, new account/key, price change, production write, remote migration or new hosted resource occurred in this recovery.
+
+## Preservation and release rule
+
+Before a future completed checkpoint is reported, independently read its exact remote branch SHA and verify required ancestry. A local commit, copied tree, merge result, passing fixture suite and hosted deployment are separate facts. For every publication, verify the selected project ID and actual saved/deployed source revision. The public production project must never be the target of sandbox testing.
+
+## Owner-approved layout publication and the blank hosted Radio
+
+This update supersedes the earlier v1-only deployment observation above. The owner requested returning playback controls inside the Radio box, removing the detached bottom bar and its Open Radio link, and preserving the existing Retrofutura presentation. Future design or interaction proposals require owner review before implementation.
+
+The supported source helper committed and pushed the existing sandbox repository to `d243e0342331437e6ef1f08c6db99c6cbde645f2`, packaging the already-tested build. Sites and GitHub are separate repositories: this Sites commit is not claimed to have the original GitHub ancestry. The verified application files match GitHub repair commit `eb0720dbc633ef924779aea0abb675d4c3d15b4a`; the Site manifest retains only the sandbox identity. This publication includes the exact previously merged development source projection documented above, with no schema migration or catalog copy.
+
+Owner-private deployment `appgdep_6ad455e0e69c8191973c519d5ab1a26f` SUCCEEDED at `2026-10-18T05:15:23.321592Z`, environment revision 1. Saved version `appgprj_6ad26204823c81918260d33e13429074~appgver_173a5e106e3081918e3c2bf7a21f7898` (v2), source `d243e0342331437e6ef1f08c6db99c6cbde645f2`, URL https://musicbat-stage4-sandbox-2026-10-16.ltkrisp.chatgpt.site . The production project, default branch, live Stripe and access policies were not modified.
+
+A fresh read-only database check during the owner's blank-page report returned zero sandbox tracks (no further page), while production returned five active track records: It's A lie, Surfin' Baghdad, New Way Down, Punk Rock Blues and Unity. The logs of the then-deployed v1 sandbox independently showed repeated authenticated GET `/api/musicbat/channel` responses with HTTP 503, including request `236dd71583d9bee1c3cf7a18bc966e38` at `2026-10-18T05:13:26.309000Z`. The source returns 503 when no private Radio service is bound. This is hosted failure evidence, not expected behavior merely because the page is a sandbox. The UI correction does not supply a catalog, Radio runtime or Stripe bindings, and it must not be reported as fixing hosted playback or completing the purchase loop.
+
+The sandbox is still incomplete: establish an authorized sandbox artist/catalog and private Radio runtime, bind the existing test credential/signing secret through supported secure hosting settings, establish genuine signed webhook reachability without changing owner-only access, then execute the real hosted purchase/download/withdrawal/recovery journey. Missing hosted capabilities and unfinished scheduler/recovery integration remain explicit Stage 4 acceptance conditions. The owner has not been asked to reupload music, generate another key or repeat account authorization as part of this layout correction.
+
