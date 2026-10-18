@@ -33,7 +33,7 @@ export function RetrofuturaRadio({options,snapshot,onTune,playback}: {
  async function tune(c:Category|null,explore:boolean) {
   if (pending) return;
   setPending(true);
-  try {await onTune(c);if(explore&&c&&!c.style)setDial(exploreDial(c));setMessage(c?'Shared channel tuned.':'Continuous discovery tuned.');}
+  try {await onTune(c);if(explore&&c&&!c.style)setDial(exploreDial(c));if(!c)setDial({parent:null,index:0});setMessage(c?'Shared channel tuned.':'Continuous discovery tuned.');}
   catch(error) {setMessage(error instanceof Error?error.message:'The channel is quiet. Try again.');}
   finally {setPending(false);}
  }
@@ -68,7 +68,7 @@ export function RetrofuturaRadio({options,snapshot,onTune,playback}: {
      <div style={{display:'flex',alignItems:'center',justifyContent:'center',gap:'clamp(4px, 2vw, 12px)'}}>
       <button type="button" aria-label="Turn dial backward" disabled={pending||!choices.length} onClick={()=>turn(-1)}>−</button>
       <button type="button" aria-label="Push dial to tune category" disabled={pending||!selected||selected.dormant||selected.locked}
-       onClick={()=>{if(suppressTouchClick.current){suppressTouchClick.current=false;return;}void tune(selected!.category,true);}} onTouchStart={e=>{touchStartY.current=e.touches[0]?.clientY??null;}} onTouchEnd={e=>finishTouch(e.changedTouches[0]?.clientY??0)} onTouchCancel={()=>{touchStartY.current=null;}} onWheel={e=>{e.preventDefault();if(!pending)turn(e.deltaY>0?1:-1)}}
+       onClick={e=>{if(e.detail!==0&&suppressTouchClick.current){suppressTouchClick.current=false;return;}suppressTouchClick.current=false;void tune(selected!.category,true);}} onTouchStart={e=>{suppressTouchClick.current=false;touchStartY.current=e.touches[0]?.clientY??null;}} onTouchEnd={e=>finishTouch(e.changedTouches[0]?.clientY??0)} onTouchCancel={()=>{touchStartY.current=null;suppressTouchClick.current=false;}} onWheel={e=>{e.preventDefault();if(!pending)turn(e.deltaY>0?1:-1)}}
        onKeyDown={e=>{if(e.key==='ArrowRight'||e.key==='ArrowUp'){e.preventDefault();turn(1)}if(e.key==='ArrowLeft'||e.key==='ArrowDown'){e.preventDefault();turn(-1)}}}
        style={{width:'clamp(88px, 28vw, 112px)',height:'clamp(88px, 28vw, 112px)',flexShrink:0,borderRadius:'50%',border:'5px solid #4b514f',
         background:'conic-gradient(#ddd,#777,#eee,#929695,#ddd)',boxShadow:'0 5px 8px #0006,inset 0 0 0 6px #a2a6a3',cursor:'pointer',touchAction:'pan-x',color:'#171b19'}}>
