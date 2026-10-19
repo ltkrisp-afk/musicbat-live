@@ -32,3 +32,13 @@ Do not deploy production, change live Stripe credentials, or initiate real
 payments without explicit approval. Do not create duplicate Stripe accounts,
 invent credentials, or print secrets. Use an explicitly selected isolated
 sandbox for Phase 4; local offline acceptance is not hosted sandbox acceptance.
+
+Before each new hosted acceptance run, verify the selected sandbox project,
+deployed source/version, browser control and account role, and the active
+generated fixture's recording permission and station review. Check remaining
+validity covers the planned run; renew only the exact authorized fixture through
+its guarded review control when needed. Preserve withdrawals, completed payments,
+recovery evidence and transaction history. Do not reset verified records or use
+production recordings as fixtures. Distinguish browser service failures from
+application failures. Record PASS/FAIL/BLOCKED/NOT RUN, actual UTC observations
+and evidence references. Never label responsive Chromium as physical Safari.

@@ -2,6 +2,7 @@ import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import ts from 'typescript';
+import {DatabaseSync} from 'node:sqlite';
 const origin='https://musicbat-stage4-sandbox-2026-10-16.ltkrisp.chatgpt.site';
 const source=readFileSync('app/api/musicbat/sandbox/acceptance/route.ts','utf8')
  .replace("import {env} from 'cloudflare:workers';",'const env=globalThis.acceptanceState.env;')
@@ -32,9 +33,13 @@ test('authenticated sandbox owner can invoke the existing durable recovery funct
  assert.deepEqual(await run({operation:'recover'}),{status:200,calls:0,writes:1});
 });
 
-test('new authorized Radio fixture verifies exact bytes without any Stripe call or account write',async()=>{
+function radioTone(){
  const pcm=Buffer.alloc(2880044);pcm.write('RIFF',0);pcm.writeUInt32LE(pcm.length-8,4);pcm.write('WAVEfmt ',8);pcm.writeUInt32LE(16,16);pcm.writeUInt16LE(1,20);pcm.writeUInt16LE(1,22);pcm.writeUInt32LE(16000,24);pcm.writeUInt32LE(32000,28);pcm.writeUInt16LE(2,32);pcm.writeUInt16LE(16,34);pcm.write('data',36);pcm.writeUInt32LE(pcm.length-44,40);
  for(let second=0;second<90;second++)for(let n=0;n<16000;n++)pcm.writeInt16LE(Math.trunc(2400*Math.sin(2*Math.PI*440*(second+n/16000))),44+(second*16000+n)*2);
+ return pcm;
+}
+test('new authorized Radio fixture verifies exact bytes without any Stripe call or account write',async()=>{
+ const pcm=radioTone();
  const object={size:pcm.length,arrayBuffer:async()=>pcm};
  const result=await run({operation:'setup-radio',object});
  assert.equal(result.status,200);assert.equal(result.writes,1);assert.equal(result.processorCalls,0);
@@ -47,4 +52,36 @@ test('new Radio fixture remains owner-only, sandbox-only and cross-origin protec
   const result=await run({...options,operation:'setup-radio'});assert.equal(result.status,404);assert.equal(result.calls,0);assert.equal(result.writes,0);
  }
  const cross=await run({operation:'setup-radio',requestOrigin:'https://evil.invalid'});assert.equal(cross.status,403);assert.equal(cross.calls,0);
+});
+
+
+test('station renewal replaces an expired fixture review, bounds it to existing permission and preserves clocks and withdrawn records',async()=>{
+ const sql=new DatabaseSync(':memory:');
+ sql.exec(`CREATE TABLE tracks(id INTEGER,artist_id TEXT,title TEXT,audio_url TEXT,status TEXT,radio_enabled INTEGER,rights_attested INTEGER,sale_rights_attested INTEGER);
+ CREATE TABLE playback_permissions(track_id INTEGER,artist_authorized INTEGER,free_allowed INTEGER,expires_at INTEGER,withdrawn_at INTEGER);
+ CREATE TABLE radio_engine_channels(id TEXT,config_json TEXT,last_clock INTEGER,revision INTEGER,ledger_sequence INTEGER);`);
+ const now=Date.now(),expiry=now+600000;
+ const evidence='Generated PCM fixture e2e/fixtures.mjs; SHA256 571c17392f99b183533d06ae6c324b21df37c5f4e678df36a77303f528812f0f; owner-authorized sandbox purchase-loop test';
+ const config={category:null,mode:'free-radio',territory:'worldwide',minimumArtists:1,review:{reference:evidence,verifiedAt:now-86400000,expiresAt:now-1},gate:null};
+ sql.prepare('INSERT INTO tracks VALUES(?,?,?,?,?,?,?,?)').run(2,'owner','Sandbox authorized Radio tone — 2026-10-18 evening','fixture','active',1,1,0);
+ sql.prepare('INSERT INTO playback_permissions VALUES(?,?,?,?,?)').run(2,1,1,expiry,null);
+ sql.prepare('INSERT INTO playback_permissions VALUES(?,?,?,?,?)').run(1,1,1,now-1,123);
+ sql.prepare('INSERT INTO radio_engine_channels VALUES(?,?,?,?,?)').run('free',JSON.stringify(config),789,12,34);
+ const DB={prepare(query){const statement=sql.prepare(query);const wrap=(args=[])=>({first:async()=>statement.get(...args)??null,all:async()=>({results:statement.all(...args)}),run:async()=>({meta:{changes:statement.run(...args).changes}}),bind:(...next)=>wrap(next)});return wrap();}};
+ const pcm=radioTone(),object={size:pcm.length,arrayBuffer:async()=>pcm};
+ const before=sql.prepare('SELECT * FROM playback_permissions').all();
+ const renewed=await run({operation:'renew-radio',object,env:{DB}});assert.equal(renewed.status,200);
+ const row=sql.prepare('SELECT * FROM radio_engine_channels').get(),review=JSON.parse(row.config_json).review;
+ assert.equal(review.expiresAt,expiry);assert.match(review.reference,/19b7f96/);assert.ok(review.verifiedAt>=now);
+ assert.deepEqual([row.last_clock,row.revision,row.ledger_sequence],[789,12,34]);
+ assert.deepEqual(sql.prepare('SELECT * FROM playback_permissions').all(),before);
+ for(const invalid of ['withdrawn','expired','unrelated-review']){
+  sql.prepare('UPDATE tracks SET status=?').run(invalid==='withdrawn'?'withdrawn':'active');
+  sql.prepare('UPDATE playback_permissions SET expires_at=? WHERE track_id=2').run(invalid==='expired'?now-1:expiry);
+  const candidate={...config,review:{...config.review,reference:invalid==='unrelated-review'?'unrelated':evidence}};
+  sql.prepare('UPDATE radio_engine_channels SET config_json=?').run(JSON.stringify(candidate));
+  const denied=await run({operation:'renew-radio',object,env:{DB}});assert.equal(denied.status,409,invalid);
+  assert.equal(sql.prepare('SELECT config_json FROM radio_engine_channels').get().config_json,JSON.stringify(candidate));
+ }
+ sql.close();
 });

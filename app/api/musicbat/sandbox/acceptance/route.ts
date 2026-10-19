@@ -15,7 +15,10 @@ async function authority(request:Request){
 }
 export async function GET(request:Request){
  if(!await authority(request))return new Response(null,{status:404});
- return new Response('<!doctype html><title>MusicBat sandbox acceptance</title><h1>Sandbox acceptance controls</h1><p>Generated tone only. Existing test account only. No live payments.</p><form method="post"><button name="operation" value="setup">Configure generated tone fixture</button><button name="operation" value="setup-radio">Review newly authorized Radio tone</button><button name="operation" value="recover">Run durable Checkout recovery</button></form>',{headers:{'content-type':'text/html;charset=utf-8','cache-control':'no-store'}});
+ const row=await env.DB!.prepare("SELECT config_json FROM radio_engine_channels WHERE id='free'").first<{config_json:string}>();
+ let reviewStatus='Station review missing';
+ try{const expires=JSON.parse(row?.config_json??'{}').review?.expiresAt;if(Number.isSafeInteger(expires))reviewStatus=`Station review ${expires<=Date.now()?'expired':'valid until'} ${new Date(expires).toISOString()}`;}catch{}
+ return new Response(`<!doctype html><title>MusicBat sandbox acceptance</title><h1>Sandbox acceptance controls</h1><p>Generated tone only. Existing test account only. No live payments.</p><p>${reviewStatus}</p><form method="post"><button name="operation" value="setup">Configure generated tone fixture</button><button name="operation" value="setup-radio">Review newly authorized Radio tone</button><button name="operation" value="renew-radio">Renew station review for the authorized Radio tone</button><button name="operation" value="recover">Run durable Checkout recovery</button></form>`,{headers:{'content-type':'text/html;charset=utf-8','cache-control':'no-store'}});
 }
 export async function POST(request:Request){
  const user=await authority(request);
@@ -23,8 +26,8 @@ export async function POST(request:Request){
  if(request.headers.get('origin')!==origin)return new Response(null,{status:403});
  const db=env.DB!,bucket=env.BUCKET!,operation=(await request.formData()).get('operation');
  if(operation==='recover')return Response.json(await runCheckoutRecovery({...env,DB:db},{limit:10}));
- if(operation!=='setup'&&operation!=='setup-radio')return new Response(null,{status:400});
- const radioOnly=operation==='setup-radio';
+ if(operation!=='setup'&&operation!=='setup-radio'&&operation!=='renew-radio')return new Response(null,{status:400});
+ const radioOnly=operation==='setup-radio'||operation==='renew-radio';
  const hash=radioOnly?freshHash:originalHash;
  const title=radioOnly?'Sandbox authorized Radio tone — 2026-10-18 evening':'Stage 4 Acceptance Tone — 440 Hz';
  if(!radioOnly){
@@ -47,6 +50,17 @@ export async function POST(request:Request){
  const permission={recording_basis:'direct',recording_evidence:evidence,composition_evidence:evidence,reviewed_by:'MusicBat sandbox generated-fixture review',reviewed_at:now,artist_authorized:1,free_allowed:1,plus_allowed:0,starts_at:now,expires_at:until,withdrawn_at:null,territory:'worldwide'};
  const source={id:String(track.id),artistIds:[user.userId],albumId:'sandbox-generated-tone',compilationIds:[],metadataReviewed:true,eligible:true,statutoryEligibility:null,permission,category:radioOnly?{genre:'Experimental',subgenre:'Test tones',style:'Generated sine'}:{genre:'Experimental'},durationMs:radioOnly?90000:12000,directRestrictions:null};
  const config={category:null,mode:'free-radio',territory:'worldwide',minimumArtists:1,review:{reference:evidence,verifiedAt:now,expiresAt:until},gate:null};
+ if(operation==='renew-radio'){
+  const prior=await db.prepare("SELECT config_json FROM radio_engine_channels WHERE id='free'").first<{config_json:string}>();
+  const permitted=await db.prepare('SELECT expires_at,withdrawn_at FROM playback_permissions WHERE track_id=? AND artist_authorized=1 AND free_allowed=1').bind(track.id).first<{expires_at:number;withdrawn_at:number|null}>();
+  let current;try{current=JSON.parse(prior?.config_json??'null');}catch{return new Response(null,{status:409});}
+  const originalEvidence=`Generated PCM fixture e2e/fixtures.mjs; SHA256 ${originalHash}; owner-authorized sandbox purchase-loop test`;
+  if(!current||current.mode!=='free-radio'||current.category!==null||current.minimumArtists!==1||current.gate!==null||![originalEvidence,evidence].includes(current.review?.reference)||!permitted||permitted.withdrawn_at!==null||!Number.isSafeInteger(permitted.expires_at)||permitted.expires_at<=now+90000)return Response.json({error:'The fixed active fixture and a valid existing recording permission are required.'},{status:409});
+  const expiresAt=Math.min(until,permitted.expires_at);
+  const result=await db.prepare("UPDATE radio_engine_channels SET config_json=json_set(config_json,'$.review',json(?)) WHERE id='free' AND config_json=?").bind(JSON.stringify({reference:evidence,verifiedAt:now,expiresAt}),prior!.config_json).run();
+  if(result.meta.changes!==1)return Response.json({error:'Station changed; review again before renewal.'},{status:409});
+  return Response.json({renewed:true,track_id:track.id,review_expires_at:expiresAt});
+ }
  await db.batch([
   ...(!radioOnly?[db.prepare('INSERT OR IGNORE INTO artist_accounts(artist_id,stripe_account_id,charges_enabled,payouts_enabled,details_submitted) VALUES(?,?,1,1,1)').bind(user.userId,account)]:[]),
   db.prepare('INSERT OR IGNORE INTO playback_permissions(track_id,recording_basis,recording_evidence,composition_evidence,reviewed_by,reviewed_at,artist_authorized,free_allowed,plus_allowed,starts_at,expires_at,territory) VALUES(?,?,?,?,?,?,1,1,0,?,?,?)').bind(track.id,'direct',evidence,evidence,permission.reviewed_by,now,now,until,'worldwide'),
