@@ -212,9 +212,10 @@ test('deleted ledger tails and missing decision history cannot reset rolling acc
  }
 });
 
-const transportURL=await moduleAt('../lib/shared-radio-transport.ts');
+const failureURL=await moduleAt('../lib/radio-failure.ts');
+const transportURL=await moduleAt('../lib/shared-radio-transport.ts',{"'./radio-failure'":JSON.stringify(failureURL)});
 const {createRadioTransport}=await import(transportURL);
-const {forwardRadio}=await import(await moduleAt('../lib/radio-gateway.ts'));
+const {forwardRadio}=await import(await moduleAt('../lib/radio-gateway.ts',{"'./radio-failure'":JSON.stringify(failureURL)}));
 function liveFixture(options={}) {
  const f=fixture(options);
  const engine=new SharedRadioEngine(f.db,()=>liveFixture.now,'live');

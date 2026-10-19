@@ -111,13 +111,11 @@ test('D1 adapter restores its persisted timeline after a real disk close and reo
 
 test('real local Cloudflare D1/R2 executes guarded concurrency and authenticated range delivery; withdrawal rejects stale bytes',async()=>{
  const bundle=await build({stdin:{resolveDir:process.cwd(),contents:`
-  import {d1RadioService} from './lib/d1-radio-service.ts';
-  import {catalogBoundRadio} from './lib/catalog-radio-boundary.ts';
-  import {membershipBoundRadio} from './lib/membership-radio-boundary.ts';
+  import {configuredRadioService} from './lib/configured-radio-service.ts';
   import {forwardRadio} from './lib/radio-gateway.ts';
   export default {fetch(request,env){
    // Local test identity only; this entrypoint is never part of the Site build.
-   const service=catalogBoundRadio(membershipBoundRadio(d1RadioService(env.DB,env.BUCKET),env.DB,false),env.DB,env.BUCKET);
+   const service=configuredRadioService({...env,MUSICBAT_CLOUDFLARE_RADIO:'test',MUSICBAT_STRIPE_MODE:'test',RADIO_SERVICE:{fetch(){throw Error('regular Radio must not run');}},RADIO_RUNTIME_ORIGIN:'invalid',RADIO_RUNTIME_TOKEN:'x'.repeat(32)});
    return forwardRadio(request,service,request.headers.get('x-fixture-listener'));
   }};
  `},bundle:true,platform:'browser',format:'esm',write:false});

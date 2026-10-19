@@ -1,4 +1,5 @@
 import type { ListenerAuthority, ChannelSnapshot, ChannelOption } from './shared-radio-engine';
+import { recordRadioFailure } from './radio-failure';
 type RadioEngineTransport={
  tune:(listener:ListenerAuthority,command:unknown)=>ChannelSnapshot|Promise<ChannelSnapshot>;
  connect:(listener:ListenerAuthority)=>ChannelSnapshot|Promise<ChannelSnapshot>;
@@ -18,6 +19,7 @@ export function createRadioTransport(engine: RadioEngineTransport, dependencies:
 }) {
   return async (request: Request): Promise<Response> => {
     const headers = { 'cache-control': 'private, no-store' };
+    let dependency='transport.authority';
     try {
       const listener = await dependencies.authority(request);
       if (!listener) return Response.json({error:'Sign in to use MusicBat.'},{status:401,headers});
@@ -32,8 +34,9 @@ export function createRadioTransport(engine: RadioEngineTransport, dependencies:
         const body = await request.json();
         if (!body || Array.isArray(body) || Object.keys(body).some(k=>k !== 'category') || !Object.hasOwn(body,'category'))
           return Response.json({error:'Category command required.'},{status:400,headers});
-        snapshot = await engine.tune(listener,(body as {category: unknown}).category);
-      } else snapshot = await engine.connect(listener);
+        dependency='engine.tune';snapshot = await engine.tune(listener,(body as {category: unknown}).category);
+      } else {dependency='engine.connect';snapshot = await engine.connect(listener);}
+      dependency='transport.territory';
       const territory = await dependencies.territory(snapshot.channelId);
       if (territory !== 'worldwide' && territory !== listener.territory)
         return Response.json({error:'Channel territory not covered.'},{status:403,headers});
@@ -43,7 +46,9 @@ export function createRadioTransport(engine: RadioEngineTransport, dependencies:
         // Client may identify only the assigned performance, never select a track.
         if (url.searchParams.size !== 2 || !p || url.searchParams.get('channel') !== snapshot.channelId ||
             url.searchParams.get('sequence') !== p.authorityId) return new Response(null,{status:409,headers});
+        dependency='transport.source-eligible';
         if (!await dependencies.sourceEligible(p.trackId,listener)) return new Response(null,{status:403,headers});
+        dependency='transport.media';
         const media = await dependencies.media(p.trackId,request);
         // Recheck after asynchronous storage access. A withdrawal/switch/expiry
         // while fetching cannot deliver the old result.
@@ -52,7 +57,7 @@ export function createRadioTransport(engine: RadioEngineTransport, dependencies:
         if (!currentAuthority || currentAuthority.id !== listener.id || currentAuthority.territory !== listener.territory) {
           await media.body?.cancel(); return new Response(null,{status:403,headers});
         }
-        const latest = await engine.reconnect(currentAuthority);
+        dependency='engine.reconnect';const latest = await engine.reconnect(currentAuthority);
         if (!sourceStillEligible || latest.status !== 'playing' || latest.channelId !== snapshot.channelId ||
             latest.performance?.authorityId !== p.authorityId) {
           await media.body?.cancel(); return new Response(null,{status:409,headers});
@@ -60,12 +65,13 @@ export function createRadioTransport(engine: RadioEngineTransport, dependencies:
         const output = new Headers(media.headers); output.set('cache-control','private, no-store');
         return new Response(request.method === 'HEAD' ? null : media.body,{status:media.status,headers:output});
       }
-      const navigation = await engine.navigation(listener);
+      dependency='engine.navigation';const navigation = await engine.navigation(listener);
       return Response.json({snapshot,navigation,mediaUrl:snapshot.performance ?
         `/api/musicbat/channel/audio?channel=${encodeURIComponent(snapshot.channelId)}&sequence=${encodeURIComponent(snapshot.performance.authorityId)}` : null},{headers});
     } catch (error) {
       if(error instanceof Error && error.message==='radio-plus-entitlement-required')
         return Response.json({error:'Radio Plus membership is required for this station.'},{status:403,headers});
+      recordRadioFailure(dependency,error);
       return Response.json({error:'Radio is temporarily unavailable.'},{status:503,headers});
     }
   };

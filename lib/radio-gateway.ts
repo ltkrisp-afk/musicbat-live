@@ -1,3 +1,4 @@
+import { recordRadioFailure } from './radio-failure';
 /** A private service binding is the only channel transport. Never fall back to
  * legacy asset delivery or browser scheduling when the service is missing. */
 export async function forwardRadio(request: Request, service: Pick<Fetcher, 'fetch'> | undefined, userId: string | null) {
@@ -19,5 +20,5 @@ export async function forwardRadio(request: Request, service: Pick<Fetcher, 'fet
       body:request.method === 'POST' ? await request.text() : undefined}));
     const output = new Headers(response.headers); output.set('cache-control','private, no-store');
     return new Response(response.body,{status:response.status,headers:output});
-  } catch { return Response.json({error:'Shared Radio is temporarily unavailable.'},{status:503}); }
+  } catch (error) { recordRadioFailure('gateway.service-fetch',error);return Response.json({error:'Shared Radio is temporarily unavailable.'},{status:503}); }
 }
