@@ -4,6 +4,7 @@ import { RetrofuturaRadio } from './retrofutura-radio';
 import type { Category } from '../lib/radio-category';
 import type { ChannelOption, ChannelSnapshot } from '../lib/shared-radio-engine';
 import { createRadioRequestQueue } from '../lib/radio-request-queue';
+import { correctRadioMediaOffset } from '../lib/radio-media-clock';
 type Delivery = {snapshot:ChannelSnapshot;navigation:ChannelOption[];mediaUrl:string|null};
 export type RadioPlaybackState={available:boolean;playing:boolean;muted:boolean;volume:number;message:string;onToggle:()=>void;onMute:()=>void;onVolume:(volume:number)=>void};
 export function RadioPlaybackControls({state}:{state:RadioPlaybackState}) {
@@ -43,7 +44,9 @@ export function SharedRadioPlayer({onTrack,onError,onPlay,onProgress,onEnded,onI
     if(elapsed>3000 || v.delivery.snapshot.serverNow+elapsed>=p.endsAt){silence();return}
     // Bound each listener's drift below the shared 350 ms pairwise budget.
     // Allowing 350 ms per listener permits two listeners to diverge by 700 ms.
-    if(a.readyState>=1 && Math.abs(a.currentTime-offset)>0.1)a.currentTime=offset;
+    // A range seek must finish before issuing another correction. Re-seeking
+    // on every guard tick can continually cancel a slow hosted media request.
+    correctRadioMediaOffset(a,offset);
   },[silence]);
   const update=useCallback(async(category?:Category|null)=>{
     if(document.visibilityState==='hidden'){if(category!==undefined)throw new Error('Return to this tab to tune Radio.');return;}
