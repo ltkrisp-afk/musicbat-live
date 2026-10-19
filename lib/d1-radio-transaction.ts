@@ -12,7 +12,7 @@ export class D1RadioDatabase {
  private guards:D1PreparedStatement[]=[];
  private writes:D1PreparedStatement[]=[];
  constructor(db:D1Database) { this.session=db.withSession('first-primary'); }
- prepare(sql:string) {
+ prepare(sql:string,{allowChannelClockAdvance=false}={}) {
   const read=async(params:Parameter[])=>{
    const result=await this.session.prepare(sql).bind(...params).all<Row>();
    if(!result.success)throw new Error('radio-d1-read-failed');
@@ -21,7 +21,11 @@ export class D1RadioDatabase {
    let condition:string,expected:Parameter[]=[];
    if(!rows.length)condition=`NOT EXISTS (${sql})`;
    else {
-    const columns=Object.keys(rows[0]);
+    // Independent listeners refresh the same trusted clock. A forward-only
+    // clock refresh does not change the reviewed config, revision or ledger.
+    // Keep those exact guards and reject a clock moving backwards.
+    const columns=Object.keys(rows[0]).filter(c=>!(allowChannelClockAdvance&&c==='last_clock'));
+    if(allowChannelClockAdvance)for(const row of rows)this.guards.push(this.session.prepare("SELECT CASE WHEN EXISTS (SELECT 1 FROM radio_engine_channels WHERE id=? AND last_clock>=?) THEN 1 ELSE json('musicbat-stale-radio-read') END AS radio_clock_guard").bind(row.id,row.last_clock));
     const names=columns.map(c=>'"'+c.replaceAll('"','""')+'"').join(',');
     condition=`(SELECT json_group_array(json_array(${names})) FROM (${sql}))=?`;
     expected=[JSON.stringify(rows.map(row=>columns.map(c=>row[c])))];
@@ -54,7 +58,10 @@ export async function retryD1RadioTransaction<T>(db:D1Database,action:(unit:D1Ra
    // the same bounded retry budget. Transport/auth/storage failures fail
    // closed; a lost response never causes an unbounded blind write retry.
    const reason=error instanceof Error?error.message:String(error);
-   if(attempt===3 || !(reason==='server-clock-regressed'||/malformed JSON/i.test(reason)))throw error;
+   // A boundary can also commit between the channel, history and audit reads.
+   // Recompute that provisional mismatch; persistent corruption still fails
+   // within this same four-attempt budget and is never rewritten or repaired.
+   if(attempt===3 || !(reason==='server-clock-regressed'||reason==='channel-ledger-incomplete'||/malformed JSON/i.test(reason)))throw error;
   }
  }
  throw new Error('radio-d1-contention');

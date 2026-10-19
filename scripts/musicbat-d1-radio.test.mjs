@@ -94,7 +94,7 @@ test('D1 failed audit commit rolls back all writes and missing review, Plus auth
 test('D1 repeated conflicts exhaust bounded retries without persisting a partial decision',async()=>{
  const f=fixture();try{
   const batch=f.db.batch.bind(f.db);let attempts=0;
-  f.db.batch=async statements=>{attempts++;f.sqlite.exec('UPDATE radio_engine_channels SET last_clock=last_clock+1');return batch(statements);};
+  f.db.batch=async statements=>{attempts++;f.sqlite.prepare("UPDATE radio_engine_channels SET config_json=json_set(config_json,'$.minimumArtists',?)").run(attempts+1);return batch(statements);};
   await assert.rejects(f.engine.connect(listener),/malformed JSON/i);assert.equal(attempts,4);
   assert.equal(f.sqlite.prepare('SELECT count(*) n FROM radio_engine_events').get().n,0);
   assert.equal(f.sqlite.prepare('SELECT count(*) n FROM radio_engine_sessions').get().n,0);
@@ -178,5 +178,63 @@ test('persistently regressed D1 server clock still fails closed without changing
   const before=f.sqlite.prepare('SELECT * FROM radio_engine_channels WHERE id=?').get('free');
   await assert.rejects(new D1SharedRadioEngine(f.db,()=>9999).reconnect(listener),/server-clock-regressed/);
   assert.deepEqual(f.sqlite.prepare('SELECT * FROM radio_engine_channels WHERE id=?').get('free'),before);
+ }finally{f.sqlite.close();}
+});
+
+test('concurrent clock-only refresh does not exhaust snapshot guards or rewind a newer clock',async()=>{
+ const f=fixture();try{
+  await f.engine.connect(listener);f.setNow(20000);
+  const batch=f.db.batch.bind(f.db);let attempts=0;
+  f.db.batch=async statements=>{
+   attempts++;f.sqlite.prepare('UPDATE radio_engine_channels SET last_clock=? WHERE id=?').run(15000+attempts,'free');
+   return batch(statements);
+  };
+  const result=await f.engine.reconnect(listener);assert.equal(result.status,'playing');assert.equal(attempts,1);
+  assert.equal(f.sqlite.prepare('SELECT last_clock FROM radio_engine_channels WHERE id=?').get('free').last_clock,20000);
+  f.setNow(21000);
+  f.db.batch=async statements=>{f.sqlite.prepare('UPDATE radio_engine_channels SET last_clock=? WHERE id=?').run(22000,'free');return batch(statements);};
+  await f.engine.reconnect(listener);
+  assert.equal(f.sqlite.prepare('SELECT last_clock FROM radio_engine_channels WHERE id=?').get('free').last_clock,22000);
+ }finally{f.sqlite.close();}
+});
+
+test('a backwards channel-clock write still exhausts bounded guards without committing a decision',async()=>{
+ const f=fixture();try{
+  await f.engine.connect(listener);f.setNow(20000);
+  const before=f.sqlite.prepare('SELECT count(*) n FROM radio_engine_events').get().n;
+  const batch=f.db.batch.bind(f.db);let attempts=0;
+  f.db.batch=async statements=>{attempts++;f.sqlite.prepare('UPDATE radio_engine_channels SET last_clock=last_clock-1 WHERE id=?').run('free');return batch(statements);};
+  await assert.rejects(f.engine.reconnect(listener),/malformed JSON/);assert.equal(attempts,4);
+  assert.equal(f.sqlite.prepare('SELECT count(*) n FROM radio_engine_events').get().n,before);
+ }finally{f.sqlite.close();}
+});
+
+test('a boundary committed between D1 reads recomputes a coherent ledger without duplicate history',async()=>{
+ const f=fixture();let clock=10001,once=true;
+ try{
+  await f.engine.connect(listener);const prepare=f.db.prepare.bind(f.db);
+  f.db.prepare=sql=>{
+   const wrap=statement=>({...statement,bind:(...values)=>wrap(statement.bind(...values)),all:async()=>{
+    if(once&&sql==='SELECT * FROM radio_engine_events WHERE channel_id=? ORDER BY sequence'){
+     once=false;await new D1SharedRadioEngine(f.db,()=>12000).tick('free');clock=12020;
+    }
+    return statement.all();
+   }});return wrap(prepare(sql));
+  };
+  const result=await new D1SharedRadioEngine(f.db,()=>clock).reconnect(listener);
+  assert.equal(result.status,'playing');assert.equal(result.serverNow,12020);assert.equal(result.performance.sequence,2);
+  assert.equal(f.sqlite.prepare('SELECT count(*) n FROM radio_engine_events').get().n,2);
+  assert.equal(f.sqlite.prepare('SELECT count(*) n FROM radio_engine_decisions').get().n,2);
+ }finally{f.sqlite.close();}
+});
+
+test('persistently incomplete D1 ledger remains closed and is never repaired by retry',async()=>{
+ const f=fixture();try{
+  await f.engine.connect(listener);f.sqlite.exec('DELETE FROM radio_engine_decisions');
+  const before=f.sqlite.prepare('SELECT * FROM radio_engine_channels').all();
+  await assert.rejects(f.engine.reconnect(listener),/channel-ledger-incomplete/);
+  assert.deepEqual(f.sqlite.prepare('SELECT * FROM radio_engine_channels').all(),before);
+  assert.equal(f.sqlite.prepare('SELECT count(*) n FROM radio_engine_decisions').get().n,0);
+  assert.equal(f.sqlite.prepare('SELECT count(*) n FROM radio_engine_events').get().n,1);
  }finally{f.sqlite.close();}
 });

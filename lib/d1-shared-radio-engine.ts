@@ -34,7 +34,7 @@ class D1RadioAlgorithm {
     return n;
   }
   private async channel(id: string): Promise<ChannelRow> {
-    const row = (await this.db.prepare('SELECT * FROM radio_engine_channels WHERE id=?').get(id)) as ChannelRow | undefined;
+    const row = (await this.db.prepare('SELECT * FROM radio_engine_channels WHERE id=?',{allowChannelClockAdvance:true}).get(id)) as ChannelRow | undefined;
     if (!row) throw new Error('unknown-shared-channel');
     return row;
   }
@@ -128,7 +128,7 @@ class D1RadioAlgorithm {
         this.db.prepare('INSERT INTO radio_engine_events VALUES (?,?,?,?,?,0)').run(id,sequence,active.track_json,now,active.ended_at);
       }
     }
-    this.db.prepare('UPDATE radio_engine_channels SET last_clock=?,revision=?,ledger_sequence=? WHERE id=?')
+    this.db.prepare('UPDATE radio_engine_channels SET last_clock=max(last_clock,?),revision=?,ledger_sequence=? WHERE id=?')
       .run(now,row.revision,history.length+(active?1:0),id);
     return {simulation:this.execution === 'simulation',channelId:id,category:c.category,revision:row.revision,serverNow:now,
       status:active?'playing':'silent',reason,performance:active?{sequence:active.sequence,authorityId:`${row.revision}:${active.sequence}`,trackId:(JSON.parse(active.track_json) as ScheduledTrack).id,
@@ -139,7 +139,7 @@ class D1RadioAlgorithm {
       const now = this.now();
       const category = command === null ? null : parseCategoryCommand(command);
       if (command !== null && !category) throw new Error('invalid-category-command');
-      const channels = (await this.db.prepare('SELECT * FROM radio_engine_channels ORDER BY id').all()) as ChannelRow[];
+      const channels = (await this.db.prepare('SELECT * FROM radio_engine_channels ORDER BY id',{allowChannelClockAdvance:true}).all()) as ChannelRow[];
       const candidates = channels.filter(row => {
         const c = this.config(row);
         return same(c.category,category) && c.mode === (category ? 'radio-plus' : 'free-radio');
@@ -173,7 +173,7 @@ class D1RadioAlgorithm {
   async navigation(listener: ListenerAuthority): Promise<ChannelOption[]> {
     return this.transaction(async () => {
       const now = this.now();
-      return Promise.all(((await this.db.prepare('SELECT * FROM radio_engine_channels ORDER BY id').all()) as ChannelRow[]).map(async row => {
+      return Promise.all(((await this.db.prepare('SELECT * FROM radio_engine_channels ORDER BY id',{allowChannelClockAdvance:true}).all()) as ChannelRow[]).map(async row => {
         const c = this.config(row);
         if (now < row.last_clock) throw new Error('server-clock-regressed');
         this.authorize({...listener, plusUntil: Number.MAX_SAFE_INTEGER}, c, now);
