@@ -4,7 +4,7 @@ import { RetrofuturaRadio } from './retrofutura-radio';
 import type { Category } from '../lib/radio-category';
 import type { ChannelOption, ChannelSnapshot } from '../lib/shared-radio-engine';
 import { createRadioRequestQueue } from '../lib/radio-request-queue';
-import { correctRadioMediaOffset } from '../lib/radio-media-clock';
+import { acceptRadioPlayEvent, correctRadioMediaOffset } from '../lib/radio-media-clock';
 type Delivery = {snapshot:ChannelSnapshot;navigation:ChannelOption[];mediaUrl:string|null};
 export type RadioPlaybackState={available:boolean;playing:boolean;muted:boolean;volume:number;message:string;onToggle:()=>void;onMute:()=>void;onVolume:(volume:number)=>void};
 export function RadioPlaybackControls({state}:{state:RadioPlaybackState}) {
@@ -132,7 +132,7 @@ export function SharedRadioPlayer({onTrack,onError,onPlay,onProgress,onEnded,onI
     </div>
     </>}
     <audio ref={audio} preload="none" controlsList="nodownload noremoteplayback" onLoadedMetadata={synchronize}
-      onPlay={()=>{setPlaying(true);heard.current.last=performance.now();callbacks.current.onPlay()}} onPause={()=>{setPlaying(false);heard.current.last=0}} onTimeUpdate={()=>{
+      onPlay={()=>{if(audio.current&&!acceptRadioPlayEvent(audio.current,wanted.current)){setPlaying(false);return;}setPlaying(true);heard.current.last=performance.now();callbacks.current.onPlay()}} onPause={()=>{setPlaying(false);heard.current.last=0}} onTimeUpdate={()=>{
         synchronize();const a=audio.current,now=performance.now();
         if(a&&!a.paused&&authority.current){if(heard.current.last)heard.current.seconds+=Math.min(1,(now-heard.current.last)/1000);heard.current.last=now;callbacks.current.onPlay();callbacks.current.onProgress(heard.current.seconds)}
       }}

@@ -1,6 +1,6 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {correctRadioMediaOffset} from '../lib/radio-media-clock.ts';
+import {acceptRadioPlayEvent,correctRadioMediaOffset} from '../lib/radio-media-clock.ts';
 
 test('slow hosted range seek completes before later guard ticks can replace it',()=>{
  let position=0,seeks=0;
@@ -21,4 +21,13 @@ test('clock correction retains the 100 ms drift bound and waits for metadata',()
  media.readyState=4;media.currentTime=10;
  correctRadioMediaOffset(media,10.05);assert.equal(media.currentTime,10);
  correctRadioMediaOffset(media,10.2);assert.equal(media.currentTime,10.2);
+});
+
+test('delayed media play event cannot override a newer pause request',async()=>{
+ let wanted=true,paused=true;
+ const media={pause(){paused=true;}};
+ const pendingPlay=Promise.resolve().then(()=>{paused=false;return acceptRadioPlayEvent(media,wanted);});
+ wanted=false;media.pause();
+ assert.equal(await pendingPlay,false);assert.equal(paused,true);
+ wanted=true;assert.equal(acceptRadioPlayEvent(media,wanted),true);
 });
