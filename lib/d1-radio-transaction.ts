@@ -49,9 +49,12 @@ export async function retryD1RadioTransaction<T>(db:D1Database,action:(unit:D1Ra
   const unit=new D1RadioDatabase(db);
   try {const result=await action(unit);await unit.commit();return result;}
   catch(error) {
-   // Only a guard conflict is recomputed. Transport/auth/storage failures fail
+   // A concurrent commit can overtake the clock sampled before an async read.
+   // Recompute that snapshot too; a genuinely regressed clock still fails after
+   // the same bounded retry budget. Transport/auth/storage failures fail
    // closed; a lost response never causes an unbounded blind write retry.
-   if(attempt===3 || !/malformed JSON/i.test(error instanceof Error?error.message:String(error)))throw error;
+   const reason=error instanceof Error?error.message:String(error);
+   if(attempt===3 || !(reason==='server-clock-regressed'||/malformed JSON/i.test(reason)))throw error;
   }
  }
  throw new Error('radio-d1-contention');

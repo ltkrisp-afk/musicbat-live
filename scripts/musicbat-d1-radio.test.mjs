@@ -153,3 +153,32 @@ test('real local Cloudflare D1/R2 executes guarded concurrency and authenticated
   assert.equal(sandboxD1Radio({MUSICBAT_STRIPE_MODE:'test',DB:db,BUCKET:bucket}),undefined);
  }finally{await mf.dispose();}
 });
+
+test('D1 listener retries when a newer commit overtakes its sampled clock',async()=>{
+ const f=fixture();let clock=10001,once=true;
+ try{
+  await f.engine.connect(listener);
+  const prepare=f.db.prepare.bind(f.db);
+  f.db.prepare=sql=>{
+   const wrap=statement=>({...statement,bind:(...values)=>wrap(statement.bind(...values)),all:async()=>{
+    if(once&&sql==='SELECT * FROM radio_engine_channels WHERE id=?'){
+     once=false;await new D1SharedRadioEngine(f.db,()=>10010).tick('free');clock=10020;
+    }
+    return statement.all();
+   }});
+   return wrap(prepare(sql));
+  };
+  const result=await new D1SharedRadioEngine(f.db,()=>clock).reconnect(listener);
+  assert.equal(result.status,'playing');assert.equal(result.serverNow,10020);
+  assert.equal(f.sqlite.prepare('SELECT count(*) n FROM radio_engine_events').get().n,1);
+ }finally{f.sqlite.close();}
+});
+
+test('persistently regressed D1 server clock still fails closed without changing history',async()=>{
+ const f=fixture();try{
+  await f.engine.connect(listener);
+  const before=f.sqlite.prepare('SELECT * FROM radio_engine_channels WHERE id=?').get('free');
+  await assert.rejects(new D1SharedRadioEngine(f.db,()=>9999).reconnect(listener),/server-clock-regressed/);
+  assert.deepEqual(f.sqlite.prepare('SELECT * FROM radio_engine_channels WHERE id=?').get('free'),before);
+ }finally{f.sqlite.close();}
+});
