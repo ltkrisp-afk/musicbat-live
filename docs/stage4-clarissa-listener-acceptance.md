@@ -1,6 +1,14 @@
 # Separate listener purchase/download — prepared for Clarissa
 
-Status: **BLOCKED pending participant sign-in and sale-ready generated fixture**.
+Status: **Fixture READY; acceptance BLOCKED pending participant sign-in**.
+
+Update at 2026-10-19 22:25 UTC: track 3 is now active, sale-enabled at $2.00,
+recording/sales attestations recorded, Radio disabled. Title: Sandbox Clarissa
+purchase test — generated 550 Hz — 2026-10-19. Generated source: 384044 bytes;
+SHA-256 `68284af0d7ec16d57a9df31942122ef4f889011da62dbec6abcaa94e1213e43c`.
+Use this existing new fixture; do not upload another. The readiness steps below
+retain the original preparation history; steps 2–4 were completed for track 3.
+See `stage4-fresh-listener-fixture-2026-10-19.md` for actual evidence.
 Prepared against sandbox v19, Sites source
 `2bc1d2efb8dc390f14d0d2691042de00b29bd5e5`; GitHub runtime
 `2a4151faa6afcdd1d431e644654bcfa4461ead06`.
@@ -15,9 +23,9 @@ https://musicbat-stage4-sandbox-2026-10-16.ltkrisp.chatgpt.site/
 2. Current track 1 is withdrawn; do not reinstate it. Current track 2 is Radio-only
    and not for sale; do not silently repurpose its Radio permission as sales consent.
 3. Prepare a fresh, clearly named purchase-only test tone using the existing
-   `tone(12000, 440)` generator in `e2e/fixtures.mjs`: PCM WAV, 16000 Hz mono,
+   `tone(12000, 550)` generator in `e2e/fixtures.mjs`: PCM WAV, 16000 Hz mono,
    384044 bytes, SHA-256
-   `571c17392f99b183533d06ae6c324b21df37c5f4e678df36a77303f528812f0f`.
+   `68284af0d7ec16d57a9df31942122ef4f889011da62dbec6abcaa94e1213e43c`.
    Upload through existing sandbox artist controls, explicitly attest generated
    recording/composition and sales rights, set the intended test price, and verify
    the existing artist test-account association. Do not copy original music,
