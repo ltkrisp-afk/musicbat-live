@@ -64,7 +64,7 @@ test('qualified listener keeps are reversible and independent from catalog eligi
     const { tracks } = await (await route.GET(get())).json();
     const track = tracks.find((t) => t.id === 1);
     assert.equal(track.viewer_keep_in_rotation, Number(enabled));
-    assert.equal(track.keep_count, Number(enabled));
+    assert.equal(track.keep_count, undefined); // Private aggregate is not exposed to listeners.
     assert.equal(track.viewer_qualified, 1);
     assert.equal(sqlite.prepare('SELECT count(*) AS n FROM track_keeps').get().n, Number(enabled));
   }
@@ -180,8 +180,8 @@ test('triangle feedback is append-only and records listener, session, artist, ca
   assert.equal(sqlite.prepare('SELECT count(*) AS n FROM radio_feedback').get().n, 2);
   const catalog = await (await route.GET(new Request('https://musicbat.audio/api/musicbat'))).json();
   const track = catalog.tracks.find(t => t.id === 2);
-  assert.equal(track.up_count, 0);
-  assert.equal(track.down_count, 1);
+  assert.equal(track.up_count, undefined);
+  assert.equal(track.down_count, undefined);
 });
 
 test('Radio UI preserves catalog classification and responses while using authoritative shared playback', () => {
@@ -232,6 +232,7 @@ test('Shock Room ranks listener behavior within genre and energy; exposure alone
   globalThis.musicbatRotationState.user = { userId: 'listener-a' };
   assert.equal((await route.POST(post({ action: 'radio_feedback', trackId: 1, listenId: 'a1', signal: 'down' }))).status, 200);
   assert.equal((await route.POST(post({ action: 'complete_listen', trackId: 1, listenId: 'a2' }))).status, 200);
+  globalThis.musicbatRotationState.user = {userId:'artist-1'};
   const afterSignals = await (await getShockRoom()).json();
   const rankedOne = afterSignals.rows.find(row => row.track_id === 1);
   assert.equal(rankedOne.up_count, 0);

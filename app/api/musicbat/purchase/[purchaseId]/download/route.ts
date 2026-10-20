@@ -1,14 +1,14 @@
 import { env } from "cloudflare:workers";
-import { buyerIdentity } from "../../buyer";
+import { getChatGPTUser } from "../../../../../chatgpt-auth";
 
 export async function GET(request: Request) {
   try {
     if (!env.DB || !env.BUCKET) return Response.json({ error: "Downloads are temporarily unavailable." }, { status: 503 });
     const id = new URL(request.url).pathname.split("/").at(-2);
-    const buyer = await buyerIdentity(request);
-    if (!buyer) return Response.json({ error: "Purchase not found on this device." }, { status: 404 });
-    const purchase = await env.DB.prepare("SELECT title, artist_name, audio_path, status FROM purchases WHERE id = ? AND buyer_hash = ?")
-      .bind(id, buyer.hash).first<{ title: string; artist_name: string; audio_path: string; status: string }>();
+    const user = await getChatGPTUser();
+    if (!user) return Response.json({ error: "Sign in to access purchased music." }, { status: 401, headers: { "cache-control": "private, no-store" } });
+    const purchase = await env.DB.prepare("SELECT title, artist_name, audio_path, status FROM purchases WHERE id = ? AND buyer_account_id = ?")
+      .bind(id, user.userId).first<{ title: string; artist_name: string; audio_path: string; status: string }>();
     if (!purchase) return Response.json({ error: "Purchase not found." }, { status: 404 });
     if (purchase.status !== "paid") return Response.json({ error: "Confirmed payment is required before downloading this purchase." }, { status: 402 });
     const assetId = /^\/api\/musicbat\/audio\/([0-9a-f-]{36}\.(mp3|wav|flac))$/.exec(purchase.audio_path);

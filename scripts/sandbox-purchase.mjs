@@ -27,6 +27,7 @@ export async function handler(path,env){
  const key='sandbox'+randomBytes(16).toString('hex');globalThis[key]={env,console:{...console,error(...args){console.error(...args.map(value=>value instanceof Error?value.message:value))}}};
  let source=await readFile(path,'utf8');
  source=source.replace(/import \{ env \} from ["']cloudflare:workers["'];/,`const env=globalThis.${key}.env;`)
+  .replace(/import \{ getChatGPTUser \} from "[^";]*chatgpt-auth";/,`const getChatGPTUser=async()=>({userId:"local-sandbox-buyer",email:"sandbox@example.test"});`)
   .replace(/import \{ buyerIdentity \} from "[^"]*buyer";/,await readFile('app/api/musicbat/purchase/buyer.ts','utf8'))
   .replace(/import \{[^;]+\} from "[^";]*stripe";/s,await readFile('app/api/musicbat/stripe/stripe.ts','utf8'));
  const compiled=ts.transpileModule(`const console=globalThis.${key}.console;\n`+source,{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.ESNext}}).outputText;

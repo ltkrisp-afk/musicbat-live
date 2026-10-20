@@ -147,6 +147,8 @@ export default function MusicBatLoop({ displayName, artistSlug, initialTab }: { 
   }
 
   const [tracks, setTracks] = useState<Track[]>([]);
+  const [legacyOrder, setLegacyOrder] = useState<string | null>(null);
+  const [ownedPurchases, setOwnedPurchases] = useState<{id:string;title:string;status:string}[]>([]);
   const [shockRows, setShockRows] = useState<ShockRow[]>([]);
   const {trackId:sharedTrackId,performanceKey:sharedPerformanceKey,interactive}=usePersistentRadio();
   const currentTrackIdRef = useRef<number | null>(null);
@@ -213,7 +215,7 @@ export default function MusicBatLoop({ displayName, artistSlug, initialTab }: { 
 
   const fetchRadio = useCallback(() => Promise.all([
       api<{ tracks: Track[] }>("/api/musicbat?view=tracks"),
-      api<{ rows: ShockRow[] }>("/api/musicbat?view=shock-room"),
+      api<{ rows: ShockRow[] }>("/api/musicbat?view=shock-room").catch(error => { if (error instanceof MusicBatApiError && (error.status === 401 || error.status === 403)) return {rows:[]}; throw error; }),
     ]), []);
 
   const applyRadio = useCallback(([trackData, shockData]: [{ tracks: Track[] }, { rows: ShockRow[] }]) => {
@@ -303,7 +305,14 @@ export default function MusicBatLoop({ displayName, artistSlug, initialTab }: { 
               window.history.replaceState({}, "", window.location.pathname);
               return;
             }
-          } catch { /* The buyer cookie or webhook may not be ready yet. */ }
+          } catch (error) {
+            if (error instanceof MusicBatApiError && error.status === 409) {
+              setLegacyOrder(order); setPurchaseMessage("This older purchase needs explicit account recovery. Use its original browser and the account matching your receipt."); return;
+            }
+            if (error instanceof MusicBatApiError && (error.status === 401 || error.status === 404)) {
+              setPurchaseDownloadUrl(""); setPurchaseMessage("Sign in to the account that owns this purchase."); return;
+            }
+          }
           await new Promise((resolve) => setTimeout(resolve, 1000));
         }
         setPurchaseMessage("Stripe is still confirming the payment. Refresh this page in a moment; the track stays locked until confirmation arrives.");
@@ -332,7 +341,7 @@ export default function MusicBatLoop({ displayName, artistSlug, initialTab }: { 
         description: "Read category positions based on listener choices.",
         inputSchema: { type: "object", properties: {}, additionalProperties: false },
         annotations: { readOnlyHint: true, untrustedContentHint: true },
-        execute: async () => api<{ rows: ShockRow[] }>("/api/musicbat?view=shock-room"),
+        execute: async () => api<{ rows: ShockRow[] }>("/api/musicbat?view=shock-room").catch(error => { if (error instanceof MusicBatApiError && (error.status === 401 || error.status === 403)) return {rows:[]}; throw error; }),
       }, { signal: lifecycle.signal });
     };
     void register().catch(() => undefined);
@@ -607,6 +616,10 @@ export default function MusicBatLoop({ displayName, artistSlug, initialTab }: { 
             {canManage && <TabsTrigger value="shock" className="h-10 rounded-lg px-4 text-white/55 data-[state=active]:bg-[#ff3ea5] data-[state=active]:text-white"><Gauge /> Shock Room</TabsTrigger>}
           {canManage && <TabsTrigger value="rotunda" className="h-10 rounded-lg px-4 text-white/55 data-[state=active]:bg-[#ff3ea5] data-[state=active]:text-white">Manage Songs</TabsTrigger>}</TabsList>
 
+          <details className="mt-3 text-sm"><summary className="cursor-pointer" onClick={() => void api<{purchases:{id:string;title:string;status:string}[]}>("/api/musicbat/purchase").then(data=>setOwnedPurchases(data.purchases)).catch(()=>setPurchaseMessage("Sign in to access purchased music."))}>My purchased music</summary>
+            {ownedPurchases.filter(p=>p.status==='paid').map(p=><p key={p.id}><a className="underline" href={`/api/musicbat/purchase/${p.id}/download`}>{p.title} — Download</a></p>)}
+          </details>
+          {legacyOrder && <Button onClick={() => void api<{downloadUrl:string}>("/api/musicbat/purchase",{method:"POST",body:JSON.stringify({action:"recover_legacy_purchase",purchaseId:legacyOrder})}).then(data=>{setPurchaseDownloadUrl(data.downloadUrl);setLegacyOrder(null);setPurchaseMessage("Purchase recovered to your signed-in account.");}).catch(error=>setPurchaseMessage(error.message))}>Recover this purchase to my account</Button>}
           {purchaseMessage && <p role="status" aria-live="polite" className="mt-3 text-sm leading-relaxed text-white/65">{purchaseMessage}{purchaseDownloadUrl && <> <a className="font-black text-[#ff69bd] underline" href={purchaseDownloadUrl}>Download track</a></>}</p>}
           <TabsContent value="discover">
             <ArtistDiscovery artists={artists} tracks={tracks} artistSlug={artistSlug} search={search} onSearch={setSearch}
@@ -640,7 +653,7 @@ export default function MusicBatLoop({ displayName, artistSlug, initialTab }: { 
               </div>
               <aside className="flex flex-col gap-5">
                 <div className="rounded-[1.5rem] border border-white/10 bg-white/[0.035] p-6"><div className="mb-5 flex items-center gap-2 text-xs font-black uppercase tracking-[0.16em] text-white/45"><Sparkles className="size-4 text-[#ff69bd]" /> Signal status</div><p className="text-lg font-semibold leading-snug">{loading ? "Loading the loop…" : message}</p>{message === "Sign in to use MusicBat." && <a href="/signin-with-chatgpt?return_to=%2F" className="mt-3 inline-block font-bold text-[#ff69bd] underline">Sign in to keep songs in rotation</a>}<div className="mt-6 h-1.5 overflow-hidden rounded-full bg-white/10"><div className={`h-full rounded-full bg-[#ff3ea5] transition-all ${canRespond ? "w-full" : listenId ? "w-2/3" : tracks.length ? "w-1/3" : "w-0"}`} /></div></div>
-                <div className="rounded-[1.5rem] border border-white/10 bg-[#15121b] p-6"><div className="text-xs font-black uppercase tracking-[0.16em] text-[#ff69bd]">Category signal</div><div className="mt-3 text-2xl font-black">Shock Score {current?.shock_score ?? 0}</div><div className="mt-2 text-sm text-white/50">▲ {current?.up_count ?? 0} · ▼ {current?.down_count ?? 0} · Keeps {current?.keep_count ?? 0}</div><div className="mt-1 text-xs text-white/38">Completions {current?.completion_count ?? 0} · Repeat listens {current?.repeat_count ?? 0} · Purchases {current?.purchase_count ?? 0}</div><div className="mt-2 text-sm text-white/50">Position: #{current?.position ?? "—"} — {current?.primary_genre ?? "—"} / {current ? energyCategory(current.energy_lane) : "—"}</div></div>
+                {Boolean(current?.can_manage) && <div className="rounded-[1.5rem] border border-white/10 bg-[#15121b] p-6"><div className="text-xs font-black uppercase tracking-[0.16em] text-[#ff69bd]">Category signal</div><div className="mt-3 text-2xl font-black">Shock Score {current?.shock_score ?? 0}</div><div className="mt-2 text-sm text-white/50">▲ {current?.up_count ?? 0} · ▼ {current?.down_count ?? 0} · Keeps {current?.keep_count ?? 0}</div><div className="mt-1 text-xs text-white/38">Completions {current?.completion_count ?? 0} · Repeat listens {current?.repeat_count ?? 0} · Purchases {current?.purchase_count ?? 0}</div><div className="mt-2 text-sm text-white/50">Position: #{current?.position ?? "—"} — {current?.primary_genre ?? "—"} / {current ? energyCategory(current.energy_lane) : "—"}</div></div>}
               </aside>
             </section>
           </TabsContent>

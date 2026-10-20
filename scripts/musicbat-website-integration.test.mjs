@@ -37,7 +37,7 @@ test('fresh patron follows survive requests and never add Shock Room engagement;
   await upload(f.route);const original=(await (await get(f,'artists')).json()).artists[0];
   f.state.user={userId:'patron'};for(const enabled of [true,true,false,true])assert.equal((await f.route.POST(post({action:'follow_artist',artistId:'owner',enabled}))).status,200);
   assert.equal((await (await get(f,'artists')).json()).artists[0].following,1);
-  const shock=(await (await get(f,'shock-room')).json()).rows[0];assert.equal(shock.shock_score,0);assert.equal(shock.keep_count,0);assert.equal(shock.up_count,0);
+  f.state.user={userId:'owner'};const shock=(await (await get(f,'shock-room')).json()).rows[0];assert.equal(shock.shock_score,0);assert.equal(shock.keep_count,0);assert.equal(shock.up_count,0);
   f.state.user={userId:'owner'};await f.route.POST(post({action:'delete_track',trackId:1}));
   f.state.user={userId:'patron'};const remaining=(await (await get(f,'artists')).json()).artists[0];assert.equal(remaining.slug,original.slug);assert.equal(remaining.track_count,0);assert.equal(remaining.following,1);
   assert.equal((await (await get(f,'tracks')).json()).tracks.length,0);assert.equal(f.objects.size,0);
@@ -53,9 +53,9 @@ test('membership-specific qualification rejects Free Radio, records one choice, 
   category={genre:'Rock'};assert.equal((await f.route.POST(post({action:'qualify_listen',trackId:1,listenId}))).status,200);
   for(const signal of ['up','up','down'])assert.equal((await f.route.POST(post({action:'radio_feedback',trackId:1,listenId,signal}))).status,200);
   assert.equal((await f.route.POST(post({action:'toggle_keep',trackId:1,enabled:true}))).status,200);
-  const row=(await (await get(f,'shock-room')).json()).rows[0];assert.equal(row.up_count,0);assert.equal(row.down_count,1);assert.equal(row.keep_count,1);assert.equal(row.shock_score,1);
-  category=null;assert.equal((await f.route.POST(post({action:'radio_feedback',trackId:1,listenId,signal:'up'}))).status,403);
-  assert.equal((await (await get(f,'shock-room')).json()).rows[0].shock_score,1);
+  f.state.user={userId:'owner'};const row=(await (await get(f,'shock-room')).json()).rows[0];assert.equal(row.up_count,0);assert.equal(row.down_count,1);assert.equal(row.keep_count,1);assert.equal(row.shock_score,1);
+  f.state.user={userId:'patron'};category=null;assert.equal((await f.route.POST(post({action:'radio_feedback',trackId:1,listenId,signal:'up'}))).status,403);
+  f.state.user={userId:'owner'};assert.equal((await (await get(f,'shock-room')).json()).rows[0].shock_score,1);
  }finally{f.sqlite.close()}
 });
 

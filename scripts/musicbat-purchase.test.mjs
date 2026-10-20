@@ -31,6 +31,7 @@ async function load(path, state) {
   let source = await readFile(new URL(path, import.meta.url), "utf8");
   source = source
     .replace('import { env } from "cloudflare:workers";', "const env = globalThis.musicbatCommerceState.env;")
+    .replace(/import \{ getChatGPTUser \} from "[^";]*chatgpt-auth";/, "const getChatGPTUser=async()=>globalThis.musicbatCommerceState.user;")
     .replace(/import \{ buyerIdentity \} from "[^"]*buyer";/, buyer)
     .replace(/import \{[^;]+\} from "[^"]*stripe";/s, stripe);
   const { outputText } = ts.transpileModule(source, { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext } });
@@ -49,6 +50,7 @@ async function fixture(mode = "test", keyType = "sk") {
   const requests = [];
   const state = {
     requests,
+    user: {userId:"buyer-1",email:"buyer@example.test"},
     env: {
       DB: d1(sqlite),
       BUCKET: {
@@ -123,6 +125,7 @@ test("restricted sandbox Checkout preserves exact 85/15 ledger split and itemize
   assert.equal(data.checkoutAvailable, true);
   assert.match(data.checkoutUrl, /^https:\/\/checkout\.stripe\.com\//);
   const row = sqlite.prepare("SELECT * FROM purchases").get();
+  assert.equal(row.buyer_account_id, "buyer-1");
   assert.equal(row.amount_cents, 1000);
   assert.equal(row.artist_share_cents, 850);
   assert.equal(row.platform_fee_cents, 150);
@@ -135,6 +138,8 @@ test("restricted sandbox Checkout preserves exact 85/15 ledger split and itemize
   assert.equal(form.get("payment_intent_data[transfer_data][destination]"), "acct_test_artist");
   assert.equal(form.get("payment_method_types[0]"), "card");
   assert.equal(form.get("managed_payments[enabled]"), "false");
+  assert.equal(form.get("metadata[musicbat_buyer_account_id]"), "buyer-1");
+  assert.equal(form.get("payment_intent_data[metadata][musicbat_buyer_account_id]"), "buyer-1");
   assert.equal(form.get("mode"), "payment");
   assert.equal(form.get("line_items[1][price_data][unit_amount]"), "61");
   assert.equal(form.get("line_items[0][price_data][unit_amount]"), "1000");
@@ -451,4 +456,17 @@ test('sandbox Connect Checkout opts out of account-default Managed Payments; liv
    assert.equal(sqlite.prepare('SELECT artist_share_cents FROM purchases').get().artist_share_cents,850);
   }finally{sqlite.close()}
  }
+});
+
+test('unowned historical pending Checkout blocks replacement instead of assigning or charging again',async()=>{
+ const f=await fixture();try{
+ const first=await f.purchase.POST(post());const cookie=first.headers.get('set-cookie').split(';')[0];
+ f.sqlite.exec('UPDATE purchases SET buyer_account_id=NULL');
+ const before=f.state.requests.filter(r=>r.init.method==='POST').length;
+ f.state.user={userId:'different-account',email:'other@example.test'};
+ assert.equal((await f.purchase.POST(post(1,cookie))).status,409);
+ assert.equal(f.state.requests.filter(r=>r.init.method==='POST').length,before);
+ assert.equal(f.sqlite.prepare('SELECT buyer_account_id FROM purchases').get().buyer_account_id,null);
+ assert.equal(f.sqlite.prepare('SELECT count(*) n FROM purchases').get().n,1);
+ }finally{f.sqlite.close()}
 });

@@ -20,11 +20,11 @@ function fixture(){const db=new DatabaseSync(':memory:');for(let i=0;i<5;i++)exe
 test('version 13 immutable history, all pending migrations registered and compatibility preserves data',()=>{
  assert.deepEqual(journal.entries.slice(0,5),old.entries);
  for(let i=0;i<5;i++)assert.equal(readFileSync(`drizzle/${old.entries[i].tag}.sql`,'utf8'),readFileSync(`release/v13/baseline/${old.entries[i].tag}.sql`,'utf8'));
- assert.equal(migrations.length,15);assert.deepEqual(journal.entries.slice(6).map(e=>e.tag.slice(0,4)),['0006','0007','0008','0009','0010','0011','0012','0013','0014']);
+ assert.equal(migrations.length,16);assert.deepEqual(journal.entries.slice(6).map(e=>e.tag.slice(0,4)),['0006','0007','0008','0009','0010','0011','0012','0013','0014','0015']);
  const db=fixture(),before={};for(const t of ['purchases','artist_accounts','stripe_events','hangers','radio_feedback','track_keeps'])before[t]=rows(db,t);
  db.exec('BEGIN IMMEDIATE');for(let i=5;i<migrations.length;i++)execute(db,migrations[i]);db.exec('COMMIT');
  for(const t of ['artist_accounts','stripe_events','hangers'])assert.deepEqual(rows(db,t),before[t]);
- assert.deepEqual(rows(db,'purchases').map(row=>Object.fromEntries(Object.entries(row).filter(([key])=>!['processing_cents','sale_withdrawn_at','checkout_request_json','cleanup_state','cleanup_attempts','cleanup_error','payment_review_reason'].includes(key)))),before.purchases);assert.equal(rows(db,'purchases')[0].processing_cents,0);
+ assert.deepEqual(rows(db,'purchases').map(row=>Object.fromEntries(Object.entries(row).filter(([key])=>!['processing_cents','sale_withdrawn_at','checkout_request_json','cleanup_state','cleanup_attempts','cleanup_error','payment_review_reason','buyer_account_id'].includes(key)))),before.purchases);assert.equal(rows(db,'purchases')[0].processing_cents,0);
  assert.deepEqual(rows(db,'v13_radio_feedback_archive'),before.radio_feedback);assert.deepEqual(rows(db,'v13_track_keeps_archive'),before.track_keeps);
  assert.deepEqual(rows(db,'radio_feedback').map(r=>r.listener_id).sort(),['down','hanger','up']);
  assert.deepEqual(rows(db,'track_keeps').map(r=>r.listener_id).sort(),['hanger-keep','keep']);

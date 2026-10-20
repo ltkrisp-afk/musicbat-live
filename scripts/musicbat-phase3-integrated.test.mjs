@@ -49,7 +49,7 @@ test('Phase 3: reviewed upload → Free Radio bytes → signed purchase/download
     const purchase=await load('app/api/musicbat/purchase/route.ts',f.state);
     const buy=buyer=>purchase.POST(new Request('https://musicbat.audio/api/musicbat/purchase',{method:'POST',headers:{'content-type':'application/json',cookie:'musicbat_buyer='+buyer.repeat(64)},body:JSON.stringify({trackId:track.id,confirmedTotalCents:237})}));
     const orders=[];
-    for(const buyer of ['a','b','c']){const result=await buy(buyer);assert.equal(result.status,201);orders.push((await result.json()).purchase)}
+    for(const buyer of ['a','b','c']){f.state.user={userId:'patron-'+buyer};const result=await buy(buyer);assert.equal(result.status,201);orders.push((await result.json()).purchase)}
     const sessions=[...f.sessions.values()];sessions[0].status='complete';sessions[0].payment_status='paid';
     const webhook=await load('app/api/musicbat/stripe/webhook/route.ts',f.state);
     const oldError=console.error;console.error=()=>{};
@@ -58,7 +58,7 @@ test('Phase 3: reviewed upload → Free Radio bytes → signed purchase/download
     assert.equal((await f.send(successful)).status,200);assert.equal((await f.send(successful)).status,200);
     assert.equal(f.sqlite.prepare('SELECT count(*) n FROM stripe_events WHERE event_id=?').get(successful.id).n,1);
     const download=await load('app/api/musicbat/purchase/[purchaseId]/download/route.ts',f.state);
-    const get=(id,buyer)=>download.GET(new Request('https://musicbat.audio/api/musicbat/purchase/'+id+'/download',{headers:{cookie:'musicbat_buyer='+buyer.repeat(64)}}));
+    const get=(id,buyer)=>{f.state.user={userId:'patron-'+buyer};return download.GET(new Request('https://musicbat.audio/api/musicbat/purchase/'+id+'/download',{headers:{cookie:'musicbat_buyer='+buyer.repeat(64)}}));};
     assert.equal((await get(orders[0].id,'b')).status,404);
     assert.equal((await get(orders[1].id,'b')).status,402);
     assert.equal(hash(new Uint8Array(await (await get(orders[0].id,'a')).arrayBuffer())),hash(bytes));
@@ -92,7 +92,7 @@ test('Phase 3: reviewed upload → Free Radio bytes → signed purchase/download
     assert.equal((await get(orders[2].id,'c')).status,402);
     assert.equal(hash(new Uint8Array(await (await get(orders[0].id,'a')).arrayBuffer())),hash(bytes));
     assert.deepEqual(reopened.prepare('SELECT amount_cents,artist_share_cents,platform_fee_cents,processing_cents FROM purchases WHERE id=?').get(orders[0].id),ledger);
-    assert.equal((await f.route.POST(post({action:'delete_track',trackId:track.id}))).status,200);
+    f.state.user={userId:'owner'};assert.equal((await f.route.POST(post({action:'delete_track',trackId:track.id}))).status,200);
     assert.equal(hash(new Uint8Array(await (await get(orders[0].id,'a')).arrayBuffer())),hash(bytes));
   }finally{secondWorker?.close();reopened?.close();runtime?.close();f.close();await rm(dir,{recursive:true,force:true})}
 });

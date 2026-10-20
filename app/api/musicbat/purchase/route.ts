@@ -1,3 +1,4 @@
+import { getChatGPTUser } from "../../../chatgpt-auth";
 import { env } from "cloudflare:workers";
 import { buyerIdentity } from "./buyer";
 import { connectReady, musicBatOrigin, StripeAccount, StripeCheckoutSession, StripeConfigurationError, StripeWebhookBodyTooLarge, readStripeWebhookBody, stripeGet, stripePost, stripeModeMatches, expireWithdrawnCheckouts } from "../stripe/stripe";
@@ -61,13 +62,35 @@ async function existingCheckout(purchase: PurchaseDraft) {
 export async function POST(request: Request) {
   if (env.MUSICBAT_RELEASE_PAUSED === "1") return Response.json({ error: "MusicBat is briefly paused for an update." }, { status: 503, headers: { "retry-after": "60", "cache-control": "no-store" } });
   try {
+    const user = await getChatGPTUser();
+    if (!user) return response({ error: "Sign in to buy or recover purchases." }, 401);
     const origin = request.headers.get("origin");
     if (origin && origin !== new URL(request.url).origin) return response({ error: "Open MusicBat to buy this song." }, 403);
     if (!env.DB || !env.BUCKET) return response({ error: "Purchases are temporarily unavailable." }, 503);
-    let body: { trackId?: unknown; confirmedTotalCents?: unknown };
+    let body: { trackId?: unknown; confirmedTotalCents?: unknown; action?: unknown; purchaseId?: unknown };
     try { body = JSON.parse(await readStripeWebhookBody(request, 16384)); }
     catch (error) { return response({ error: error instanceof StripeWebhookBodyTooLarge ? "Purchase request is too large." : "Choose a valid song." }, error instanceof StripeWebhookBodyTooLarge ? 413 : 400); }
     if (!body || typeof body !== 'object' || Array.isArray(body)) return response({ error: "Choose a valid song." }, 400);
+    if (body.action === "recover_legacy_purchase") {
+      // Explicit recovery requires BOTH the original device credential and the
+      // provider receipt email matching the platform-authenticated identity.
+      // Cookie alone, email supplied in the request, and order ID alone never grant access.
+      const buyer = await buyerIdentity(request);
+      if (!buyer || typeof body.purchaseId !== 'string') return response({ error: "Purchase recovery requires the original device and receipt." }, 403);
+      const purchase = await env.DB.prepare("SELECT id, processor_session_id, buyer_account_id FROM purchases WHERE id=? AND buyer_hash=? AND status='paid'")
+        .bind(body.purchaseId,buyer.hash).first<{id:string;processor_session_id:string|null;buyer_account_id:string|null}>();
+      if (!purchase || !purchase.processor_session_id) return response({ error: "Purchase recovery requires review." }, 403);
+      if (purchase.buyer_account_id) return response({ error: "This purchase already has an account owner." }, 409);
+      const session = await stripeGet<StripeCheckoutSession & {customer_details?:{email?:string|null}}>(env, `/v1/checkout/sessions/${encodeURIComponent(purchase.processor_session_id)}`);
+      if (!stripeModeMatches(env,session.livemode) || session.id !== purchase.processor_session_id || session.status !== 'complete' || session.payment_status !== 'paid' || session.metadata?.musicbat_purchase_id !== purchase.id || !user.email || session.customer_details?.email?.trim().toLowerCase() !== user.email.trim().toLowerCase())
+        return response({ error: "The receipt does not establish ownership for this signed-in account. Purchase recovery requires review." }, 403);
+      await env.DB.batch([
+        env.DB.prepare("INSERT INTO purchase_ownership_audit(purchase_id,account_id,evidence_type,processor_session_id) SELECT id,?,'original_device_and_authenticated_receipt',processor_session_id FROM purchases WHERE id=? AND buyer_account_id IS NULL ON CONFLICT(purchase_id) DO NOTHING").bind(user.userId,purchase.id),
+        env.DB.prepare("UPDATE purchases SET buyer_account_id=? WHERE id=? AND buyer_account_id IS NULL AND EXISTS(SELECT 1 FROM purchase_ownership_audit a WHERE a.purchase_id=purchases.id AND a.account_id=?)").bind(user.userId,purchase.id,user.userId)
+      ]);
+      const owned = await env.DB.prepare('SELECT id FROM purchases WHERE id=? AND buyer_account_id=?').bind(purchase.id,user.userId).first();
+      return owned ? response({ recovered:true, downloadUrl:`/api/musicbat/purchase/${purchase.id}/download` }) : response({error:"Purchase recovery requires review."},409);
+    }
     const trackId = Number(body.trackId);
     if (!Number.isInteger(trackId) || trackId < 1) return response({ error: "Choose a valid song." }, 400);
     const track = await env.DB.prepare(`
@@ -99,10 +122,12 @@ export async function POST(request: Request) {
         artistShareCents: split(track.sale_price_cents).artistShare,
       } }, 409, buyer.cookie);
     }
+    const legacyPending = await env.DB.prepare("SELECT id FROM purchases WHERE buyer_hash=? AND buyer_account_id IS NULL AND track_id=? AND status IN ('awaiting_checkout','pending','payment_review') LIMIT 1").bind(buyer.hash,trackId).first();
+    if (legacyPending) return response({error:"An older Checkout needs ownership review before another payment can be started."},409,buyer.cookie);
     let purchase = await env.DB.prepare(`SELECT id, title, artist_name, processor_session_id, artist_share_cents, platform_fee_cents FROM purchases
-      WHERE buyer_hash = ? AND track_id = ? AND audio_path = ? AND amount_cents = ? AND processing_cents = ? AND status IN ('awaiting_checkout', 'pending')
+      WHERE buyer_account_id = ? AND track_id = ? AND audio_path = ? AND amount_cents = ? AND processing_cents = ? AND status IN ('awaiting_checkout', 'pending')
       AND sale_withdrawn_at IS NULL ORDER BY created_at DESC LIMIT 1`)
-      .bind(buyer.hash, trackId, track.audio_url, track.sale_price_cents, surcharge).first<PurchaseDraft>();
+      .bind(user.userId, trackId, track.audio_url, track.sale_price_cents, surcharge).first<PurchaseDraft>();
     if (purchase) {
       const allocation = split(track.sale_price_cents);
       // Never reopen an old Checkout with superseded terms. Keep its immutable
@@ -129,11 +154,11 @@ export async function POST(request: Request) {
     const id = crypto.randomUUID();
     const { artistShare, platformFee } = split(track.sale_price_cents);
     purchase = await env.DB.prepare(`INSERT INTO purchases
-      (id, buyer_hash, track_id, title, artist_name, artist_id, audio_path, status, amount_cents, artist_share_cents, platform_fee_cents, currency, processor_account_id, processing_cents)
-      SELECT ?, ?, ?, ?, ?, ?, ?, 'awaiting_checkout', ?, ?, ?, 'usd', ?, ? FROM tracks
+      (id, buyer_hash, buyer_account_id, track_id, title, artist_name, artist_id, audio_path, status, amount_cents, artist_share_cents, platform_fee_cents, currency, processor_account_id, processing_cents)
+      SELECT ?, ?, ?, ?, ?, ?, ?, ?, 'awaiting_checkout', ?, ?, ?, 'usd', ?, ? FROM tracks
       WHERE id=? AND status='active' AND sale_enabled=1 AND sale_rights_attested=1 AND rights_attested=1 AND artist_id=? AND audio_url=? AND sale_price_cents=?
       RETURNING id, title, artist_name, processor_session_id`)
-      .bind(id, buyer.hash, trackId, track.title, track.artist_name, track.artist_id, track.audio_url, track.sale_price_cents, artistShare, platformFee, track.stripe_account_id, surcharge,trackId,track.artist_id,track.audio_url,track.sale_price_cents).first<PurchaseDraft>();
+      .bind(id, buyer.hash, user.userId, trackId, track.title, track.artist_name, track.artist_id, track.audio_url, track.sale_price_cents, artistShare, platformFee, track.stripe_account_id, surcharge,trackId,track.artist_id,track.audio_url,track.sale_price_cents).first<PurchaseDraft>();
     if (!purchase) return response({error:"The artist changed this song’s sale permissions or price. Refresh the catalog."},409,buyer.cookie);
     const base = musicBatOrigin(env, request);
     let checkout: StripeCheckoutSession;
@@ -159,6 +184,8 @@ export async function POST(request: Request) {
         "payment_intent_data[transfer_data][destination]": track.stripe_account_id,
         "payment_intent_data[metadata][musicbat_purchase_id]": id,
         "metadata[musicbat_purchase_id]": id,
+        "metadata[musicbat_buyer_account_id]": user.userId,
+        "payment_intent_data[metadata][musicbat_buyer_account_id]": user.userId,
         "metadata[musicbat_track_id]": String(track.id),
         "metadata[musicbat_processing_cents]": String(surcharge),
       };
@@ -198,12 +225,20 @@ export async function POST(request: Request) {
 export async function GET(request: Request) {
   try {
     if (!env.DB) return response({ error: "Purchases are temporarily unavailable." }, 503);
-    const buyer = await buyerIdentity(request);
-    if (!buyer) return response({ error: "This purchase was not found on this device." }, 404);
+    const user = await getChatGPTUser();
+    if (!user) return response({ error: "Sign in to access purchased music." }, 401);
     const id = new URL(request.url).searchParams.get("id");
-    const purchase = await env.DB.prepare("SELECT id, track_id, title, artist_name, amount_cents, currency, status FROM purchases WHERE id = ? AND buyer_hash = ?")
-      .bind(id, buyer.hash).first<{ id: string; status: string }>();
-    if (!purchase) return response({ error: "Purchase not found." }, 404);
+    if (!id) {
+      const rows = await env.DB.prepare("SELECT id,title,artist_name,status FROM purchases WHERE buyer_account_id=? ORDER BY created_at DESC LIMIT 100").bind(user.userId).all();
+      return response({ purchases: rows.results });
+    }
+    const purchase = await env.DB.prepare("SELECT id, track_id, title, artist_name, amount_cents, currency, status FROM purchases WHERE id = ? AND buyer_account_id = ?")
+      .bind(id, user.userId).first<{ id: string; status: string }>();
+    if (!purchase) {
+      const buyer = await buyerIdentity(request);
+      const legacy = buyer && await env.DB.prepare("SELECT id FROM purchases WHERE id=? AND buyer_hash=? AND buyer_account_id IS NULL AND status='paid'").bind(id,buyer.hash).first();
+      return legacy ? response({ error:"This older purchase needs explicit account recovery before downloading.", recoveryRequired:true },409) : response({ error: "Purchase not found." }, 404);
+    }
     return response({ purchase, downloadUrl: purchase.status === "paid" ? `/api/musicbat/purchase/${purchase.id}/download` : null });
   } catch (error) {
     console.error("MusicBat purchase status error", error);

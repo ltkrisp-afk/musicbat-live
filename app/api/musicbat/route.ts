@@ -267,15 +267,19 @@ export async function GET(request: Request) {
       return Response.json({artists:artists.results,canManage:Boolean(managed),signedIn:Boolean(user),artistIdentity}, {headers:{'cache-control':'private, no-store','vary':'Cookie'}});
     }
     if (view === "shock-room") {
-      const rows = await db.prepare(`
+      const user = await requireUser();
+      const managed = await db.prepare("SELECT 1 FROM artist_profiles WHERE account_id=? UNION SELECT 1 FROM tracks WHERE artist_id=? UNION SELECT 1 FROM track_authority WHERE account_id=? AND revoked_at IS NULL LIMIT 1").bind(user.userId,user.userId,user.userId).first();
+      if (!managed) return fail("Artist access is required for Shock Room.",403);
+      const rows = await db.prepare(`SELECT * FROM (
         SELECT t.id AS track_id, t.title, t.artist_name, t.primary_genre, t.energy_lane,
           ${shockStatsSql}, ${shockScoreSql} AS shock_score,
           ROW_NUMBER() OVER (PARTITION BY t.primary_genre, t.energy_lane ORDER BY ${shockScoreSql} DESC, t.title COLLATE NOCASE, t.id) AS position
         FROM tracks t
         WHERE t.status = 'active' AND t.rights_attested = 1
-        ORDER BY t.primary_genre, t.energy_lane, position, t.id
-      `).all();
-      return Response.json({ rows: rows.results });
+      ) ranked WHERE track_id IN (SELECT t.id FROM tracks t WHERE t.artist_id=? OR EXISTS(SELECT 1 FROM track_authority a WHERE a.track_id=t.id AND a.account_id=? AND a.revoked_at IS NULL))
+        ORDER BY primary_genre, energy_lane, position, track_id
+      `).bind(user.userId,user.userId).all();
+      return Response.json({ rows: rows.results }, {headers:{'cache-control':'private, no-store','vary':'Cookie'}});
     }
 
     const viewer = await getChatGPTUser();
@@ -294,7 +298,11 @@ export async function GET(request: Request) {
       WHERE t.status = 'active' AND t.rights_attested = 1
       ORDER BY t.created_at DESC, t.id DESC
     `).bind(viewer?.userId ?? "", viewer?.userId ?? "", viewer?.userId ?? "").all();
-    return Response.json({ tracks: rows.results.map((track) => ({ ...track, rotation_eligible: track.radio_enabled === 1 && track.radio_rights_reviewed === 1 })) }, { headers: { "cache-control": "private, no-store", "vary": "Cookie" } });
+    return Response.json({ tracks: rows.results.map((track) => {
+      const visible = { ...track };
+      if (!track.can_manage) for (const key of ['up_count','down_count','keep_count','completion_count','repeat_count','purchase_count','shock_score','position']) delete visible[key];
+      return { ...visible, rotation_eligible: track.radio_enabled === 1 && track.radio_rights_reviewed === 1 };
+    }) }, { headers: { "cache-control": "private, no-store", "vary": "Cookie" } });
   } catch (error) {
     return publicError(error);
   }

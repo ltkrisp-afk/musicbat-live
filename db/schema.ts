@@ -80,6 +80,7 @@ export const trackKeeps = sqliteTable(
 export const purchases = sqliteTable("purchases", {
   id: text("id").primaryKey(),
   buyerHash: text("buyer_hash").notNull(),
+  buyerAccountId: text("buyer_account_id"),
   trackId: integer("track_id").notNull(),
   title: text("title").notNull(),
   artistName: text("artist_name").notNull(),
@@ -103,6 +104,7 @@ export const purchases = sqliteTable("purchases", {
   cleanupError: text("cleanup_error"),
   paymentReviewReason: text("payment_review_reason"),
 }, (table) => [
+  index("idx_purchases_buyer_account").on(table.buyerAccountId, table.createdAt),
   uniqueIndex("idx_purchases_processor_session").on(table.processorSessionId),
   index("idx_purchases_payment_intent").on(table.paymentIntentId),
   index("idx_purchases_withdrawal_cleanup").on(table.trackId, table.cleanupState),
@@ -185,3 +187,11 @@ export const checkoutPaymentEvidence = sqliteTable("checkout_payment_evidence", 
   stripeCreated: integer("stripe_created"),
   paidSnapshot: integer("paid_snapshot").notNull().default(0),
 }, (table) => [index("idx_checkout_evidence_purchase").on(table.purchaseId, table.sessionId, table.stripeCreated)]);
+
+export const purchaseOwnershipAudit = sqliteTable("purchase_ownership_audit", {
+  purchaseId: text("purchase_id").primaryKey().references(() => purchases.id),
+  accountId: text("account_id").notNull(),
+  evidenceType: text("evidence_type").notNull(),
+  processorSessionId: text("processor_session_id").notNull(),
+  claimedAt: text("claimed_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+});
