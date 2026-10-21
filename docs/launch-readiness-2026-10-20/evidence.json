@@ -1,0 +1,463 @@
+{
+  "recorded_at_utc": "2026-10-21T02:21:55Z",
+  "authoritative_branch": "repair/85-15-authoritative-2026-10-18",
+  "pre_audit_head": "bd3e3311b59a43a33c47527d6241fe84685c8beb",
+  "tested_security_commit": "dd46fe9f8ae4baf50249e48b802e545368ca6fcd",
+  "decision": "NO-GO commercial launch",
+  "production": {
+    "project_id": "appgprj_6aaa2f4673e88191b504cf941f475802",
+    "version": 16,
+    "source": "3d0b7e98bfc3180c37a4d90395ffcaaf5806efbe",
+    "deployed_env_revision": 10,
+    "configured_env_revision": 11,
+    "configured_mode": "test",
+    "configured_checkout_pause": "1",
+    "pause_runtime_exercised": false,
+    "webhook_secret_entry_returned": false,
+    "secret_values": "redacted; null is not absence",
+    "active_tracks": 5,
+    "purchases_in_bounded_read": 0,
+    "missing_tables": [
+      "purchase_ownership_audit",
+      "checkout_recovery_jobs",
+      "checkout_payment_evidence",
+      "playback_permissions",
+      "radio_engine_channels"
+    ],
+    "domain": {
+      "hostname": "musicbat.audio",
+      "status": "active",
+      "ssl_status": "active"
+    }
+  },
+  "sandbox": {
+    "project_id": "appgprj_6ad26204823c81918260d33e13429074",
+    "version": 20,
+    "source": "a9bc1ad45a47e3cc45f04c6119d536bfac384cb2",
+    "env_revision": 6,
+    "stripe_readiness": {
+      "authenticated": true,
+      "livemode": false,
+      "webhook_secret_configured": true,
+      "purchases_paused": false
+    },
+    "recovery": {
+      "completed": 8,
+      "probe_attempts": 2,
+      "errors": 0,
+      "leases": 0,
+      "pass_invoked": false
+    },
+    "radio_snapshot": {
+      "status": "silent",
+      "reason": "channel-review-missing",
+      "mediaUrl": null
+    },
+    "review_expires_utc": "2026-10-20T03:50:29.493Z"
+  },
+  "migration_rehearsal": {
+    "storage": "in-memory SQLite only",
+    "production_profile": "0000-0005",
+    "stage4_profile_attempted": [
+      "0005_v13_signal_compatibility",
+      "0006_purchase_processing"
+    ],
+    "result": "duplicate column name: processing_cents",
+    "remote_changes": false
+  },
+  "preserved_tests": {
+    "count": 266,
+    "new_full_suite_runs": 0,
+    "new_purchases": 0
+  },
+  "logs": {
+    "prod": [
+      {
+        "at": "2026-10-21T02:21:02.698Z",
+        "request_id": "a9743051ce993b62066524931343b0e1",
+        "path": "/favicon.ico",
+        "status": 404,
+        "outcome": "ok",
+        "worker": "c98ec7ba-2ff3-402a-a361-f9f59cd17331"
+      },
+      {
+        "at": "2026-10-21T02:21:02.577Z",
+        "request_id": "3a131465cab65f550bf3adf2ecf8b43a",
+        "path": "/api/musicbat",
+        "status": 200,
+        "outcome": "ok",
+        "worker": "c98ec7ba-2ff3-402a-a361-f9f59cd17331"
+      },
+      {
+        "at": "2026-10-21T02:20:25.427Z",
+        "request_id": "dd353194b975f7f65c7f71c6c3fd3775",
+        "path": "/api/musicbat/audio/REDACTED.mp3",
+        "status": 410,
+        "outcome": "ok",
+        "worker": "c98ec7ba-2ff3-402a-a361-f9f59cd17331"
+      },
+      {
+        "at": "2026-10-21T02:20:25.297Z",
+        "request_id": "dae0649c2f100781d052b3e62958e720",
+        "path": "/api/musicbat/audio/REDACTED.mp3",
+        "status": 410,
+        "outcome": "ok",
+        "worker": "c98ec7ba-2ff3-402a-a361-f9f59cd17331"
+      },
+      {
+        "at": "2026-10-21T02:20:25.168Z",
+        "request_id": "b2e8384668eb83ee26493cf87503b7f6",
+        "path": "/api/musicbat/audio/REDACTED.mp3",
+        "status": 410,
+        "outcome": "ok",
+        "worker": "c98ec7ba-2ff3-402a-a361-f9f59cd17331"
+      },
+      {
+        "at": "2026-10-21T02:20:25.068Z",
+        "request_id": "a95b1e0c968ffb1b80f024aa69f9fceb",
+        "path": "/api/musicbat/audio/REDACTED.mp3",
+        "status": 410,
+        "outcome": "ok",
+        "worker": "c98ec7ba-2ff3-402a-a361-f9f59cd17331"
+      },
+      {
+        "at": "2026-10-21T02:20:24.960Z",
+        "request_id": "0ccaa80e10559e4f3fa08fc4e8ddbec1",
+        "path": "/api/musicbat/audio/REDACTED.mp3",
+        "status": 410,
+        "outcome": "ok",
+        "worker": "c98ec7ba-2ff3-402a-a361-f9f59cd17331"
+      },
+      {
+        "at": "2026-10-21T02:20:24.846Z",
+        "request_id": "948f8e7596d89dff5f60ce820d0d024f",
+        "path": "/api/musicbat",
+        "status": 200,
+        "outcome": "ok",
+        "worker": "c98ec7ba-2ff3-402a-a361-f9f59cd17331"
+      },
+      {
+        "at": "2026-10-21T02:20:24.832Z",
+        "request_id": "71fd8074d9ada14e90115c4157907c62",
+        "path": "/api/musicbat",
+        "status": 200,
+        "outcome": "ok",
+        "worker": "c98ec7ba-2ff3-402a-a361-f9f59cd17331"
+      },
+      {
+        "at": "2026-10-21T02:20:24.751Z",
+        "request_id": "bf4d7b032485cd334d96f448ab44d5ec",
+        "path": "/api/musicbat/stripe/connect",
+        "status": 401,
+        "outcome": "ok",
+        "worker": "c98ec7ba-2ff3-402a-a361-f9f59cd17331"
+      },
+      {
+        "at": "2026-10-21T02:20:24.268Z",
+        "request_id": "1124c5fcc73e00b5478afddd3a95a7c9",
+        "path": "/",
+        "status": 200,
+        "outcome": "ok",
+        "worker": "c98ec7ba-2ff3-402a-a361-f9f59cd17331"
+      },
+      {
+        "at": "2026-10-21T02:04:19.022Z",
+        "request_id": "c515b848057e2e524356b140c493c3ea",
+        "path": "/",
+        "status": 200,
+        "outcome": "ok",
+        "worker": "c98ec7ba-2ff3-402a-a361-f9f59cd17331"
+      },
+      {
+        "at": "2026-10-21T02:04:04.665Z",
+        "request_id": "929b6053a85f1fd2643a0882d166d237",
+        "path": "/api/musicbat/audio/REDACTED.mp3",
+        "status": 410,
+        "outcome": "ok",
+        "worker": "c98ec7ba-2ff3-402a-a361-f9f59cd17331"
+      },
+      {
+        "at": "2026-10-21T02:04:04.577Z",
+        "request_id": "993c154589d886b062ca6922fa5e7484",
+        "path": "/api/musicbat/audio/REDACTED.mp3",
+        "status": 410,
+        "outcome": "ok",
+        "worker": "c98ec7ba-2ff3-402a-a361-f9f59cd17331"
+      },
+      {
+        "at": "2026-10-21T02:04:04.451Z",
+        "request_id": "bbe610496d18b3a413230a2883aca761",
+        "path": "/api/musicbat/audio/REDACTED.mp3",
+        "status": 410,
+        "outcome": "ok",
+        "worker": "c98ec7ba-2ff3-402a-a361-f9f59cd17331"
+      },
+      {
+        "at": "2026-10-21T02:04:04.360Z",
+        "request_id": "a548736688596f8b6a28a2601d0763b1",
+        "path": "/api/musicbat/audio/REDACTED.mp3",
+        "status": 410,
+        "outcome": "ok",
+        "worker": "c98ec7ba-2ff3-402a-a361-f9f59cd17331"
+      },
+      {
+        "at": "2026-10-21T02:04:04.283Z",
+        "request_id": "b41328c0704ca40b75e6ae8791b05fd9",
+        "path": "/api/musicbat/audio/REDACTED.mp3",
+        "status": 410,
+        "outcome": "ok",
+        "worker": "c98ec7ba-2ff3-402a-a361-f9f59cd17331"
+      },
+      {
+        "at": "2026-10-21T02:04:04.168Z",
+        "request_id": "efec7b544e1adb3781342c6a3200922c",
+        "path": "/api/musicbat",
+        "status": 200,
+        "outcome": "ok",
+        "worker": "c98ec7ba-2ff3-402a-a361-f9f59cd17331"
+      },
+      {
+        "at": "2026-10-21T02:04:04.167Z",
+        "request_id": "3593c423c80391e5c67d10ce6b6733ea",
+        "path": "/api/musicbat",
+        "status": 200,
+        "outcome": "ok",
+        "worker": "c98ec7ba-2ff3-402a-a361-f9f59cd17331"
+      },
+      {
+        "at": "2026-10-21T02:04:03.774Z",
+        "request_id": "5045faed601d92c24a3e4594c9180477",
+        "path": "/api/musicbat/stripe/connect",
+        "status": 401,
+        "outcome": "ok",
+        "worker": "c98ec7ba-2ff3-402a-a361-f9f59cd17331"
+      },
+      {
+        "at": "2026-10-21T02:04:03.041Z",
+        "request_id": "53055887b3514730f57b2e6f2787e6a2",
+        "path": "/",
+        "status": 200,
+        "outcome": "ok",
+        "worker": "c98ec7ba-2ff3-402a-a361-f9f59cd17331"
+      },
+      {
+        "at": "2026-10-21T01:54:30.036Z",
+        "request_id": "858659424d1f447f9a712ff9405d47cf",
+        "path": "/",
+        "status": 200,
+        "outcome": "ok",
+        "worker": "c98ec7ba-2ff3-402a-a361-f9f59cd17331"
+      }
+    ],
+    "sandbox": [
+      {
+        "at": "2026-10-21T02:21:52.673Z",
+        "request_id": "509afad9b9c82da4e11980061d380129",
+        "path": "/api/musicbat/channel",
+        "status": 200,
+        "outcome": "ok",
+        "worker": "10628f2f-7aa8-455a-bfc6-7dd979d75d53"
+      },
+      {
+        "at": "2026-10-21T02:21:51.050Z",
+        "request_id": "479d312569720ead2535dac4a2de99f6",
+        "path": "/api/musicbat/channel",
+        "status": 200,
+        "outcome": "ok",
+        "worker": "10628f2f-7aa8-455a-bfc6-7dd979d75d53"
+      },
+      {
+        "at": "2026-10-21T02:21:50.530Z",
+        "request_id": "b0feed2a94471a82883e23560a8f1680",
+        "path": "/api/musicbat/channel",
+        "status": 200,
+        "outcome": "ok",
+        "worker": "10628f2f-7aa8-455a-bfc6-7dd979d75d53"
+      },
+      {
+        "at": "2026-10-21T02:21:49.944Z",
+        "request_id": "488de188558e115ed0b5b5aa1870056a",
+        "path": "/api/musicbat/channel",
+        "status": 200,
+        "outcome": "ok",
+        "worker": "10628f2f-7aa8-455a-bfc6-7dd979d75d53"
+      },
+      {
+        "at": "2026-10-21T02:21:48.994Z",
+        "request_id": "d093ceb479b5afb9cfa9b3da53f1da3c",
+        "path": "/api/musicbat/channel",
+        "status": 200,
+        "outcome": "ok",
+        "worker": "10628f2f-7aa8-455a-bfc6-7dd979d75d53"
+      },
+      {
+        "at": "2026-10-21T02:21:48.448Z",
+        "request_id": "51cc380dab75ebf887278ddd187a6d1d",
+        "path": "/api/musicbat/channel",
+        "status": 200,
+        "outcome": "ok",
+        "worker": "10628f2f-7aa8-455a-bfc6-7dd979d75d53"
+      },
+      {
+        "at": "2026-10-21T02:21:46.943Z",
+        "request_id": "e79ac8254ae5f2bb83441e2720062a05",
+        "path": "/api/musicbat/channel",
+        "status": 200,
+        "outcome": "ok",
+        "worker": "10628f2f-7aa8-455a-bfc6-7dd979d75d53"
+      },
+      {
+        "at": "2026-10-21T02:21:46.816Z",
+        "request_id": "39013675a36ed4882aea3cab42239814",
+        "path": "/api/musicbat/channel",
+        "status": 200,
+        "outcome": "ok",
+        "worker": "10628f2f-7aa8-455a-bfc6-7dd979d75d53"
+      },
+      {
+        "at": "2026-10-21T02:21:46.034Z",
+        "request_id": "7c1e8ae3bb97fef2002eec9082255ea2",
+        "path": "/api/musicbat/channel",
+        "status": 200,
+        "outcome": "ok",
+        "worker": "10628f2f-7aa8-455a-bfc6-7dd979d75d53"
+      },
+      {
+        "at": "2026-10-21T02:21:44.680Z",
+        "request_id": "aef547403e7c983e09c12526fa940422",
+        "path": "/api/musicbat/channel",
+        "status": 200,
+        "outcome": "ok",
+        "worker": "10628f2f-7aa8-455a-bfc6-7dd979d75d53"
+      },
+      {
+        "at": "2026-10-21T02:21:43.929Z",
+        "request_id": "ce37e14fc9818bf2128d4dd9937cc147",
+        "path": "/api/musicbat/channel",
+        "status": 200,
+        "outcome": "ok",
+        "worker": "10628f2f-7aa8-455a-bfc6-7dd979d75d53"
+      },
+      {
+        "at": "2026-10-21T02:21:42.945Z",
+        "request_id": "ffd4fc7f0f6c21a7da9bb4ff74346722",
+        "path": "/api/musicbat/channel",
+        "status": 200,
+        "outcome": "ok",
+        "worker": "10628f2f-7aa8-455a-bfc6-7dd979d75d53"
+      },
+      {
+        "at": "2026-10-21T02:21:42.470Z",
+        "request_id": "44a8505562db5b2608eae71d9d43cc0f",
+        "path": "/api/musicbat/channel",
+        "status": 200,
+        "outcome": "ok",
+        "worker": "10628f2f-7aa8-455a-bfc6-7dd979d75d53"
+      },
+      {
+        "at": "2026-10-21T02:21:42.104Z",
+        "request_id": "ed379778e07af914a263c3358ae9c426",
+        "path": "/api/musicbat/channel",
+        "status": 200,
+        "outcome": "ok",
+        "worker": "10628f2f-7aa8-455a-bfc6-7dd979d75d53"
+      },
+      {
+        "at": "2026-10-21T02:21:41.397Z",
+        "request_id": "065d538a444e7944ece511e468bea1d4",
+        "path": "/api/musicbat/channel",
+        "status": 200,
+        "outcome": "ok",
+        "worker": "10628f2f-7aa8-455a-bfc6-7dd979d75d53"
+      },
+      {
+        "at": "2026-10-21T02:21:41.081Z",
+        "request_id": "a9d019ff867b473791001d9d5a30f789",
+        "path": "/api/musicbat/channel",
+        "status": 200,
+        "outcome": "ok",
+        "worker": "10628f2f-7aa8-455a-bfc6-7dd979d75d53"
+      },
+      {
+        "at": "2026-10-21T02:21:40.365Z",
+        "request_id": "8a282d09ed72f50bd25042aebaba42c6",
+        "path": "/api/musicbat/channel",
+        "status": 200,
+        "outcome": "ok",
+        "worker": "10628f2f-7aa8-455a-bfc6-7dd979d75d53"
+      },
+      {
+        "at": "2026-10-21T02:21:39.940Z",
+        "request_id": "c2b96d1a11544dbd2b2ec71b05c62c07",
+        "path": "/api/musicbat/channel",
+        "status": 200,
+        "outcome": "ok",
+        "worker": "10628f2f-7aa8-455a-bfc6-7dd979d75d53"
+      },
+      {
+        "at": "2026-10-21T02:21:39.326Z",
+        "request_id": "dcb2be53844296884532b9dd6a9ca456",
+        "path": "/api/musicbat/channel",
+        "status": 200,
+        "outcome": "ok",
+        "worker": "10628f2f-7aa8-455a-bfc6-7dd979d75d53"
+      },
+      {
+        "at": "2026-10-21T02:21:38.412Z",
+        "request_id": "64f4e9ae48212484be9f6d03ef436d38",
+        "path": "/api/musicbat/stripe/readiness",
+        "status": 200,
+        "outcome": "ok",
+        "worker": "10628f2f-7aa8-455a-bfc6-7dd979d75d53"
+      },
+      {
+        "at": "2026-10-21T02:21:38.406Z",
+        "request_id": "e4a0760e5067b32111c38e42ba4196a9",
+        "path": "/api/musicbat/channel",
+        "status": 200,
+        "outcome": "ok",
+        "worker": "10628f2f-7aa8-455a-bfc6-7dd979d75d53"
+      },
+      {
+        "at": "2026-10-21T02:21:37.754Z",
+        "request_id": "5fd3472b760d19aa0edd6b50e62403ee",
+        "path": "/api/musicbat/channel",
+        "status": 200,
+        "outcome": "ok",
+        "worker": "10628f2f-7aa8-455a-bfc6-7dd979d75d53"
+      },
+      {
+        "at": "2026-10-21T02:21:36.957Z",
+        "request_id": "a9ae671a33a88efd18f17db77835aa6d",
+        "path": "/api/musicbat/channel",
+        "status": 200,
+        "outcome": "ok",
+        "worker": "10628f2f-7aa8-455a-bfc6-7dd979d75d53"
+      },
+      {
+        "at": "2026-10-21T02:21:36.129Z",
+        "request_id": "3c5414c8ad3f348070c08eb1fffca00f",
+        "path": "/api/musicbat/channel",
+        "status": 200,
+        "outcome": "ok",
+        "worker": "10628f2f-7aa8-455a-bfc6-7dd979d75d53"
+      },
+      {
+        "at": "2026-10-21T02:21:35.524Z",
+        "request_id": "2a829816f7d29025f85e79d6385abf07",
+        "path": "/api/musicbat/channel",
+        "status": 200,
+        "outcome": "ok",
+        "worker": "10628f2f-7aa8-455a-bfc6-7dd979d75d53"
+      }
+    ]
+  },
+  "limitations": [
+    "Physical iPhone/Safari not tested",
+    "No effective production env revision11 runtime assertion",
+    "No current data restore drill/backup inventory or alert delivery evidence",
+    "No new all-history credential/dependency advisory scan",
+    "No live mode/provider/bank/merchant verification",
+    "No original recording permission grant inferred"
+  ]
+}
