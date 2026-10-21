@@ -69,3 +69,37 @@ Earlier production project ID reported: appgprj_6aaa2f4673e88191b504cf941f475802
 6. Update the five records and checkboxes. For every closed item attach exact commit, test, deployment revision, evidence and regression results. For unresolved items state the exact blocker.
 7. No production changes, live charges, destructive migration, invented environment, or duplicate infrastructure without explicit approval. Do not repeat successful purchases without technical justification.
 Output a concise Q sheet first, followed by the linked evidence and only necessary owner decisions.
+
+## Reconciliation update — 2026-10-20, following Stage 4 v20 hosted acceptance
+
+Authoritative acceptance evidence: https://github.com/ltkrisp-afk/musicbat-live/blob/c9db2087d8549e980f7a5462b1e5fc5e0d749666/docs/stage4-security-acceptance-2026-10-20.md
+Correction code: https://github.com/ltkrisp-afk/musicbat-live/commit/dd46fe9f8ae4baf50249e48b802e545368ca6fcd
+
+This section **supersedes the provisional status labels in the initial Q sheet above**, which remain as a historical baseline. The findings below reflect a committed Work evidence report and an independent GitHub read of that report, NOT an independent fresh live sandbox retest.
+
+### Mandatory failure-boundary classification
+For every new or recurring incident capture **observed location**, **crossed boundaries**, **confirmed origin (or UNDETERMINED)**, **responsible system**, and **proof**. Categories: INSIDE SANDBOX (application, D1, authorization), AT BOUNDARY (routing, binding, callback, webhook), OUTSIDE SANDBOX (GitHub, identity/Stripe provider, external infrastructure), MULTI-BOUNDARY, UNDETERMINED. An observed symptom's location does not establish its cause. Avoid changing application code for an unconfirmed platform/boundary problem.
+
+### Updated Q sheet
+| ID | Status per committed acceptance report | Evidence / remaining action |
+| --- | --- | --- |
+| MB-001 | VERIFIED PASS (reported hosted) | Separate iCloud account sign-in and account-specific ID; acceptance document |
+| MB-002 | VERIFIED PASS (preserved prior acceptance) | $2 test-mode purchase; signed webhook; no new transaction |
+| MB-003 | VERIFIED PASS (preserved prior acceptance) | $1.70 artist / $0.30 platform / $0.37 buyer processing; D1 snapshot |
+| MB-004 | VERIFIED PASS (reported hosted) | 384044-byte downloaded fixture SHA-256 68284af0d7ec16d57a9df31942122ef4f889011da62dbec6abcaa94e1213e43c |
+| MB-005 | VERIFIED PASS (reported hosted) | Account-owned iCloud recovery, re-sign-in download HTTP 200, other account denied HTTP 404; code dd46fe9 |
+| MB-006 | VERIFIED PASS (reported hosted) | Listener Shock Room HTTP 403, owner authorized and rows limited; code dd46fe9 |
+| MB-007 | UNRESOLVED NONBLOCKING | Earlier /callback HTTP 404; Sites Dispatch boundary suspected but internal cause not established; later sign-ins succeeded |
+| MB-008 | BLOCKED HISTORICAL EVIDENCE | Scheduler invocation attribution not independently recovered; no rerun justified |
+| MB-009 | RECONCILED IN COMMITTED REPORT | GitHub dd46fe9 and deployed Sites a9bc1ad compared byte-for-byte across 17 changed files; sandbox v20, deployment appgdep_6ad7c47a62e881918f12314663a45e9d, worker revision 10628f2f-7aa8-455a-bfc6-7dd979d75d53 |
+| MB-010 | BLOCKED SAFE HOLD | Historical paid order c985ed12-4f04-41cc-80cb-961830651251 has receipt email matching neither account; no automatic assignment; review original evidence before administrative recovery |
+| MB-011 | NOT RUN | Separate physical browser/iPhone hosted test; don't imply completion |
+
+### Specific historical-ownership review gate
+Review original purchase acceptance evidence and receipt provenance without exposing receipt addresses or secrets in logs or reports. Determine whether the receipt belongs to a real authenticated purchaser or a synthetic test fixture. Require explicit reviewed mapping and audit record before any administrative account assignment. If evidence cannot establish an owner, preserve the paid order unassigned and document the limitation. Do not repeat a charge, guess the owner, or treat cookie possession as proof.
+
+### Scope and release decision
+The committed report says security correction and hosted v20 acceptance PASS, with 266 automated tests plus TypeScript/lint/build. It says production was unchanged and full Stage 4 acceptance remains BLOCKED on historical ownership review. Preserve these as evidence-backed claims scoped to the report. Do not claim full release readiness or close independent production-readiness gates.
+
+### Next Work instruction
+Read the authoritative acceptance report first. Reconcile this documentation branch against the active engineering branch without overwriting code or newer Work findings. Resolve only genuine remaining evidence/ownership tasks. Preserve the verified purchase loop and security changes; no repeat payment or production changes. Keep source/environment/boundary provenance attached to every checkbox.
