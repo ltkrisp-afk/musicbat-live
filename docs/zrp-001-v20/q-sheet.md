@@ -1,0 +1,27 @@
+# Visual Q sheet — ZRP-001 / Stage 4 v20
+
+Recorded 2026-10-21T01:43:55Z. [Protocol](https://github.com/ltkrisp-afk/musicbat-live/blob/11f7119fb2bb8ff49a513fc72cb54d09b7c6dcf9/docs/zipper-reconciliation-protocol-2026-10-20.md). Engineering owner: Codex; ownership assignment decisions: MusicBat owner after evidence review. 
+Records: [Q sheet](q-sheet.md) · [causal ledger](causal-ledger.md) · [architecture](architecture.md) · [reconciliation](reconciliation.md) · [correction lineage](correction-lineage.md) · [machine evidence](evidence.json).
+
+
+| ID | Falsifiable claim | Status | Evidence / linked incident | Closure gate / remaining action |
+| --- | --- | --- | --- | --- |
+| MB-001 | iCloud authenticates as a stable account distinct from artist owner | VERIFIED PASS | [Hosted v20 record](https://github.com/ltkrisp-afk/musicbat-live/blob/c9db2087d8549e980f7a5462b1e5fc5e0d749666/docs/stage4-security-acceptance-2026-10-20.md); actor B sha256:abcae718c5da273d differs from A sha256:e932c7789a9e8bbc | Closed for separate-account technical acceptance; not independent-human acceptance |
+| MB-002 | Existing $2 Checkout, signed webhook and paid record | VERIFIED PASS | Existing order e28285af-e826-49b9-861f-fa87af700ef7; event evt_1USifRLKJHBmA7JwkJWofUcM; webhook200 2026-10-20T19:25:50.846Z requestd182572564dedf9e37f15cc78f60763a; fresh D1 paid state | Original transaction was v19; settlement code unchanged and its paid entitlement verified on v20. No duplicate purchase needed |
+| MB-003 | Base allocation170/30 cents, buyer processing37 | VERIFIED PASS | Existing Stripe readback/committed evidence; fresh D1 snapshot | Closed for this transaction, not every possible fee schedule |
+| MB-004 | Purchased generated550Hz audio matches fixture | VERIFIED PASS | v20 download200, requestb5e0e0da5f63321e5b5d842c24be4245, 384044 bytes and recorded SHA256 | Closed; no original catalog or new transaction used |
+| MB-005 | Account ownership survives logout/sign-in; cookie does not transfer it | VERIFIED PASS | [MB-005 lineage](correction-lineage.md#mb-005), 0015, audit, exact-commit CI and hosted buyer200/owner404 | CLOSED correction. Physical second-browser testing not claimed |
+| MB-006 | Shock Room server enforces artist authority | VERIFIED PASS | [MB-006 lineage](correction-lineage.md#mb-006), listener403 and owner scoped rows; other-artist/null-identity CI | CLOSED for audited routes; not merely UI hiding |
+| MB-007 | Earlier callback404 internal cause established | UNRECONCILED | Prior requestd0a060ddf33568d138f1b57d038d3d12; later sign-ins succeeded | Obtain platform incident evidence only if available/recurrence warrants; no speculative application change or new login test |
+| MB-008 | Original automatic invocation attributable to scheduler rather than manual caller | BLOCKED | Preserved receipt in [unattended record](https://github.com/ltkrisp-afk/musicbat-live/blob/dd46fe9f8ae4baf50249e48b802e545368ca6fcd/docs/unattended-recovery-acceptance-2026-10-18.md); original invoker-specific receipt unavailable | Need original scheduled-run tool receipt/audit correlated to02:05:08.026Z, processed1 and before/after job. Current completion cannot prove invoker. Do not reset jobs |
+| MB-008a | Current recovery data healthy and existing schedule enabled | VERIFIED PASS | Fresh native schedule read; eight completed jobs, clear leases/no errors; fixed probe completed attempt2 | Closed current-state check only, not a fresh due-job run or native Cron proof |
+| MB-009 | Tested source is tied to actual Stage4 deployment | VERIFIED PASS | [Full reconciliation](reconciliation.md): 256 code/support files identical; explicit manifest/docs differences; native v20 metadata and DB effects | CLOSED Gate0 for v20. Reopen on code/config/deployment drift; never require separate repository SHAs to be identical |
+| MB-010 | Older paid fixture has established authenticated-account owner | BLOCKED | [Ledger](causal-ledger.md#mb-010-proof-and-authorization-gate); receipt email mismatch, no account/audit assignment | Authenticate matching receipt identity with existing proof, or explicit reviewed historical fixture mapping to a named stable account; preserve record |
+| MB-011 | Exact fix passes regressions, TypeScript, lint and build | VERIFIED PASS | [Development CI](https://github.com/ltkrisp-afk/musicbat-live/actions/runs/39485881177) ondd46fe9f8ae4baf50249e48b802e545368ca6fcd, raw summary266/266/0failed/0skipped; [browser CI](https://github.com/ltkrisp-afk/musicbat-live/actions/runs/39485881278) success | Closed; existing runs inspected, not rerun |
+| MB-012 | Physical iPhone/Safari and a second physical-browser purchase recovery | NOT TESTED | CI uses Chromium/isolated fixtures; hosted account switching tested | Requires supported physical-device/browser observation if mandated for release; do not relabel responsive simulation |
+
+## Acceptance boundary
+
+The security defects and v20 source provenance are closed with code, migration, CI and hosted evidence. The original $2 purchase remains accepted. Full Stage4 acceptance is not declared because the legacy ownership and original scheduler-attribution evidence gates remain open. Callback cause remains nonblocking and unreconciled; physical-device results remain not tested.
+
+No decision is requested for another purchase, deployment, infrastructure or code rewrite. The only potential owner authorization is a specific reviewed historical fixture-to-account mapping, after its evidence is established. No assignment is made by this record.

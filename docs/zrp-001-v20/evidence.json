@@ -1,0 +1,154 @@
+{
+  "protocol": {
+    "commit": "11f7119fb2bb8ff49a513fc72cb54d09b7c6dcf9",
+    "branch": "docs/zipper-reconciliation-2026-10-20"
+  },
+  "recorded_at_utc": "2026-10-21T01:43:55Z",
+  "authoritative": {
+    "branch": "repair/85-15-authoritative-2026-10-18",
+    "runtime_commit": "dd46fe9f8ae4baf50249e48b802e545368ca6fcd",
+    "records_parent": "c9db2087d8549e980f7a5462b1e5fc5e0d749666",
+    "tree": "51bdda1c6584afc7b287a74ac3a0e5acfa9543f3"
+  },
+  "sites": {
+    "project_id": "appgprj_6ad26204823c81918260d33e13429074",
+    "source_commit": "a9bc1ad45a47e3cc45f04c6119d536bfac384cb2",
+    "parent": "2bc1d2efb8dc390f14d0d2691042de00b29bd5e5",
+    "tree": "887c65c000dedb6a33b1d76f163f25caf21a4ca7",
+    "source_kind": "Git source commit in separate Sites repository",
+    "version": 20,
+    "version_id": "appgprj_6ad26204823c81918260d33e13429074~appgver_09bde474757c8191867058dcc35593ac",
+    "deployment_id": "appgdep_6ad7c47a62e881918f12314663a45e9d",
+    "worker_revision": "10628f2f-7aa8-455a-bfc6-7dd979d75d53",
+    "archive_sha256": "2d8b7faadfe55bc8c0777722868a643c705c40b6c27f2468bbc7025162620f06",
+    "env_revision": 6,
+    "public_config": [
+      {
+        "key": "MUSICBAT_BASE_URL",
+        "value": "https://musicbat-stage4-sandbox-2026-10-16.ltkrisp.chatgpt.site"
+      },
+      {
+        "key": "MUSICBAT_CLOUDFLARE_RADIO",
+        "value": "test"
+      },
+      {
+        "key": "MUSICBAT_PROCESSING_BPS",
+        "value": "290"
+      },
+      {
+        "key": "MUSICBAT_PROCESSING_FIXED_CENTS",
+        "value": "30"
+      },
+      {
+        "key": "MUSICBAT_RELEASE_PAUSED",
+        "value": "0"
+      },
+      {
+        "key": "MUSICBAT_STRIPE_MODE",
+        "value": "test"
+      }
+    ],
+    "bindings": {
+      "d1": "DB",
+      "r2": "BUCKET"
+    }
+  },
+  "tree_comparison": {
+    "githubFiles": 298,
+    "sitesFiles": 298,
+    "identical": 294,
+    "codeAndSupport": 256,
+    "allCodeAndSupportEqual": true,
+    "nontruncated": true,
+    "differences": [
+      {
+        "path": ".openai/hosting.json",
+        "github": "9ee2e49f6b84d516d1ce6459089f593fe871152b",
+        "sites": "3fd4b2b6f75e5870bdea68388d34fcffae8bb931"
+      },
+      {
+        "path": "docs/evidence/musicbat-paid-radio-2026-10-18.jpg",
+        "github": null,
+        "sites": "6ccf807fde7f74136034853811cfcc89ce72def3"
+      },
+      {
+        "path": "docs/evidence/musicbat-withdrawn-download-2026-10-18.jpg",
+        "github": null,
+        "sites": "9bf04163baef0281afbf6514b164c715f455a676"
+      },
+      {
+        "path": "docs/stage4-icloud-purchase-verification-2026-10-20.md",
+        "github": "ac93638b42cf6f6a4da43ceb5a9d7a219f29a94d",
+        "sites": null
+      },
+      {
+        "path": "docs/stage4-sandbox-configuration.md",
+        "github": null,
+        "sites": "01a24593cb0157dc086d3df4d9c53e00af50393d"
+      },
+      {
+        "path": "docs/stage4-substitute-listener-auth-2026-10-20.md",
+        "github": "62051c25785281ada94f75f86c49d2738d5751c2",
+        "sites": null
+      },
+      {
+        "path": "docs/stage4-v15-pause-checkpoint-2026-10-18.md",
+        "github": "e0345154d1b28a2e0ff415e2a8e22cd8ee3eaf96",
+        "sites": null
+      }
+    ]
+  },
+  "actors": {
+    "owner": "sha256:e932c7789a9e8bbc",
+    "buyer": "sha256:abcae718c5da273d",
+    "scheme": "first 16 hex characters of SHA-256 of stable account ID"
+  },
+  "database": {
+    "purchase_count": 8,
+    "paid_orders": 2,
+    "ownership_audit_rows": 1,
+    "old_paid_order_unassigned": true,
+    "recovery_jobs": 8,
+    "completed_jobs": 8,
+    "active_leases": 0,
+    "errors": 0,
+    "migration_0015_effects_verified": true,
+    "migration_provider_ledger_retrieved": false
+  },
+  "ci": {
+    "commit": "dd46fe9f8ae4baf50249e48b802e545368ca6fcd",
+    "development": {
+      "run": 39485881177,
+      "job": 118846039667,
+      "conclusion": "success",
+      "tests": 266,
+      "passed": 266,
+      "failed": 0,
+      "skipped": 0,
+      "typecheck": "success",
+      "lint": "success",
+      "build": "success",
+      "url": "https://github.com/ltkrisp-afk/musicbat-live/actions/runs/39485881177"
+    },
+    "browser": {
+      "run": 39485881278,
+      "job": 118846040639,
+      "conclusion": "success",
+      "shared_radio_checks": 8,
+      "application_checks": 4,
+      "responsive_step": "success",
+      "scope": "isolated CI Chromium; not hosted/physical Safari",
+      "url": "https://github.com/ltkrisp-afk/musicbat-live/actions/runs/39485881278"
+    }
+  },
+  "mutations_this_reconciliation": [
+    "GitHub engineering documentation only"
+  ],
+  "forbidden_operations_performed": [],
+  "limits": {
+    "historical_callback_cause": "UNRECONCILED",
+    "original_scheduler_attribution": "BLOCKED: invoker receipt not independently retrievable",
+    "legacy_order_ownership": "BLOCKED: no mapping inferred",
+    "physical_device": "NOT TESTED"
+  }
+}
