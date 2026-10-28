@@ -31,7 +31,7 @@ export function d1RadioService(db:D1Database,bucket:R2Bucket):Pick<Fetcher,'fetc
   territory:async id=>(await config(id)).territory,
   sourceEligible:async(id:string,listener:ListenerAuthority)=>{
    const session=primary();
-   const row=await session.prepare('SELECT t.status,t.radio_enabled,p.* FROM tracks t LEFT JOIN playback_permissions p ON p.track_id=t.id WHERE t.id=?').bind(id).first<Permission&{status:string;radio_enabled:number}>();
+   const row=await session.prepare(`SELECT t.status,t.radio_enabled,p.* FROM tracks t LEFT JOIN playback_permissions p ON p.track_id=t.id WHERE t.id=? AND NOT EXISTS(SELECT 1 FROM track_ingestion i WHERE i.track_id=t.id AND (i.state!='VERIFIED' OR i.is_payable!=1 OR i.hold_reason IS NOT NULL))`).bind(id).first<Permission&{status:string;radio_enabled:number}>();
    const assignment=await session.prepare('SELECT channel_id FROM radio_engine_sessions WHERE listener_id=?').bind(listener.id).first<{channel_id:string}>();
    if(!row||row.status!=='active'||row.radio_enabled!==1||!assignment)return false;
    const c=await config(assignment.channel_id);

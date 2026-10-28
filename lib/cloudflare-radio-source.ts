@@ -30,7 +30,7 @@ export async function currentRadioSource(db: Pick<D1Database,'prepare'>, trackId
     p.reviewed_by, p.reviewed_at, p.artist_authorized, p.free_allowed,
     p.plus_allowed, p.starts_at, p.expires_at, p.withdrawn_at, p.territory
     FROM tracks t LEFT JOIN playback_permissions p ON p.track_id=t.id
-    WHERE t.id=?`).bind(trackId).first<RadioSourceRow>();
+    WHERE t.id=? AND NOT EXISTS(SELECT 1 FROM track_ingestion i WHERE i.track_id=t.id AND (i.state!='VERIFIED' OR i.is_payable!=1 OR i.hold_reason IS NOT NULL))`).bind(trackId).first<RadioSourceRow>();
 }
 
 /** Only opaque private object keys, never external URLs or filesystem paths. */

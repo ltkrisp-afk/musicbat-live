@@ -125,6 +125,7 @@ test('real local Cloudflare D1/R2 executes guarded concurrency and authenticated
   for(const sql of schema.split(';').map(s=>s.trim()).filter(Boolean))await db.prepare(sql).run();
   await db.prepare('CREATE TABLE tracks(id INTEGER PRIMARY KEY,audio_url TEXT,status TEXT,radio_enabled INTEGER,primary_genre TEXT,subgenre TEXT,style TEXT)').run();
   await db.prepare('CREATE TABLE playback_permissions(track_id INTEGER PRIMARY KEY,recording_basis TEXT,recording_evidence TEXT,composition_evidence TEXT,reviewed_by TEXT,reviewed_at INTEGER,artist_authorized INTEGER,free_allowed INTEGER,plus_allowed INTEGER,starts_at INTEGER,expires_at INTEGER,withdrawn_at INTEGER,territory TEXT)').run();
+  await db.prepare('CREATE TABLE track_ingestion(track_id INTEGER PRIMARY KEY,state TEXT,is_payable INTEGER,hold_reason TEXT)').run();
   const now=Date.now(),expires=now+86400000;
   const p={...permission,reviewed_at:now-1,starts_at:now-1,expires_at:expires,territory:'worldwide'};
   const reviewed={...track('1'),durationMs:30000,permission:p};

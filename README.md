@@ -52,3 +52,14 @@ Statutory playback is disabled. The private direct-license runtime implements co
 Reference checked October 12, 2026: https://www.copyright.gov/title17/92chap1.html, sections 114(d)(2), 114(d)(3)(C), 114(d)(4) and 114(j)(13). Statutory sound-recording performance-complement rules concern a three-hour channel window, distinct album/artist/compilation selections and consecutive limits; they do not create composition authorization. This implementation declines statutory playback rather than representing unchecked playback as compliant.
 
 Radio reconciliation: retain newer energy lanes, Shock Room, genre editing and reversible Keep controls. Retain append-only feedback evidence, but count only each listener’s latest per-track triangle choice. Preserve the older listener-choice branch in the prior reconciliation backup rather than applying its incompatible migration. Migration IDs 0006 and 0007 follow the existing 0005 migration.
+
+## October 28 development update
+
+Musicians and listeners both have free core accounts. Either can opt into the
+$5/month extended Radio features. New subscriptions use the updated price;
+existing invoice and subscription evidence remains unchanged. Artist upload,
+participation and eligible purchase earnings do not require that upgrade.
+
+The sandbox-only 72-hour ingestion implementation, migration scope, local worker
+command and qualification limits are documented in
+[ingestion verification](docs/ingestion-verification-2026-10-28.md).

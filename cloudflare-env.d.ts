@@ -8,6 +8,7 @@ declare namespace Cloudflare {
     DB?: D1Database;
     BUCKET?: R2Bucket;
     MUSICBAT_RELEASE_PAUSED?: string;
+    MUSICBAT_INGESTION_ENABLED?: string;
     MUSICBAT_STRIPE_MODE?: string;
     MUSICBAT_RADIO_PLUS_ENABLED?: string;
     STRIPE_SECRET_KEY?: string;

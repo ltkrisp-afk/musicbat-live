@@ -97,7 +97,7 @@ export async function POST(request: Request) {
       SELECT t.id, t.artist_id, t.title, t.artist_name, t.audio_url, t.sale_enabled, t.sale_rights_attested,
         t.sale_price_cents, t.sale_currency, a.stripe_account_id, a.charges_enabled, a.payouts_enabled, a.details_submitted
       FROM tracks t LEFT JOIN artist_accounts a ON a.artist_id = t.artist_id
-      WHERE t.id = ? AND t.status = 'active' AND t.rights_attested = 1
+      WHERE t.id = ? AND NOT EXISTS(SELECT 1 FROM track_ingestion i WHERE i.track_id=t.id AND (i.state!='VERIFIED' OR i.is_payable!=1 OR i.hold_reason IS NOT NULL)) AND t.status = 'active' AND t.rights_attested = 1
     `).bind(trackId).first<TrackForSale>();
     if (!track) return response({ error: "That song is unavailable." }, 404);
     if (!track.sale_enabled || !track.sale_rights_attested || !track.sale_price_cents) return response({ error: "This artist has not offered the track for sale yet." }, 409);
