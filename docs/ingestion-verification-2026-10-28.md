@@ -134,3 +134,20 @@ including real decoder fixtures and dashboard status rendering. TypeScript,
 affected-file ESLint, build and diff whitespace checks passed. These are local
 results; neither hosted ingestion execution nor physical phone behavior passed
 verification in this continuation.
+
+## Verified sandbox tone retirement — October 28 continuation
+
+Founder explicitly requested retirement before Unity testing. Through the existing
+owner-authenticated Manage Songs controls, withdrew active generated track 3
+(550 Hz purchase fixture) and track 2 (440 Hz Radio fixture). Track 1 was already
+withdrawn and was left unchanged. Subsequent live D1 read verified all three
+rows: status=withdrawn, radio_enabled=0, sale_enabled=0. The active catalog visibly
+shows 0 active tracks. No physical audio deletion, ownership change, purchase
+record deletion, production change, source deployment or Stripe credential change
+was performed. The existing historical purchase counts remain visible.
+
+Next authorized test recording: Unity, using original attribution and a separate
+buyer identity in sandbox. No original song has yet been copied/linked into this
+hosted sandbox. Public and sandbox catalogs do not automatically synchronize.
+Founder welcomes Claude assisting; use shared commit/evidence references rather
+than implying separate tools automatically share sessions or source state.
