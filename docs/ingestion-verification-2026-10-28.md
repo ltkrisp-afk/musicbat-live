@@ -24,7 +24,7 @@ Migration 0016 adds `track_ingestion` and `ingestion_reports` without backfillin
 or relabeling the existing catalog. With both `MUSICBAT_INGESTION_ENABLED=test`
 and `MUSICBAT_STRIPE_MODE=test`, the authenticated upload transaction registers a
 new ingestion row after R2 upload, recording the object key, SHA-256, byte size,
-UTC upload milliseconds and the fixed upload-plus-72-hours deadline. There is
+UTC upload milliseconds and the fixed upload-plus-72-hours review target. There is
 no public timer-reset or worker-completion endpoint.
 
 `PENDING → CLAIMED → CHECKED → VERIFIED`; conclusive technical failures become
@@ -41,7 +41,7 @@ These tools are runtime dependencies; this is not a zero-dependency or zero-cost
 implementation. It does not identify ownership, copyright infringement,
 plagiarism, artistic quality or streaming fraud.
 
-Only CHECKED tracks with completed technical evidence, an elapsed deadline,
+Only CHECKED tracks with completed technical evidence,
 active catalog lifecycle and no operator hold can become VERIFIED/is_payable=1.
 Catalog withdrawal/deletion and recording/composition permission review remain
 independent. Radio source/delivery boundaries and new purchase admission deny
@@ -71,7 +71,7 @@ From the repository, with ffmpeg and ffprobe available on PATH:
 MUSICBAT_STRIPE_MODE=test pnpm ingestion:sweep --db /absolute/development.sqlite --objects /absolute/private-object-root
 ```
 
-This runs one bounded sweep of up to ten checks and matures eligible CHECKED
+This runs one bounded sweep of up to ten checks and finalizes eligible CHECKED
 rows. A local scheduler can invoke this command every five minutes using absolute
 paths to the repository, runtime and data. No scheduler has been installed here;
 a sleeping/offline computer cannot run it. A hosted unattended implementation
@@ -79,7 +79,13 @@ needs an authorized durable worker with an actual D1/R2 adapter and decoder
 runtime. The shared sweep accepts injected storage/inspection functions for
 that integration, but that hosting and end-to-end delivery are NOT VERIFIED.
 
-Use the clock-injected tests for expiration rather than changing only one
+The October 28 clarification treats 72 hours as a review target, not a required wait.
+Successful technical checks finalize immediately; an elapsed timer never approves
+unprocessed audio. The artist dashboard shows elapsed review time and remaining
+target time, with distinct failed, held, overdue and completed states. It refreshes
+pending statuses every 30 seconds. Rights review remains independent.
+
+Use the clock-injected tests for timing rather than changing only one
 timestamp: the schema enforces `deadline = upload + 259200000` milliseconds.
 Inspect both the ingestion row and reports. A queue outage must remain unpaid,
 and changing a track's catalog lifecycle must not bypass the ingestion gate.
@@ -97,3 +103,34 @@ and changing a track's catalog lifecycle must not bypass the ingestion gate.
 - No production migration, deployment, Stripe account modification or real charge.
 - Hosted ingestion scheduling, hosted decoder access and physical computer/phone
   browser checks: NOT RUN.
+
+## Continuation: completed code versus hosted operation
+
+The existing implementation was located on GitHub development branch
+`development/ingestion-72h-2026-10-28` at `42c974c`. Linux was still at
+`5ee7e66`; the earlier grep searched the separate authoritative branch, which
+does not contain this new development work. No missing Python agent or guessed
+`musicbat.db` should be created. The operator is Node/TypeScript and requires
+explicit existing SQLite and materialized R2 object paths. No Stripe key is
+needed by the ingestion operator. No crontab is installed.
+
+The hosted Stage 4 database inspected during this continuation has no
+`track_ingestion` or `ingestion_reports` table. Hosted ingestion is therefore
+not active. Its existing generated Radio track 2 and station review expired
+2026-10-20T03:50:29.493Z; track 2 has sales disabled. This explains that
+fixture's eligibility failure, not proof of a frozen browser or an expected
+testing-mode appearance. Track 1 remains withdrawn and must not be resurrected.
+Track 3 remains a distinct active sandbox sales fixture with Radio disabled.
+Do not substitute real recordings or change production to work around this.
+
+Remaining operational boundary: a local operator cannot directly inspect hosted
+R2/D1 through a guessed filesystem path. Hosted unattended decoding needs the
+actual authorized storage adapter and execution runtime. No hosted worker,
+production deployment, credential change, permission renewal or charge was made
+in this continuation. The dashboard update has been built locally, not deployed.
+
+Continuation verification: 276/276 automated tests passed (44.94 seconds),
+including real decoder fixtures and dashboard status rendering. TypeScript,
+affected-file ESLint, build and diff whitespace checks passed. These are local
+results; neither hosted ingestion execution nor physical phone behavior passed
+verification in this continuation.

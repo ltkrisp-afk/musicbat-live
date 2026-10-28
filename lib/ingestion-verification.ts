@@ -10,7 +10,7 @@ type Runtime = {
  now?:()=>number;
 };
 
-/** Durable queue; restart/retry never resets upload time or the 72-hour deadline.
+/** Durable queue; restart/retry never resets upload time or the 72-hour review target.
  * Storage/decoder outages retry. Only a conclusive technical failure rejects.
  * No Stripe calls: admission controls do not revoke historical earnings.
  */
@@ -56,7 +56,7 @@ export async function runIngestionSweep(runtime:Runtime,limit=10) {
  }
  const finish=now();
  const verified=await db.prepare(`UPDATE track_ingestion SET state='VERIFIED',is_payable=1,claim_token=NULL,claim_until=0,updated_at=?
-  WHERE state='CHECKED' AND technical_passed_at IS NOT NULL AND verification_expires_at<=? AND hold_reason IS NULL
+  WHERE state='CHECKED' AND technical_passed_at IS NOT NULL AND technical_passed_at<=? AND hold_reason IS NULL
   AND EXISTS(SELECT 1 FROM tracks t WHERE t.id=track_id AND t.status='active') RETURNING track_id`).bind(finish,finish).all<{track_id:number}>();
  return {checked,failed,retried,verified:verified.results.map(r=>r.track_id)};
 }

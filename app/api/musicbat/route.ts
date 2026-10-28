@@ -237,6 +237,7 @@ export async function GET(request: Request) {
       const user = await requireUser();
       const rows = await db.prepare(`SELECT t.*, 1 AS can_manage,
         (SELECT state FROM track_ingestion i WHERE i.track_id=t.id) AS ingestion_state,
+        (SELECT hold_reason FROM track_ingestion i WHERE i.track_id=t.id) AS ingestion_hold,
         (SELECT verification_expires_at FROM track_ingestion i WHERE i.track_id=t.id) AS verification_expires_at, ${shockStatsSql},
         (SELECT COUNT(DISTINCT l.listener_id) FROM listens l WHERE l.track_id=t.id AND l.qualified=1 AND l.listener_id!=t.artist_id) AS listener_count,
         (SELECT COUNT(DISTINCT l.listener_id) FROM listens l WHERE l.track_id=t.id AND l.listener_id!=t.artist_id) AS discovery_listener_count,

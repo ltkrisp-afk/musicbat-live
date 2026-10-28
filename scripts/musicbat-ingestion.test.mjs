@@ -19,7 +19,7 @@ async function setup() {
  return {...f,job,clock,runtime};
 }
 
-test('upload queues hashed source; actual decode precedes deadline; expiry is exact and repeat-safe',async()=>{
+test('valid decoded upload clears immediately; the 72-hour target is not a mandatory hold',async()=>{
  const f=await setup();try {
   assert.equal(f.job.verification_expires_at-f.job.uploaded_at,INGESTION_WINDOW_MS);
   assert.equal(f.job.state,'PENDING');assert.equal(f.job.is_payable,0);
@@ -28,9 +28,9 @@ test('upload queues hashed source; actual decode precedes deadline; expiry is ex
   const buy=await load('app/api/musicbat/purchase/route.ts',f.state);
   assert.equal((await buy.POST(new Request('https://musicbat.audio/api/musicbat/purchase',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({trackId:1})}))).status,404);
   assert.throws(()=>f.sqlite.prepare("INSERT INTO purchases(id,buyer_hash,track_id,title,artist_name,audio_path) VALUES('blocked','h',1,'t','a','x')").run(),/verification/);
-  const checked=await runIngestionSweep(f.runtime);assert.equal(checked.checked,1);assert.deepEqual(checked.verified,[]);
-  f.clock.now=f.job.verification_expires_at-1;assert.deepEqual((await runIngestionSweep(f.runtime)).verified,[]);
-  f.clock.now++;assert.deepEqual((await runIngestionSweep(f.runtime)).verified,[1]);
+  const checked=await runIngestionSweep(f.runtime);assert.equal(checked.checked,1);assert.deepEqual(checked.verified,[1]);
+  assert.ok(f.clock.now<f.job.verification_expires_at);
+  f.clock.now=f.job.verification_expires_at;assert.deepEqual((await runIngestionSweep(f.runtime)).verified,[]);
   assert.equal(f.sqlite.prepare('SELECT is_payable FROM track_ingestion').get().is_payable,1);
   assert.deepEqual((await runIngestionSweep(f.runtime)).verified,[]);
   assert.ok(await currentRadioSource(f.state.env.DB,1)); // Rights review remains separate.
@@ -86,7 +86,8 @@ test('expired claims recover; stale worker cannot finish over a newer claim',asy
 test('concurrent workers decode once; holds and withdrawals cannot mature or be undone',async()=>{
  const f=await setup();try {
   let calls=0;const inspect=f.runtime.inspect;f.runtime.inspect=async bytes=>{calls++;return inspect(bytes)};
-  await Promise.all([runIngestionSweep(f.runtime),runIngestionSweep(f.runtime)]);assert.equal(calls,1);
+  const results=await Promise.all([runIngestionSweep(f.runtime),runIngestionSweep(f.runtime)]);assert.equal(calls,1);assert.equal(results.flatMap(r=>r.verified).length,1);
+  f.sqlite.prepare("UPDATE track_ingestion SET state='CHECKED',is_payable=0").run();
   f.clock.now=f.job.verification_expires_at;f.sqlite.prepare("UPDATE track_ingestion SET hold_reason='operator_review'").run();
   assert.deepEqual((await runIngestionSweep(f.runtime)).verified,[]);
   f.sqlite.prepare('UPDATE track_ingestion SET hold_reason=NULL').run();
