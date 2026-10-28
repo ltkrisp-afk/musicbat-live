@@ -113,6 +113,20 @@
       "when": 1792510000000,
       "tag": "0015_purchase_account_ownership",
       "breakpoints": true
+    },
+    {
+      "idx": 16,
+      "version": "6",
+      "when": 1793203200000,
+      "tag": "0016_ingestion_verification",
+      "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "6",
+      "when": 1793203200001,
+      "tag": "0017_extended_feature_price",
+      "breakpoints": true
     }
   ]
 }

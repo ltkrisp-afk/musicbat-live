@@ -235,13 +235,15 @@ export async function GET(request: Request) {
 
     if (view === "rotunda") {
       const user = await requireUser();
-      const rows = await db.prepare(`SELECT t.*, 1 AS can_manage, ${shockStatsSql},
+      const rows = await db.prepare(`SELECT t.*, 1 AS can_manage,
+        (SELECT state FROM track_ingestion i WHERE i.track_id=t.id) AS ingestion_state,
+        (SELECT verification_expires_at FROM track_ingestion i WHERE i.track_id=t.id) AS verification_expires_at, ${shockStatsSql},
         (SELECT COUNT(DISTINCT l.listener_id) FROM listens l WHERE l.track_id=t.id AND l.qualified=1 AND l.listener_id!=t.artist_id) AS listener_count,
         (SELECT COUNT(DISTINCT l.listener_id) FROM listens l WHERE l.track_id=t.id AND l.listener_id!=t.artist_id) AS discovery_listener_count,
         (SELECT COUNT(*) FROM artist_follows f WHERE f.artist_id=t.artist_id AND f.listener_id!=t.artist_id) AS follower_count,
         (SELECT COUNT(*) FROM purchases p WHERE p.track_id=t.id) AS checkout_count,
         (SELECT slug FROM artist_pages WHERE account_id=t.artist_id) AS artist_slug,
-        CASE WHEN t.status != 'active' OR t.radio_enabled = 0 THEN 'withdrawn'
+        CASE WHEN EXISTS(SELECT 1 FROM track_ingestion i WHERE i.track_id=t.id AND (i.state!='VERIFIED' OR i.is_payable!=1 OR i.hold_reason IS NOT NULL)) THEN 'awaiting ingestion verification' WHEN t.status != 'active' OR t.radio_enabled = 0 THEN 'withdrawn'
           WHEN EXISTS(SELECT 1 FROM playback_permissions p WHERE p.track_id=t.id AND p.artist_authorized=1 AND p.recording_basis='direct' AND p.withdrawn_at IS NULL AND p.free_allowed=1 AND p.starts_at<=unixepoch('now')*1000 AND p.reviewed_at<=unixepoch('now')*1000 AND length(trim(p.recording_evidence))>0 AND length(trim(p.composition_evidence))>0 AND length(trim(p.reviewed_by))>0 AND p.expires_at > ?)
           THEN 'rights reviewed; runtime registration required' ELSE 'awaiting rights review' END AS radio_status
         FROM tracks t WHERE t.artist_id=? OR EXISTS(SELECT 1 FROM track_authority a WHERE a.track_id=t.id AND a.account_id=? AND a.revoked_at IS NULL)
@@ -385,10 +387,16 @@ export async function POST(request: Request) {
       let track;
       try {
         const now=Date.now();
+        const ingestionEnabled=env.MUSICBAT_INGESTION_ENABLED==='test' && env.MUSICBAT_STRIPE_MODE==='test';
+        if(env.MUSICBAT_INGESTION_ENABLED && !ingestionEnabled)throw new Error('Ingestion requires explicit sandbox mode.');
+        const digest=ingestionEnabled ? Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',await file.arrayBuffer())),b=>b.toString(16).padStart(2,'0')).join('') : null;
         const result=await db.batch([
           db.prepare(`INSERT INTO tracks (artist_id,artist_name,title,audio_url,rights_attested,energy_lane,primary_genre,subgenre,mood_tags,sale_enabled,sale_rights_attested,sale_price_cents,sale_currency,status,style,recording_metadata,technical_metadata)
             VALUES (?,?,?,?,1,?,?,?,?,?,?,?,'usd','active',?,?,?) RETURNING *`)
             .bind(user.userId,artistName,title,audioUrl,energyLane,primaryGenre,subgenre,JSON.stringify(moodTags),saleEnabled?1:0,saleEnabled?1:0,saleEnabled?salePriceCents:null,style||null,JSON.stringify(metadata),JSON.stringify({...extracted.technical,embedded:extracted.tags})),
+          ...(ingestionEnabled ? [db.prepare(`INSERT INTO track_ingestion(track_id,source_key,source_sha256,source_size,uploaded_at,verification_expires_at,updated_at)
+            SELECT id,?,?,?,?,?,? FROM tracks WHERE audio_url=? AND artist_id=?`)
+            .bind(key,digest,file.size,now,now+259200000,now,audioUrl,user.userId)] : []),
           db.prepare('INSERT INTO artist_profiles VALUES (?,?,?,?) ON CONFLICT(account_id) DO UPDATE SET artist_name=excluded.artist_name,updated_at=excluded.updated_at').bind(user.userId,artistName,now,now),
           db.prepare("INSERT OR IGNORE INTO artist_pages VALUES (?,'artist-' || lower(hex(?)))").bind(user.userId,user.userId),
           db.prepare('INSERT INTO artist_track_audit SELECT ?,id,?,?,?,? FROM tracks WHERE audio_url=? AND artist_id=?').bind(crypto.randomUUID(),user.userId,'upload',JSON.stringify({artistName,primaryGenre,subgenre,style,rightsAttested:true,saleEnabled}),now,audioUrl,user.userId),

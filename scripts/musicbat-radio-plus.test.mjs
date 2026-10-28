@@ -7,7 +7,7 @@ import {membershipBoundRadio} from '../lib/membership-radio-boundary.ts';
 const origin='http://localhost:5173';
 const request=body=>new Request(origin+'/api/musicbat/subscription',{method:'POST',headers:{origin,'content-type':'application/json'},body:JSON.stringify(body)});
 async function setup(){const f=await fixture(),env=f.state.env;delete env.MUSICBAT_BASE_URL;const processor=plusFixture(env);return {...f,env,processor};}
-const join=env=>handlePlus(env,request({action:'join',recurringConsent:true,confirmedPriceCents:300}),'patron');
+const join=env=>handlePlus(env,request({action:'join',recurringConsent:true,confirmedPriceCents:500}),'patron');
 test('invalid modes and incomplete sandbox configuration deny enrollment before processor calls or ledger writes',async()=>{
  const f=await setup();try{
   const configured={...f.env};let calls=0;

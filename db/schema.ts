@@ -195,3 +195,18 @@ export const purchaseOwnershipAudit = sqliteTable("purchase_ownership_audit", {
   processorSessionId: text("processor_session_id").notNull(),
   claimedAt: text("claimed_at").notNull().default(sql`CURRENT_TIMESTAMP`),
 });
+
+// Technical admission state is independent of catalog lifecycle and rights grants.
+export const trackIngestion = sqliteTable("track_ingestion", {
+ trackId: integer("track_id").primaryKey().references(()=>tracks.id),
+ sourceKey: text("source_key").notNull(), sourceSha256: text("source_sha256").notNull(), sourceSize: integer("source_size").notNull(),
+ state: text("state").notNull().default("PENDING"), uploadedAt: integer("uploaded_at").notNull(),
+ verificationExpiresAt: integer("verification_expires_at").notNull(), isPayable: integer("is_payable").notNull().default(0),
+ claimToken: text("claim_token"), claimUntil: integer("claim_until").notNull().default(0), attempts: integer("attempts").notNull().default(0),
+ nextAttemptAt: integer("next_attempt_at").notNull().default(0), technicalPassedAt: integer("technical_passed_at"),
+ holdReason: text("hold_reason"), lastError: text("last_error"), updatedAt: integer("updated_at").notNull(),
+}, table=>[index("idx_tracks_verification_lookup").on(table.state,table.verificationExpiresAt,table.nextAttemptAt,table.claimUntil)]);
+export const ingestionReports = sqliteTable("ingestion_reports", {
+ id:text("id").primaryKey(),trackId:integer("track_id").notNull().references(()=>tracks.id),
+ event:text("event").notNull(),detail:text("detail").notNull(),createdAt:integer("created_at").notNull(),
+});

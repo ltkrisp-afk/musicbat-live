@@ -20,7 +20,7 @@ export function RadioPlusMembership() {
   async function action(value:'join'|'cancel') {
     if(flight.current)return;flight.current=true;setBusy(true);setMessage('');
     try {
-      const response=await fetch('/api/musicbat/subscription',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({action:value,recurringConsent:consent,confirmedPriceCents:300})});
+      const response=await fetch('/api/musicbat/subscription',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({action:value,recurringConsent:consent,confirmedPriceCents:500})});
       const data=await response.json() as Status & {error?:string;checkoutUrl?:string};if(!response.ok)throw new Error(data.error??'Membership request failed.');
       if(value==='join' && data.checkoutUrl){window.location.assign(data.checkoutUrl);return;}
       await refresh();setMessage('Renewal cancelled. Radio Plus remains available until your paid period ends.');
@@ -28,19 +28,19 @@ export function RadioPlusMembership() {
   }
   const buttonStyle={minHeight:44,padding:'10px 16px',borderRadius:22,border:'1px solid #ff3ea5',background:'#171a19',color:'#ff69bd',cursor:'pointer'};
   return <>
-    <button type="button" style={{...buttonStyle,fontSize:12}} onClick={()=>{dialog.current?.showModal();void refresh().catch(e=>setMessage(e.message));}}>{status?.active?'Manage Radio Plus':status?.available?'Join Radio Plus · $3/month':'About Radio Plus · planned $3/month'}</button>
+    <button type="button" style={{...buttonStyle,fontSize:12}} onClick={()=>{dialog.current?.showModal();void refresh().catch(e=>setMessage(e.message));}}>{status?.active?'Manage Radio Plus':status?.available?'Join Radio Plus · $5/month':'About Radio Plus · planned $5/month'}</button>
     <dialog ref={dialog} aria-labelledby="radio-plus-title" style={{maxWidth:440,width:'calc(100% - 32px)',padding:24,borderRadius:18,border:'1px solid #ff3ea5',background:'#111018',color:'#eee'}}>
       <h2 id="radio-plus-title" style={{fontSize:24,margin:'0 0 12px'}}>Radio Plus</h2>
-      <p>Optional $3/month. Explore eligible genre, subgenre and style stations. Vote and Keep favorites in rotation after listening.</p>
+      <p>Core features are free for musicians and listeners. Either can choose the optional $5/month extended features. Explore eligible genre, subgenre and style stations. Vote and Keep favorites in rotation after listening.</p>
       <p>Free Radio and artist participation stay free. Music purchases are separate.</p>
-      {loading ? <p role="status">Checking Radio Plus membership…</p> : view.error ? <><p role="alert">{view.error}</p><button type="button" style={buttonStyle} onClick={()=>void refresh()}>Retry membership status</button></> : signedOut ? <button type="button" style={buttonStyle} onClick={()=>window.location.assign(new URL('/signin-with-chatgpt?return_to=%2F',window.location.origin).href)}>Sign in to subscribe — $3/month</button> : status?.available ? <>
+      {loading ? <p role="status">Checking Radio Plus membership…</p> : view.error ? <><p role="alert">{view.error}</p><button type="button" style={buttonStyle} onClick={()=>void refresh()}>Retry membership status</button></> : signedOut ? <button type="button" style={buttonStyle} onClick={()=>window.location.assign(new URL('/signin-with-chatgpt?return_to=%2F',window.location.origin).href)}>Sign in to subscribe — $5/month</button> : status?.available ? <>
         <p style={{color:'#ff69bd'}}>Test checkout only. This preview does not collect real money.</p>
         {status.active ? <>
           <p>Radio Plus active until {new Date(status.paidUntil).toLocaleString()}.{status.cancelAtPeriodEnd?' Renewal cancelled.':''}</p>
           {!status.cancelAtPeriodEnd&&<button type="button" style={buttonStyle} disabled={busy} onClick={()=>void action('cancel')}>Cancel monthly renewal</button>}
         </> : <>
           <p>Membership status: {status.status}. Returning from checkout does not activate access; verified payment does.</p>
-          <label style={{display:'flex',gap:10,margin:'16px 0'}}><input type="checkbox" checked={consent} onChange={e=>setConsent(e.target.checked)} />I agree to $3 each month until I cancel. Cancellation stops future renewal; access lasts through the paid period.</label>
+          <label style={{display:'flex',gap:10,margin:'16px 0'}}><input type="checkbox" checked={consent} onChange={e=>setConsent(e.target.checked)} />I agree to $5 each month until I cancel. Cancellation stops future renewal; access lasts through the paid period.</label>
           <button type="button" style={buttonStyle} disabled={busy||!consent} onClick={()=>void action('join')}>Continue to test checkout</button>
         </>}
         <button type="button" style={{...buttonStyle,margin:'12px 0'}} disabled={busy} onClick={()=>void refresh().catch(e=>setMessage(e.message))}>Refresh membership status</button>

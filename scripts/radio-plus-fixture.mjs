@@ -5,7 +5,7 @@ export function plusFixture(env,session=()=>null) {
  const sessions=new Map(),subscriptions=new Map(),invoices=new Map(),keys=new Map();
  function invoice(sub,start,end,paid=true) {
   const id='in_test_'+randomBytes(12).toString('hex');
-  const value={id,livemode:false,status:paid?'paid':'open',amount_paid:paid?300:0,amount_due:300,currency:'usd',paid_out_of_band:false,parent:{subscription_details:{subscription:sub.id}},lines:{has_more:false,data:[{amount:300,currency:'usd',period:{start,end}}]}};
+  const value={id,livemode:false,status:paid?'paid':'open',amount_paid:paid?sub.items.data[0].price.unit_amount:0,amount_due:sub.items.data[0].price.unit_amount,currency:'usd',paid_out_of_band:false,parent:{subscription_details:{subscription:sub.id}},lines:{has_more:false,data:[{amount:sub.items.data[0].price.unit_amount,currency:'usd',period:{start,end}}]}};
   invoices.set(id,value);sub.latest_invoice=id;return value;
  }
  async function fetch(request) {
@@ -15,7 +15,7 @@ export function plusFixture(env,session=()=>null) {
    const p=new URLSearchParams(await request.text());if(keys.has(key))return Response.json(sessions.get(keys.get(key)).value);
    const id='cs_test_plus_'+randomBytes(12).toString('hex');
    const value={id,url:'/__local/plus-checkout/'+id,livemode:false,mode:'subscription',status:'open',subscription:null,metadata:{musicbat_plus_id:p.get('metadata[musicbat_plus_id]')}};
-   sessions.set(id,{value,user:p.get('subscription_data[metadata][musicbat_user_id]'),attempt:p.get('subscription_data[metadata][musicbat_plus_attempt]'),owner:session(),success:p.get('success_url'),cancel:p.get('cancel_url')});keys.set(key,id);return Response.json(value);
+   sessions.set(id,{value,user:p.get('subscription_data[metadata][musicbat_user_id]'),price:Number(p.get('line_items[0][price_data][unit_amount]')),attempt:p.get('subscription_data[metadata][musicbat_plus_attempt]'),owner:session(),success:p.get('success_url'),cancel:p.get('cancel_url')});keys.set(key,id);return Response.json(value);
   }
   const id=path.split('/').at(-1);
   if(path.startsWith('/v1/checkout/sessions/'))return sessions.has(id)?Response.json(sessions.get(id).value):new Response(null,{status:404});
@@ -36,7 +36,7 @@ export function plusFixture(env,session=()=>null) {
  async function pay(id) {
   const entry=sessions.get(id);if(!entry)throw new Error('Unknown checkout.');
   if(!entry.value.subscription) {
-   const start=Math.floor(Date.now()/1000)-1,end=start+30*86400,sub={id:'sub_test_'+randomBytes(12).toString('hex'),livemode:false,status:'active',cancel_at_period_end:false,metadata:{musicbat_plus_id:entry.value.metadata.musicbat_plus_id,musicbat_user_id:entry.user,musicbat_plus_attempt:entry.attempt},latest_invoice:null,items:{data:[{quantity:1,current_period_start:start,current_period_end:end,price:{currency:'usd',unit_amount:300,recurring:{interval:'month',interval_count:1}}}]}};
+   const start=Math.floor(Date.now()/1000)-1,end=start+30*86400,sub={id:'sub_test_'+randomBytes(12).toString('hex'),livemode:false,status:'active',cancel_at_period_end:false,metadata:{musicbat_plus_id:entry.value.metadata.musicbat_plus_id,musicbat_user_id:entry.user,musicbat_plus_attempt:entry.attempt},latest_invoice:null,items:{data:[{quantity:1,current_period_start:start,current_period_end:end,price:{currency:'usd',unit_amount:entry.price,recurring:{interval:'month',interval_count:1}}}]}};
    subscriptions.set(sub.id,sub);entry.value.subscription=sub.id;entry.value.status='complete';invoice(sub,start,end);
   }
   const sub=subscriptions.get(entry.value.subscription);await event('invoice.paid',invoices.get(sub.latest_invoice),'evt_test_plus_paid_'+id);return entry.success;

@@ -15,7 +15,7 @@ test('offline identities, catalog Radio, settlement, history and withdrawal use 
   assert.equal((await call('/api/musicbat',musician,{action:'edit_metadata',trackId:1,title:'Corrected title',primaryGenre:'Rock',subgenre:'Punk',style:'Hardcore',energyLane:'hard'})).status,200);
   const free=await call('/api/musicbat/channel',patron);assert.equal(free.status,200);assert.equal((await free.json()).snapshot.category,null);
   assert.equal((await call('/api/musicbat/channel',patron,{category:{genre:'Rock'}})).status,403);
-  const membership=await call('/api/musicbat/subscription',patron,{action:'join',recurringConsent:true,confirmedPriceCents:300});assert.equal(membership.status,200);
+  const membership=await call('/api/musicbat/subscription',patron,{action:'join',recurringConsent:true,confirmedPriceCents:500});assert.equal(membership.status,200);
   const membershipUrl=(await membership.json()).checkoutUrl;
   assert.equal((await app.handle(new Request(origin+membershipUrl,{method:'POST',headers:{cookie:patron,origin},body:new URLSearchParams({action:'pay'})}))).status,303);
   const paidStatus=await (await call('/api/musicbat/subscription',patron)).json();assert.equal(paidStatus.active,true);

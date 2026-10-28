@@ -14,7 +14,7 @@ export function catalogBoundRadio(service: Pick<Fetcher,'fetch'> | undefined, db
       const id = data.snapshot.performance?.trackId;
       if (!id) return !audio;
       if (audio && (url.searchParams.get('channel')!==data.snapshot.channelId || url.searchParams.get('sequence')!==data.snapshot.performance!.authorityId)) return false;
-      const row = await db.prepare('SELECT t.*, p.recording_basis,p.recording_evidence,p.composition_evidence,p.reviewed_by,p.reviewed_at,p.artist_authorized,p.free_allowed,p.plus_allowed,p.starts_at,p.expires_at,p.withdrawn_at,p.territory FROM tracks t LEFT JOIN playback_permissions p ON p.track_id=t.id WHERE t.id=?').bind(id).first<Permission & {status:string;radio_enabled:number;primary_genre:string;subgenre:string|null;style:string|null}>();
+      const row = await db.prepare(`SELECT t.*, p.recording_basis,p.recording_evidence,p.composition_evidence,p.reviewed_by,p.reviewed_at,p.artist_authorized,p.free_allowed,p.plus_allowed,p.starts_at,p.expires_at,p.withdrawn_at,p.territory FROM tracks t LEFT JOIN playback_permissions p ON p.track_id=t.id WHERE t.id=? AND NOT EXISTS(SELECT 1 FROM track_ingestion i WHERE i.track_id=t.id AND (i.state!='VERIFIED' OR i.is_payable!=1 OR i.hold_reason IS NOT NULL))`).bind(id).first<Permission & {status:string;radio_enabled:number;primary_genre:string;subgenre:string|null;style:string|null}>();
       const category=data.snapshot.category;
       const allowed=!!row && row.status==='active' && row.radio_enabled===1 && authorizePlayback(row,category?'radio-plus':'free-radio',Date.now(),request.headers.get('x-musicbat-territory') ?? 'unknown').allowed;
       if (!allowed) {

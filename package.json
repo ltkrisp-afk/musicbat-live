@@ -20,7 +20,8 @@
     "typecheck": "tsc --noEmit",
     "dev:acceptance": "node --import ./scripts/register-typescript.mjs scripts/local-acceptance-start.mjs",
     "checkout:recover": "node --import ./scripts/register-typescript.mjs scripts/checkout-recovery-worker.mjs",
-    "test:application:browser": "node scripts/musicbat-application.e2e.mjs"
+    "test:application:browser": "node scripts/musicbat-application.e2e.mjs",
+    "ingestion:sweep": "node --import ./scripts/register-typescript.mjs scripts/ingestion-worker.mjs"
   },
   "dependencies": {
     "@base-ui/react": "^1.7.0",
