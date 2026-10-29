@@ -2,6 +2,7 @@
 /* Authentication and download endpoints retain full document navigation. */
 /* eslint-disable @next/next/no-html-link-for-pages */
 
+import { ArtistRightsDeclarations } from "../components/artist-rights-declarations";
 import { FormEvent, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { Activity, Disc3, Gauge, Radio, ShieldCheck, Sparkles, Upload } from "lucide-react";
 import { ArtistDiscovery, type Artist } from "@/components/artist-discovery";
@@ -176,12 +177,14 @@ export default function MusicBatLoop({ displayName, artistSlug, initialTab }: { 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [rightsAttested, setRightsAttested] = useState(false);
   const [agreement, setAgreement] = useState<{version:string; body:string; acceptance_text:string} | null>(null);
+  const [agreementDraft, setAgreementDraft] = useState<{version:string; body:string} | null>(null);
   const [agreementError, setAgreementError] = useState("");
   const [agreementOpen, setAgreementOpen] = useState(false);
   useEffect(() => {
     let cancelled = false;
     fetch("/api/musicbat/agreement", { cache: "no-store" }).then(async response => {
-      const data = await response.json() as {error?:string; agreement?:{version:string; body:string; acceptance_text:string}};
+      const data = await response.json() as {draft?:{version:string;body:string}; error?:string; agreement?:{version:string; body:string; acceptance_text:string}};
+      if (!cancelled) setAgreementDraft(data.draft ?? null);
       if (!response.ok || !data.agreement) throw new Error(data.error || "The Direct Licensing Agreement is unavailable.");
       if (!cancelled) { setAgreement(data.agreement); setRightsAttested(false); }
     }).catch(error => { if (!cancelled) setAgreementError(error instanceof Error ? error.message : "The Direct Licensing Agreement is unavailable."); });
@@ -461,6 +464,8 @@ export default function MusicBatLoop({ displayName, artistSlug, initialTab }: { 
       const metadata:Record<string,unknown>={};
       for(const key of ['album','isrc','iswc']) {const value=String(fields.get(key) ?? '').trim();if(value)metadata[key]=value;}
       form.set('metadata',JSON.stringify(metadata));
+      const declaration=Object.fromEntries(['version','legalName','capacity','rightsBasis','masterOwners','compositionOwners','proStatus','proDetails','ipiCae','restrictions','evidenceReference','paymentAuthority'].map(key=>[key,String(fields.get('rights_'+key) ?? '')]));
+      form.set('rightsDeclaration',JSON.stringify(declaration));
       form.set("title", title);
       form.set("artistName", artistName);
       form.set("audio", audioFile);
@@ -475,7 +480,8 @@ export default function MusicBatLoop({ displayName, artistSlug, initialTab }: { 
       form.set("subgenre", uploadSubgenre);
       form.set("style", uploadStyle);
       form.set("moodTags", uploadMoodTags);
-      await api("/api/musicbat", { method: "POST", body: form });
+      const uploaded = await api<{rightsReview?:string}>("/api/musicbat", { method: "POST", body: form });
+      if (uploaded.rightsReview === "required") setUploadError("Recording received on rights-review hold. Sales and streaming remain disabled until supporting authorization is reviewed.");
       setTitle("");
       setArtistName("");
       setAudioFile(null);
@@ -706,6 +712,8 @@ export default function MusicBatLoop({ displayName, artistSlug, initialTab }: { 
                     <Button type="button" disabled={busy} onClick={() => fileInputRef.current?.click()} className="h-12 w-full justify-start rounded-xl border border-white/12 bg-white/[0.045] px-4 text-sm font-normal text-white/65 hover:bg-white/10"><Upload /> <span className="truncate">{audioFile ? audioFile.name : "Choose music file"}</span></Button>
                     <p className="mt-2 text-sm text-white/45">MP3, WAV, or FLAC · up to 25 MB.</p>
                   </div>
+                  <a href="/api/musicbat?view=license-records" target="_blank" rel="noreferrer" className="text-sm text-blue-400 underline">View my accepted terms and rights records</a>
+                  <ArtistRightsDeclarations />
                   <label className="flex cursor-pointer items-start gap-3 rounded-xl border border-white/10 bg-white/[0.03] p-4"><Checkbox required disabled={!agreement} checked={rightsAttested} onCheckedChange={(value) => setRightsAttested(value === true)} className="mt-0.5 border-white/25 data-[state=checked]:border-[#ff3ea5] data-[state=checked]:bg-[#ff3ea5]" /><span className="text-sm leading-relaxed text-white/62">{agreement?.acceptance_text ?? "I own or control the necessary rights to this recording and composition, and I agree to MusicBat’s Direct Licensing Agreement."}</span></label>
                   <div className="text-sm">
                     <button type="button" onClick={() => setAgreementOpen(true)} className="text-blue-400 underline underline-offset-4 focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-400">Review Direct Licensing Agreement</button>
@@ -714,8 +722,8 @@ export default function MusicBatLoop({ displayName, artistSlug, initialTab }: { 
                     <Dialog open={agreementOpen} onOpenChange={setAgreementOpen}>
                       <DialogContent className="max-h-[85dvh] overflow-y-auto bg-[#17141d] text-white sm:max-w-3xl">
                         <DialogTitle>Direct Licensing Agreement</DialogTitle>
-                        <DialogDescription>{agreement ? `Version ${agreement.version}` : "Agreement unavailable"}</DialogDescription>
-                        <div className="whitespace-pre-wrap break-words text-base leading-7">{agreement?.body ?? (agreementError || "Loading the agreement…")}</div>
+                        <DialogDescription>{agreement ? `Version ${agreement.version}` : agreementDraft ? `REVIEW DRAFT ${agreementDraft.version} — not effective or available for acceptance` : "Agreement unavailable"}</DialogDescription>
+                        <div className="whitespace-pre-wrap break-words text-base leading-7">{agreement?.body ?? agreementDraft?.body ?? (agreementError || "Loading the agreement…")}</div>
                       </DialogContent>
                     </Dialog>
                   </div>

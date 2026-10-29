@@ -1,3 +1,4 @@
+import {testRightsDeclaration} from './license-fixture.mjs';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { test } from 'node:test';
@@ -10,6 +11,7 @@ async function loadRoute(path, state) {
   const stripe = await readFile(new URL('../app/api/musicbat/stripe/stripe.ts', import.meta.url), 'utf8');
   const source = (await readFile(new URL(path, import.meta.url), 'utf8'))
     .replace(/import \{[^;]+\} from \"[^\"]*stripe\";/s, stripe)
+    .replace(/import \{ parseRightsDeclaration \} from [^;]+;/,await readFile('lib/artist-rights-declaration.ts','utf8'))
     .replace(/import \{ authorizePlayback, type Permission \} from [^;]+;/, policy)
     .replace('import { env } from "cloudflare:workers";', 'const env = globalThis.musicbatTestState.env;')
     .replace('import { getChatGPTUser } from "../../chatgpt-auth";', 'const getChatGPTUser = async () => globalThis.musicbatTestState.user;');
@@ -54,6 +56,7 @@ function upload(overrides = {}) {
   form.set('moodTags', overrides.moodTags ?? '');
   form.set('agreementAccepted', overrides.agreementAccepted ?? 'true');
   form.set('agreementVersion', overrides.agreementVersion ?? 'test-only-v1');
+  form.set('rightsDeclaration', JSON.stringify(testRightsDeclaration));
   form.set('rightsAttested', overrides.rightsAttested ?? 'true');
   form.set('audio', new File([overrides.bytes ?? wav], overrides.filename ?? 'track.wav', { type: 'audio/wav' }));
   return new Request('https://musicbat.audio/api/musicbat', { method: 'POST', body: form });

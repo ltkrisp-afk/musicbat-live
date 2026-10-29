@@ -1,3 +1,4 @@
+import { parseRightsDeclaration } from "../../../lib/artist-rights-declaration";
 import { env } from "cloudflare:workers";
 import { expireWithdrawnCheckouts, readStripeWebhookBody, StripeWebhookBodyTooLarge } from "./stripe/stripe";
 import { getChatGPTUser } from "../../chatgpt-auth";
@@ -225,6 +226,18 @@ export async function GET(request: Request) {
       return Response.json({operations:rows.results},{headers:{'cache-control':'private, no-store'}});
     }
 
+    if (view === 'license-records') {
+      const user=await requireUser();
+      const after=Number(url.searchParams.get('after') ?? 0);
+      if(!Number.isSafeInteger(after) || after<0)return fail('Choose a valid record cursor.');
+      const records=await db.prepare(`SELECT a.*,v.body,v.acceptance_text,d.declaration_version,d.declaration_json,
+        (SELECT json_group_array(json_object('decision',r.decision,'reviewed_by',r.reviewed_by,'reviewed_at',r.reviewed_at,'evidence_reference',r.evidence_reference)) FROM artist_rights_reviews r WHERE r.acceptance_id=a.id) AS reviews
+        FROM artist_license_acceptances a JOIN direct_license_versions v ON v.version=a.agreement_version
+        LEFT JOIN artist_rights_declarations d ON d.acceptance_id=a.id
+        WHERE a.account_id=? AND a.track_id>? ORDER BY a.track_id LIMIT 100`).bind(user.userId,after).all();
+      return Response.json({records:records.results,nextAfter:records.results.length===100?records.results[99].track_id:null},{headers:{'cache-control':'private, no-store'}});
+    }
+
     if (view === 'catalog-export') {
       const user=await requireUser();
       const after=Number(url.searchParams.get('after') ?? 0);
@@ -355,10 +368,13 @@ export async function POST(request: Request) {
       if (form.get("rightsAttested") !== "true") return fail("Rights attestation is required.");
       const agreementVersion = form.get("agreementVersion");
       const agreement = await db.prepare(`SELECT v.version FROM direct_license_current c
-        JOIN direct_license_versions v ON v.version=c.version WHERE c.id=1`).bind().first<{version:string}>();
+        JOIN direct_license_versions v ON v.version=c.version WHERE c.id=1 AND lower(v.version) NOT LIKE 'draft-%'`).bind().first<{version:string}>();
       if (!agreement) return fail("Artist uploads are unavailable until the complete Direct Licensing Agreement is approved.", 503);
       if (form.get("agreementAccepted") !== "true" || agreementVersion !== agreement.version)
         return fail("Accept the current Direct Licensing Agreement before uploading. Reload the upload form if the agreement has changed.", 409);
+      let rights;
+      try { rights = parseRightsDeclaration(JSON.parse(String(form.get("rightsDeclaration") ?? 'null'))); }
+      catch (error) { return fail(error instanceof Error ? error.message : 'Complete the artist rights declarations.', 422); }
       if (!energyLanes.has(energyLane)) return fail("Choose a valid Radio energy lane.");
       if (!primaryGenres.has(primaryGenre)) return fail("Choose a valid primary genre.");
       if (style.length > 80 || (style && !rawSubgenre)) return fail("Style requires a subgenre and must be 80 characters or fewer.");
@@ -391,17 +407,21 @@ export async function POST(request: Request) {
       let track;
       try {
         const now=Date.now();
+        const acceptanceId=crypto.randomUUID();
         const result=await db.batch([
-          db.prepare(`INSERT INTO tracks (artist_id,artist_name,title,audio_url,rights_attested,energy_lane,primary_genre,subgenre,mood_tags,sale_enabled,sale_rights_attested,sale_price_cents,sale_currency,status,style,recording_metadata,technical_metadata)
-            VALUES (?,?,?,?,1,?,?,?,?,?,?,?,'usd','active',?,?,?) RETURNING *`)
-            .bind(user.userId,artistName,title,audioUrl,energyLane,primaryGenre,subgenre,JSON.stringify(moodTags),saleEnabled?1:0,saleEnabled?1:0,saleEnabled?salePriceCents:null,style||null,JSON.stringify(metadata),JSON.stringify({...extracted.technical,embedded:extracted.tags})),
+          db.prepare(`INSERT INTO tracks (artist_id,artist_name,title,audio_url,rights_attested,energy_lane,primary_genre,subgenre,mood_tags,sale_enabled,sale_rights_attested,sale_price_cents,sale_currency,status,style,recording_metadata,technical_metadata,radio_enabled)
+            VALUES (?,?,?,?,1,?,?,?,?,?,?,?,'usd','active',?,?,?,?) RETURNING *`)
+            .bind(user.userId,artistName,title,audioUrl,energyLane,primaryGenre,subgenre,JSON.stringify(moodTags),saleEnabled && !rights.reviewRequired?1:0,saleEnabled?1:0,saleEnabled?salePriceCents:null,style||null,JSON.stringify(metadata),JSON.stringify({...extracted.technical,embedded:extracted.tags}),rights.reviewRequired?0:1),
           // Same D1 transaction as the track. Recheck the active version at commit time.
           // A missing/changed agreement produces NULL and aborts the entire batch.
           db.prepare(`INSERT INTO artist_license_acceptances
             (id,track_id,account_id,agreement_version,accepted,accepted_at)
             VALUES (?,(SELECT id FROM tracks WHERE audio_url=? AND artist_id=?),?,
               (SELECT version FROM direct_license_current WHERE id=1 AND version=?),1,?)`)
-            .bind(crypto.randomUUID(),audioUrl,user.userId,user.userId,agreement.version,now),
+            .bind(acceptanceId,audioUrl,user.userId,user.userId,agreement.version,now),
+          db.prepare(`INSERT INTO artist_rights_declarations (acceptance_id,track_id,declaration_version,declaration_json,review_required)
+            VALUES (?,(SELECT id FROM tracks WHERE audio_url=? AND artist_id=?),?,?,?)`)
+            .bind(acceptanceId,audioUrl,user.userId,rights.declaration.version,JSON.stringify(rights.declaration),rights.reviewRequired?1:0),
           db.prepare('INSERT INTO artist_profiles VALUES (?,?,?,?) ON CONFLICT(account_id) DO UPDATE SET artist_name=excluded.artist_name,updated_at=excluded.updated_at').bind(user.userId,artistName,now,now),
           db.prepare("INSERT OR IGNORE INTO artist_pages VALUES (?,'artist-' || lower(hex(?)))").bind(user.userId,user.userId),
           db.prepare('INSERT INTO artist_track_audit SELECT ?,id,?,?,?,? FROM tracks WHERE audio_url=? AND artist_id=?').bind(crypto.randomUUID(),user.userId,'upload',JSON.stringify({artistName,primaryGenre,subgenre,style,rightsAttested:true,saleEnabled}),now,audioUrl,user.userId),
@@ -412,7 +432,7 @@ export async function POST(request: Request) {
         await env.BUCKET.delete(key);
         throw error;
       }
-      return Response.json({ track }, { status: 201 });
+      return Response.json({ track, rightsReview: rights.reviewRequired ? "required" : "declared" }, { status: 201 });
     }
     let body: ActionBody;
     try { body = JSON.parse(await readStripeWebhookBody(request, 16384)) as ActionBody; }
@@ -465,6 +485,7 @@ export async function POST(request: Request) {
           statements.push(db.prepare('UPDATE tracks SET title=?,primary_genre=?,subgenre=?,style=?,energy_lane=? WHERE id=? AND (artist_id=? OR EXISTS(SELECT 1 FROM track_authority a WHERE a.track_id=tracks.id AND a.account_id=? AND a.revoked_at IS NULL))').bind(title,genre,sub||null,style||null,body.energyLane,id,user.userId,user.userId));
         } else if (body.action === 'set_radio') {
           if (typeof body.enabled !== 'boolean') return fail('Choose radio participation on or off.');
+          if (body.enabled && await db.prepare('SELECT 1 FROM artist_rights_holds WHERE track_id=?').bind(id).first()) return fail('Rights review is required before enabling this recording.',409);
           statements.push(db.prepare("UPDATE tracks SET radio_enabled=?,status='active' WHERE id=? AND status!='deleted' AND (artist_id=? OR EXISTS(SELECT 1 FROM track_authority a WHERE a.track_id=tracks.id AND a.account_id=? AND a.revoked_at IS NULL))").bind(body.enabled?1:0,id,user.userId,user.userId));
           // Returning to Radio is a new request; withdrawn grants are never silently restored.
           if (!body.enabled) statements.push(db.prepare('UPDATE playback_permissions SET withdrawn_at=? WHERE track_id=? AND EXISTS(SELECT 1 FROM tracks t WHERE t.id=playback_permissions.track_id AND (t.artist_id=? OR EXISTS(SELECT 1 FROM track_authority a WHERE a.track_id=t.id AND a.account_id=? AND a.revoked_at IS NULL)))').bind(now,id,user.userId,user.userId));
@@ -589,6 +610,7 @@ export async function POST(request: Request) {
       if (!Number.isInteger(trackId) || trackId < 1) return fail("A valid track is required.");
       if (enabled && body.saleRightsAttested !== true) return fail("Confirm that MusicBat may sell and deliver this recording.");
       if (enabled && (!Number.isInteger(price) || price < 50 || price > 100000)) return fail("Set a sale price from $0.50 to $1,000.00.");
+      if (enabled && await db.prepare('SELECT 1 FROM artist_rights_holds WHERE track_id=?').bind(trackId).first()) return fail('Rights review is required before enabling sales.',409);
       const track = await db.prepare(`
         UPDATE tracks SET sale_enabled = ?, sale_rights_attested = ?, sale_price_cents = ?, sale_currency = 'usd'
         WHERE id = ? AND (status = 'active' OR ? = 0) AND status != 'deleted' AND (artist_id = ? OR EXISTS(SELECT 1 FROM track_authority a WHERE a.track_id=tracks.id AND a.account_id=? AND a.revoked_at IS NULL))

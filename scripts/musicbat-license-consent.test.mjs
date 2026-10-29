@@ -57,10 +57,10 @@ test('migration preserves historical subscription invoices and leaves the agreem
  const {readMigrationFiles}=await import('drizzle-orm/migrator');const db=new DatabaseSync(':memory:');
  try{
   const migrations=readMigrationFiles({migrationsFolder:'drizzle'});
-  for(const migration of migrations.slice(0,-1))for(const sql of migration.sql)db.exec(sql);
+  for(const migration of migrations.slice(0,16))for(const sql of migration.sql)db.exec(sql);
   db.exec("INSERT INTO radio_plus_enrollments(id,user_id) VALUES ('legacy','artist'); INSERT INTO radio_plus_invoices VALUES ('old-invoice','legacy','old-sub',300,123,456)");
   const before=db.prepare('SELECT * FROM radio_plus_invoices').get();
-  for(const sql of migrations.at(-1).sql)db.exec(sql);
+  for(const sql of migrations[16].sql)db.exec(sql);
   assert.deepEqual(db.prepare('SELECT * FROM radio_plus_invoices').get(),before);
   assert.equal(db.prepare('SELECT count(*) n FROM direct_license_current').get().n,0);
   assert.equal(db.prepare('SELECT count(*) n FROM direct_license_versions').get().n,0);

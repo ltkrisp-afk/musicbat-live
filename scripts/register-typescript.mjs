@@ -5,6 +5,10 @@ import ts from 'typescript';
 // Node runtime/test entrypoints only. The application build still uses Vite.
 registerHooks({
   resolve(specifier, context, next) {
+    // Handler test doubles are evaluated as data URLs, which have no relative file base.
+    if (context.parentURL?.startsWith('data:') && /\/lib\/(artist-rights-declaration|direct-license-draft)$/.test(specifier)) {
+      return {url:new URL('../lib/'+specifier.split('/').at(-1)+'.ts',import.meta.url).href,shortCircuit:true};
+    }
     if (specifier.startsWith('.') && context.parentURL?.startsWith('file:') && !/\.[a-z]+$/i.test(specifier)) {
       const candidate = new URL(specifier + '.ts', context.parentURL);
       if (existsSync(fileURLToPath(candidate))) return { url: candidate.href, shortCircuit: true };

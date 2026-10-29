@@ -3,3 +3,4 @@ export function seedTestAgreement(sqlite) {
  sqlite.prepare('INSERT OR IGNORE INTO direct_license_versions VALUES (?,?,?,?,?)').run(testAgreement.version,testAgreement.body,testAgreement.acceptanceText,'test-only-reviewer',1);
  sqlite.prepare('INSERT OR IGNORE INTO direct_license_current VALUES (1,?)').run(testAgreement.version);
 }
+export const testRightsDeclaration = { version:'rights-2026-10-29.1', legalName:'Synthetic test artist', capacity:'Individual owner', rightsBasis:'sole', masterOwners:'Synthetic test artist 100%', compositionOwners:'Synthetic test work: Synthetic test artist 100%', proStatus:'none', proDetails:'', ipiCae:'', restrictions:'none', evidenceReference:'', paymentAuthority:'Synthetic test artist receives 100% of the artist pool' };

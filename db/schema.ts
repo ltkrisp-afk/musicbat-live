@@ -216,3 +216,19 @@ export const artistLicenseAcceptances = sqliteTable("artist_license_acceptances"
   accepted: integer("accepted").notNull(),
   acceptedAt: integer("accepted_at").notNull(),
 }, table => [index("idx_artist_license_acceptances_account").on(table.accountId, table.acceptedAt)]);
+
+export const artistRightsDeclarations = sqliteTable("artist_rights_declarations", {
+  acceptanceId: text("acceptance_id").primaryKey().notNull().references(() => artistLicenseAcceptances.id),
+  trackId: integer("track_id").notNull().unique().references(() => tracks.id),
+  declarationVersion: text("declaration_version").notNull(),
+  declarationJson: text("declaration_json").notNull(),
+  reviewRequired: integer("review_required").notNull(),
+});
+export const artistRightsReviews = sqliteTable("artist_rights_reviews", {
+  id: integer("id").primaryKey({autoIncrement:true}),
+  acceptanceId: text("acceptance_id").notNull().references(() => artistRightsDeclarations.acceptanceId),
+  decision: text("decision").notNull(),
+  reviewedBy: text("reviewed_by").notNull(),
+  reviewedAt: integer("reviewed_at").notNull(),
+  evidenceReference: text("evidence_reference").notNull(),
+});
