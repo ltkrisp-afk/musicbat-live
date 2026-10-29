@@ -195,3 +195,24 @@ export const purchaseOwnershipAudit = sqliteTable("purchase_ownership_audit", {
   processorSessionId: text("processor_session_id").notNull(),
   claimedAt: text("claimed_at").notNull().default(sql`CURRENT_TIMESTAMP`),
 });
+
+// Immutable text/version and append-only acceptance enforcement live in migration 0016.
+export const directLicenseVersions = sqliteTable("direct_license_versions", {
+  version: text("version").primaryKey().notNull(),
+  body: text("body").notNull(),
+  acceptanceText: text("acceptance_text").notNull(),
+  approvedBy: text("approved_by").notNull(),
+  approvedAt: integer("approved_at").notNull(),
+});
+export const directLicenseCurrent = sqliteTable("direct_license_current", {
+  id: integer("id").primaryKey(),
+  version: text("version").notNull().references(() => directLicenseVersions.version),
+});
+export const artistLicenseAcceptances = sqliteTable("artist_license_acceptances", {
+  id: text("id").primaryKey().notNull(),
+  trackId: integer("track_id").notNull().references(() => tracks.id),
+  accountId: text("account_id").notNull(),
+  agreementVersion: text("agreement_version").notNull().references(() => directLicenseVersions.version),
+  accepted: integer("accepted").notNull(),
+  acceptedAt: integer("accepted_at").notNull(),
+}, table => [index("idx_artist_license_acceptances_account").on(table.accountId, table.acceptedAt)]);

@@ -110,3 +110,23 @@ test('restricted sandbox membership uses verified invoices for activation, renew
   }
  }finally{f.sqlite.close();}
 });
+
+test('$5 checkout amount and monthly interval are sent to Stripe; old $3 confirmation is rejected',async()=>{
+ const f=await setup();try{
+  const processor=f.env.RADIO_PLUS_PROCESSOR;let fields;
+  f.env.RADIO_PLUS_PROCESSOR={async fetch(request){if(request.method==='POST' && new URL(request.url).pathname==='/v1/checkout/sessions')fields=new URLSearchParams(await request.clone().text());return processor.fetch(request);}};
+  assert.equal((await handlePlus(f.env,request({action:'join',recurringConsent:true,confirmedPriceCents:300}),'patron')).status,409);
+  await paid(f);assert.equal(fields.get('line_items[0][price_data][unit_amount]'),'500');assert.equal(fields.get('line_items[0][price_data][recurring][interval]'),'month');
+  assert.equal(f.sqlite.prepare('SELECT amount_cents FROM radio_plus_invoices').get().amount_cents,500);
+ }finally{f.sqlite.close();}
+});
+
+test('invoice evidence write failure rolls back entitlement and event so delivery can retry',async()=>{
+ const f=await setup();try{
+  const response=await join(f.env),id=(await response.json()).checkoutUrl.split('/').at(-1);
+  f.sqlite.exec("CREATE TRIGGER test_invoice_failure BEFORE INSERT ON radio_plus_invoices BEGIN SELECT RAISE(ABORT,'invoice storage unavailable'); END;");
+  await assert.rejects(()=>f.processor.pay(id),/invoice storage unavailable/);
+  assert.equal(await plusAccess(f.env.DB,'patron'),0);assert.equal(f.sqlite.prepare('SELECT count(*) n FROM radio_plus_events').get().n,0);
+  f.sqlite.exec('DROP TRIGGER test_invoice_failure');await f.processor.pay(id);assert.ok(await plusAccess(f.env.DB,'patron')>Date.now());
+ }finally{f.sqlite.close();}
+});

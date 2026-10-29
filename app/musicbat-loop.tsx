@@ -11,6 +11,7 @@ import Link from "next/link";
 
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
+import { Dialog, DialogContent, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
@@ -174,6 +175,18 @@ export default function MusicBatLoop({ displayName, artistSlug, initialTab }: { 
   const [signInRequired, setSignInRequired] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [rightsAttested, setRightsAttested] = useState(false);
+  const [agreement, setAgreement] = useState<{version:string; body:string; acceptance_text:string} | null>(null);
+  const [agreementError, setAgreementError] = useState("");
+  const [agreementOpen, setAgreementOpen] = useState(false);
+  useEffect(() => {
+    let cancelled = false;
+    fetch("/api/musicbat/agreement", { cache: "no-store" }).then(async response => {
+      const data = await response.json() as {error?:string; agreement?:{version:string; body:string; acceptance_text:string}};
+      if (!response.ok || !data.agreement) throw new Error(data.error || "The Direct Licensing Agreement is unavailable.");
+      if (!cancelled) { setAgreement(data.agreement); setRightsAttested(false); }
+    }).catch(error => { if (!cancelled) setAgreementError(error instanceof Error ? error.message : "The Direct Licensing Agreement is unavailable."); });
+    return () => { cancelled = true; };
+  }, []);
   const [sellTrack, setSellTrack] = useState(false);
   const [salePrice, setSalePrice] = useState("1.00");
   const [uploadEnergyLane, setUploadEnergyLane] = useState<EnergyLane>("medium");
@@ -437,6 +450,7 @@ export default function MusicBatLoop({ displayName, artistSlug, initialTab }: { 
 
   async function addTrack(event: FormEvent) {
     event.preventDefault();
+    if (!rightsAttested || !agreement) { setUploadError("Accept the current Direct Licensing Agreement before uploading."); return; }
     if (!audioFile) { setUploadError("Choose your music file first."); return; }
     setBusy(true);
     setUploadError("");
@@ -451,6 +465,8 @@ export default function MusicBatLoop({ displayName, artistSlug, initialTab }: { 
       form.set("artistName", artistName);
       form.set("audio", audioFile);
       form.set("rightsAttested", String(rightsAttested));
+      form.set("agreementAccepted", String(rightsAttested));
+      form.set("agreementVersion", agreement.version);
       form.set("saleEnabled", String(sellTrack));
       form.set("saleRightsAttested", String(saleRightsAttested));
       form.set("salePriceCents", String(Math.round(Number(salePrice) * 100)));
@@ -690,14 +706,26 @@ export default function MusicBatLoop({ displayName, artistSlug, initialTab }: { 
                     <Button type="button" disabled={busy} onClick={() => fileInputRef.current?.click()} className="h-12 w-full justify-start rounded-xl border border-white/12 bg-white/[0.045] px-4 text-sm font-normal text-white/65 hover:bg-white/10"><Upload /> <span className="truncate">{audioFile ? audioFile.name : "Choose music file"}</span></Button>
                     <p className="mt-2 text-sm text-white/45">MP3, WAV, or FLAC · up to 25 MB.</p>
                   </div>
-                  <label className="flex cursor-pointer items-start gap-3 rounded-xl border border-white/10 bg-white/[0.03] p-4"><Checkbox checked={rightsAttested} onCheckedChange={(value) => setRightsAttested(value === true)} className="mt-0.5 border-white/25 data-[state=checked]:border-[#ff3ea5] data-[state=checked]:bg-[#ff3ea5]" /><span className="text-sm leading-relaxed text-white/62">I own this recording or am authorized to present it, and I permit MusicBat to stream it in this test loop.</span></label>
+                  <label className="flex cursor-pointer items-start gap-3 rounded-xl border border-white/10 bg-white/[0.03] p-4"><Checkbox required disabled={!agreement} checked={rightsAttested} onCheckedChange={(value) => setRightsAttested(value === true)} className="mt-0.5 border-white/25 data-[state=checked]:border-[#ff3ea5] data-[state=checked]:bg-[#ff3ea5]" /><span className="text-sm leading-relaxed text-white/62">{agreement?.acceptance_text ?? "I own or control the necessary rights to this recording and composition, and I agree to MusicBat’s Direct Licensing Agreement."}</span></label>
+                  <div className="text-sm">
+                    <button type="button" onClick={() => setAgreementOpen(true)} className="text-blue-400 underline underline-offset-4 focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-400">Review Direct Licensing Agreement</button>
+                    <p className="mt-2 text-white/60">Review is encouraged. Opening the agreement is optional; acceptance is required to upload.</p>
+                    {agreementError && <p role="alert" className="mt-2 text-[#ff9dcc]">{agreementError}</p>}
+                    <Dialog open={agreementOpen} onOpenChange={setAgreementOpen}>
+                      <DialogContent className="max-h-[85dvh] overflow-y-auto bg-[#17141d] text-white sm:max-w-3xl">
+                        <DialogTitle>Direct Licensing Agreement</DialogTitle>
+                        <DialogDescription>{agreement ? `Version ${agreement.version}` : "Agreement unavailable"}</DialogDescription>
+                        <div className="whitespace-pre-wrap break-words text-base leading-7">{agreement?.body ?? (agreementError || "Loading the agreement…")}</div>
+                      </DialogContent>
+                    </Dialog>
+                  </div>
                   <label className="flex cursor-pointer items-start gap-3 rounded-xl border border-white/10 bg-white/[0.03] p-4"><Checkbox checked={sellTrack} onCheckedChange={(value) => { setSellTrack(value === true); if (value !== true) setSaleRightsAttested(false); }} className="mt-0.5 border-white/25 data-[state=checked]:border-[#ff3ea5] data-[state=checked]:bg-[#ff3ea5]" /><span className="text-sm leading-relaxed text-white/62">Offer this track for sale as a downloadable music file.</span></label>
                   {sellTrack && <div className="space-y-3 rounded-xl border border-[#ff3ea5]/25 bg-[#ff3ea5]/5 p-4">
                     <label className="block"><span className="mb-2 block text-sm font-semibold text-white/65">Price in USD</span><Input value={salePrice} onChange={(event) => setSalePrice(event.target.value)} required min="0.50" max="1000" step="0.01" type="number" inputMode="decimal" className="h-11 rounded-xl border-white/12 bg-black/20 px-4 text-white" /></label>
                     <label className="flex cursor-pointer items-start gap-3"><Checkbox checked={saleRightsAttested} onCheckedChange={(value) => setSaleRightsAttested(value === true)} className="mt-0.5 border-white/25 data-[state=checked]:border-[#ff3ea5] data-[state=checked]:bg-[#ff3ea5]" /><span className="text-sm leading-relaxed text-white/62">I authorize MusicBat to sell and deliver this recording to buyers.</span></label>
                   </div>}
                   <details><summary className="cursor-pointer text-sm">Album and identifiers (optional)</summary><p className="text-xs text-white/60">No identifier is required. Add or correct credits later in Manage Songs.</p>{['album','isrc','iswc'].map(key=><label key={key} className="block text-sm">{key==='album'?'Album':key.toUpperCase()}<input name={key} maxLength={key==='album'?200:30} className="block w-full rounded border border-white/20 bg-black/30 p-2" /></label>)}</details>
-                  <Button disabled={busy || !rightsAttested || !audioFile || !uploadGenre || (sellTrack && !saleRightsAttested)} type="submit" className="h-12 w-full rounded-xl bg-[#ff3ea5] text-base font-black text-white hover:bg-[#ff69bd]">{busy ? "Uploading your track…" : "Upload music"}</Button>
+                  <Button disabled={busy || !agreement || !rightsAttested || !audioFile || !uploadGenre || (sellTrack && !saleRightsAttested)} type="submit" className="h-12 w-full rounded-xl bg-[#ff3ea5] text-base font-black text-white hover:bg-[#ff69bd]">{busy ? "Uploading your track…" : "Upload music"}</Button>
                   {uploadError && <p role="alert" className="text-sm text-[#ff9dcc]">{uploadError}{signInRequired && <> <a className="font-bold underline" href="/signin-with-chatgpt?return_to=%2F">Sign in to upload</a></>}</p>}
                 </div>
               </form>

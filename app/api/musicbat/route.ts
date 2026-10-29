@@ -353,6 +353,12 @@ export async function POST(request: Request) {
       if (!title || !artistName) return fail("Track title and artist or band name are required.");
       if (title.length > 120 || artistName.length > 80) return fail("Track title or artist name is too long.");
       if (form.get("rightsAttested") !== "true") return fail("Rights attestation is required.");
+      const agreementVersion = form.get("agreementVersion");
+      const agreement = await db.prepare(`SELECT v.version FROM direct_license_current c
+        JOIN direct_license_versions v ON v.version=c.version WHERE c.id=1`).bind().first<{version:string}>();
+      if (!agreement) return fail("Artist uploads are unavailable until the complete Direct Licensing Agreement is approved.", 503);
+      if (form.get("agreementAccepted") !== "true" || agreementVersion !== agreement.version)
+        return fail("Accept the current Direct Licensing Agreement before uploading. Reload the upload form if the agreement has changed.", 409);
       if (!energyLanes.has(energyLane)) return fail("Choose a valid Radio energy lane.");
       if (!primaryGenres.has(primaryGenre)) return fail("Choose a valid primary genre.");
       if (style.length > 80 || (style && !rawSubgenre)) return fail("Style requires a subgenre and must be 80 characters or fewer.");
@@ -389,6 +395,13 @@ export async function POST(request: Request) {
           db.prepare(`INSERT INTO tracks (artist_id,artist_name,title,audio_url,rights_attested,energy_lane,primary_genre,subgenre,mood_tags,sale_enabled,sale_rights_attested,sale_price_cents,sale_currency,status,style,recording_metadata,technical_metadata)
             VALUES (?,?,?,?,1,?,?,?,?,?,?,?,'usd','active',?,?,?) RETURNING *`)
             .bind(user.userId,artistName,title,audioUrl,energyLane,primaryGenre,subgenre,JSON.stringify(moodTags),saleEnabled?1:0,saleEnabled?1:0,saleEnabled?salePriceCents:null,style||null,JSON.stringify(metadata),JSON.stringify({...extracted.technical,embedded:extracted.tags})),
+          // Same D1 transaction as the track. Recheck the active version at commit time.
+          // A missing/changed agreement produces NULL and aborts the entire batch.
+          db.prepare(`INSERT INTO artist_license_acceptances
+            (id,track_id,account_id,agreement_version,accepted,accepted_at)
+            VALUES (?,(SELECT id FROM tracks WHERE audio_url=? AND artist_id=?),?,
+              (SELECT version FROM direct_license_current WHERE id=1 AND version=?),1,?)`)
+            .bind(crypto.randomUUID(),audioUrl,user.userId,user.userId,agreement.version,now),
           db.prepare('INSERT INTO artist_profiles VALUES (?,?,?,?) ON CONFLICT(account_id) DO UPDATE SET artist_name=excluded.artist_name,updated_at=excluded.updated_at').bind(user.userId,artistName,now,now),
           db.prepare("INSERT OR IGNORE INTO artist_pages VALUES (?,'artist-' || lower(hex(?)))").bind(user.userId,user.userId),
           db.prepare('INSERT INTO artist_track_audit SELECT ?,id,?,?,?,? FROM tracks WHERE audio_url=? AND artist_id=?').bind(crypto.randomUUID(),user.userId,'upload',JSON.stringify({artistName,primaryGenre,subgenre,style,rightsAttested:true,saleEnabled}),now,audioUrl,user.userId),

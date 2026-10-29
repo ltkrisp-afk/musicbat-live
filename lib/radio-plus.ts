@@ -107,7 +107,7 @@ export async function plusWebhook(env:PlusRuntime,request:Request) {
   }
   const writes=[db.prepare('INSERT OR IGNORE INTO radio_plus_events VALUES (?,?,?)').bind(event.id,event.type,Date.now()),
     db.prepare('UPDATE radio_plus_enrollments SET subscription_id=?,status=?,paid_until=?,cancel_at_period_end=?,updated_at=? WHERE id=? AND (subscription_id IS NULL OR subscription_id=?) AND NOT (status=\'canceled\' AND ?<>\'canceled\')').bind(sub.id,sub.status,paidUntil,sub.cancel_at_period_end?1:0,Date.now(),row.id,sub.id,sub.status)];
-  if(invoice)writes.push(db.prepare('INSERT OR IGNORE INTO radio_plus_invoices VALUES (?,?,?,?,?,?)').bind(invoice.id,row.id,sub.id,500,item.current_period_end*1000,Date.now()));
+  if(invoice)writes.push(db.prepare('INSERT INTO radio_plus_invoices VALUES (?,?,?,?,?,?) ON CONFLICT(invoice_id) DO NOTHING').bind(invoice.id,row.id,sub.id,500,item.current_period_end*1000,Date.now()));
   await db.batch(writes);return {received:true};
 }
 export async function handlePlus(env:PlusRuntime,request:Request,userId:string|null) {
