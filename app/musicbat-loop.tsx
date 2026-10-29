@@ -179,6 +179,7 @@ export default function MusicBatLoop({ displayName, artistSlug, initialTab }: { 
   const [agreement, setAgreement] = useState<{version:string; body:string; acceptance_text:string; sha256:string} | null>(null);
   const [agreementDraft, setAgreementDraft] = useState<{version:string; body:string} | null>(null);
   const [agreementError, setAgreementError] = useState("");
+  const agreementReviewRef=useRef<HTMLButtonElement>(null);
   const [agreementOpen, setAgreementOpen] = useState(false);
   const [agreementReviewedAt, setAgreementReviewedAt] = useState<number | null>(null);
   const [reviewReceiptId, setReviewReceiptId] = useState("");
@@ -735,7 +736,7 @@ export default function MusicBatLoop({ displayName, artistSlug, initialTab }: { 
                   <label className="flex items-start gap-3 text-sm"><Checkbox checked={retainableCopyConfirmed} onCheckedChange={value=>setRetainableCopyConfirmed(value===true)} /><span>I can save the supplied UTF-8 text or print a copy of the complete agreement and schedules using my browser.</span></label>
                   <div className="text-sm">
                     <a href="/api/musicbat/agreement?format=text" download className="block text-blue-400 underline">Save the complete agreement and Schedules A–F</a>
-                    <button type="button" onClick={async () => {
+                    <button ref={agreementReviewRef} type="button" onClick={async () => {
                       setAgreementOpen(true);
                       if(!agreement)return;
                       if(agreement.version!=='2026-10-29.3'){setAgreementReviewedAt(Date.now());return;}
@@ -749,7 +750,7 @@ export default function MusicBatLoop({ displayName, artistSlug, initialTab }: { 
                     <p className="mt-2 text-white/60">Open the complete agreement and Schedules A–F before accepting. Opening alone does not mean acceptance.</p>
                     {agreementError && <p role="alert" className="mt-2 text-[#ff9dcc]">{agreementError}</p>}
                     <Dialog open={agreementOpen} onOpenChange={setAgreementOpen}>
-                      <DialogContent className="max-h-[85dvh] overflow-y-auto bg-[#17141d] text-white sm:max-w-3xl">
+                      <DialogContent onCloseAutoFocus={event=>{event.preventDefault();agreementReviewRef.current?.focus();}} className="max-h-[85dvh] overflow-y-auto bg-[#17141d] text-white sm:max-w-3xl">
                         <DialogTitle>Direct Licensing Agreement</DialogTitle>
                         <DialogDescription>{agreement ? `Version ${agreement.version}` : agreementDraft ? `Version ${agreementDraft.version} — activation pending; not available for acceptance` : "Agreement unavailable"}</DialogDescription>
                         <div className="whitespace-pre-wrap break-words text-base leading-7">{agreement?.body ?? agreementDraft?.body ?? (agreementError || "Loading the agreement…")}</div>

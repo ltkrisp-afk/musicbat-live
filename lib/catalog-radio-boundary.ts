@@ -1,9 +1,10 @@
+import {recordAudioDelivery} from './streaming-evidence';
 import {authorizeChannelUse} from './recording-use';
 import { currentRadioSource, readPrivateRadioObject, privateObjectKey } from './cloudflare-radio-source';
 import { authorizePlayback, type Permission } from './playback-authorization';
 /** The upload catalog remains authoritative for owner consent. A private runtime
  * import cannot bypass a later withdrawal or classification correction. */
-export function catalogBoundRadio(service: Pick<Fetcher,'fetch'> | undefined, db: D1Database, bucket?: R2Bucket): Pick<Fetcher,'fetch'> | undefined {
+export function catalogBoundRadio(service: Pick<Fetcher,'fetch'> | undefined, db: D1Database, bucket?: R2Bucket,evidenceMode:'test'|'live'|null=null): Pick<Fetcher,'fetch'> | undefined {
   if (!service) return undefined;
   return { async fetch(input: RequestInfo | URL, init?: RequestInit) {
     const request = new Request(input,init), url = new URL(request.url);
@@ -19,7 +20,7 @@ export function catalogBoundRadio(service: Pick<Fetcher,'fetch'> | undefined, db
       const category=data.snapshot.category;
       const cleared=await authorizeChannelUse(db,Number(id),!!category,request.headers.get('x-musicbat-territory') ?? 'unknown');
       const allowed=cleared.allowed && !!row && row.status==='active' && row.radio_enabled===1 && authorizePlayback(row,category?'radio-plus':'free-radio',Date.now(),request.headers.get('x-musicbat-territory') ?? 'unknown').allowed;
-      if (!allowed) {
+      if (!allowed && (!row || row.status!=='active' || row.radio_enabled!==1 || row.withdrawn_at!==null)) {
         // Best effort removal from persistent scheduling; delivery still fails
         // closed here if this sidecar does not yet implement controls.
         await service!.fetch(new Request(new URL('/catalog/control',url),{method:'POST',headers:request.headers,body:JSON.stringify({trackId:id,action:'withdraw',reference:'catalog-authority-recheck'})})).catch(()=>undefined);
@@ -56,6 +57,17 @@ export function catalogBoundRadio(service: Pick<Fetcher,'fetch'> | undefined, db
         await response.body?.cancel();
         return new Response(null,{status:409,headers:{'cache-control':'no-store'}});
       }
+      if(evidenceMode && request.method==='GET' && response.body){
+        const original=response.body.getReader();let bytes=0;
+        const metadata=await db.prepare('SELECT technical_metadata FROM tracks WHERE id=?').bind(id).first<{technical_metadata:string}>();
+        const technical=metadata?JSON.parse(metadata.technical_metadata) as {durationMs?:number}:{};
+        const range=response.headers.get('content-range');const total=range?Number(range.split('/').at(-1)):Number(response.headers.get('content-length'));
+        const listener=request.headers.get('x-musicbat-listener');
+        const category=(await after.clone().json() as {snapshot:{category:unknown}}).snapshot.category;
+        return new Response(new ReadableStream({async pull(controller){try{const part=await original.read();if(part.done){
+          if(listener)await recordAudioDelivery(db,{listenerId:listener,mode:evidenceMode,trackId:id,performanceId:snap.channelId+':'+snap.performance!.authorityId,durationMs:technical.durationMs??0,territory:request.headers.get('x-musicbat-territory')??'unknown',memberChannel:!!category,bytes,totalBytes:total,sourceReference:key});
+          controller.close();return;}bytes+=part.value.byteLength;controller.enqueue(part.value);}catch(error){controller.error(error);}},cancel:reason=>original.cancel(reason)}),{status:response.status,headers:response.headers});
+      }
       return response;
     }
     const response=await service.fetch(request);
@@ -64,6 +76,6 @@ export function catalogBoundRadio(service: Pick<Fetcher,'fetch'> | undefined, db
       await response.body?.cancel();
       return Response.json({error:'This recording is no longer eligible for Radio.'},{status:409,headers:{'cache-control':'no-store'}});
     }
-    return response;
+    return Response.json({...await response.json() as Record<string,unknown>,streamingEvidenceEnabled:!!evidenceMode},{status:response.status,headers:response.headers});
   }};
 }

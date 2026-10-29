@@ -363,3 +363,92 @@ export const streamingBeneficiaryInstructions = sqliteTable("streaming_beneficia
   reviewedBy: text("reviewed_by").notNull(),
   reviewedAt: integer("reviewed_at").notNull(),
 });
+
+// Additive membership integration tables; SQL 0019 owns validation/triggers.
+export const radioPlusEnrollmentModes = sqliteTable("radio_plus_enrollment_modes", {
+  enrollmentId: text("enrollment_id").primaryKey(),
+  mode: text("mode").notNull(),
+});
+export const membershipSettlementSources = sqliteTable("membership_settlement_sources", {
+  id: text("id").primaryKey(),
+  invoiceId: text("invoice_id").notNull(),
+  mode: text("mode").notNull(),
+  providerAccount: text("provider_account").notNull(),
+  providerBalanceReference: text("provider_balance_reference").notNull(),
+  settledAt: integer("settled_at").notNull(),
+  grossCents: integer("gross_cents").notNull(),
+  taxCents: integer("tax_cents").notNull(),
+  feeCents: integer("fee_cents").notNull(),
+  currency: text("currency").notNull(),
+  evidenceJson: text("evidence_json").notNull(),
+  verifiedAt: integer("verified_at").notNull(),
+});
+export const membershipTestRevenueEvents = sqliteTable("membership_test_revenue_events", {
+  sourceId: text("source_id").primaryKey(),
+  sourceReference: text("source_reference").notNull(),
+  month: text("month").notNull(),
+  kind: text("kind").notNull(),
+  amountCents: integer("amount_cents").notNull(),
+  principalReference: text("principal_reference"),
+  livemode: integer("livemode").notNull(),
+  settled: integer("settled").notNull(),
+  verifiedBy: text("verified_by").notNull(),
+  verifiedAt: integer("verified_at").notNull(),
+});
+export const streamingDeliveryEvidence = sqliteTable("streaming_delivery_evidence", {
+  id: text("id").primaryKey(),
+  listenerId: text("listener_id").notNull(),
+  trackId: integer("track_id").notNull(),
+  performanceId: text("performance_id").notNull(),
+  mode: text("mode").notNull(),
+  deliveredMs: integer("delivered_ms").notNull(),
+  deliveredAt: integer("delivered_at").notNull(),
+  sourceReference: text("source_reference").notNull(),
+});
+export const streamingListeningSessions = sqliteTable("streaming_listening_sessions", {
+  id: text("id").primaryKey(),
+  listenerId: text("listener_id").notNull(),
+  trackId: integer("track_id").notNull(),
+  performanceId: text("performance_id").notNull(),
+  mode: text("mode").notNull(),
+  startedAt: integer("started_at").notNull(),
+  lastAt: integer("last_at").notNull(),
+  observedMs: integer("observed_ms").notNull(),
+  durationMs: integer("duration_ms").notNull(),
+  rightsReviewId: integer("rights_review_id").notNull(),
+  beneficiaryReference: text("beneficiary_reference").notNull(),
+});
+export const streamingTestEligiblePlays = sqliteTable("streaming_test_eligible_plays", {
+  id: text("id").primaryKey(),
+  month: text("month").notNull(),
+  trackId: integer("track_id").notNull(),
+  listenerId: text("listener_id").notNull(),
+  performanceId: text("performance_id").notNull(),
+  startedAt: integer("started_at").notNull(),
+  endedAt: integer("ended_at").notNull(),
+  durationMs: integer("duration_ms").notNull(),
+  deliveredMs: integer("delivered_ms").notNull(),
+  memberVerified: integer("member_verified").notNull(),
+  rightsReviewId: integer("rights_review_id").notNull(),
+  beneficiaryReference: text("beneficiary_reference").notNull(),
+  deliveryReference: text("delivery_reference").notNull(),
+  verifiedBy: text("verified_by").notNull(),
+});
+export const membershipTestPoolStatements = sqliteTable("membership_test_pool_statements", {
+  month: text("month").primaryKey(),
+  sourceDigest: text("source_digest").notNull(),
+  statementJson: text("statement_json").notNull(),
+  closedBy: text("closed_by").notNull(),
+  closedAt: integer("closed_at").notNull(),
+  previousMonth: text("previous_month"),
+});
+export const membershipReconciliationJobs = sqliteTable("membership_reconciliation_jobs", {
+  invoiceId: text("invoice_id").primaryKey(),
+  mode: text("mode").notNull(),
+  state: text("state").notNull(),
+  attempts: integer("attempts").notNull(),
+  leaseToken: text("lease_token"),
+  leaseUntil: integer("lease_until"),
+  nextAttempt: integer("next_attempt").notNull(),
+  lastError: text("last_error"),
+});

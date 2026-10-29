@@ -10,6 +10,9 @@ declare namespace Cloudflare {
     MUSICBAT_RELEASE_PAUSED?: string;
     MUSICBAT_STRIPE_MODE?: string;
     MUSICBAT_RADIO_PLUS_ENABLED?: string;
+    MUSICBAT_STREAMING_EVIDENCE_ENABLED?: string;
+    MUSICBAT_ACCOUNTING_ENABLED?: string;
+    MUSICBAT_OPERATOR_ID?: string;
     STRIPE_SECRET_KEY?: string;
     STRIPE_WEBHOOK_SECRET?: string;
     STRIPE_RADIO_PLUS_WEBHOOK_SECRET?: string;

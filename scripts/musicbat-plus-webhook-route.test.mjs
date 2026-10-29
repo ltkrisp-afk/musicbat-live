@@ -20,7 +20,7 @@ test('actual subscription webhook handler rejects invalid delivery and atomicall
   const checkout=await handlePlus(env,new Request(origin+'/api/musicbat/subscription',{method:'POST',headers:{origin,'content-type':'application/json'},body:JSON.stringify({action:'join',recurringConsent:true,confirmedPriceCents:500})}),'patron');
   assert.equal(checkout.status,200);await processor.pay((await checkout.json()).checkoutUrl.split('/').at(-1));
   const sub=[...processor.subscriptions.values()][0];
-  f.sqlite.exec("UPDATE radio_plus_enrollments SET paid_until=0,status='pending'; DELETE FROM radio_plus_events; DELETE FROM radio_plus_invoices");
+  f.sqlite.exec("UPDATE radio_plus_enrollments SET paid_until=0,status='pending'; DELETE FROM radio_plus_events; DELETE FROM membership_reconciliation_jobs; DELETE FROM radio_plus_invoices");
   const raw=JSON.stringify({id:'evt_route_invoice',type:'invoice.paid',livemode:false,data:{object:{id:sub.latest_invoice,livemode:false}}});
   const stamp=Math.floor(Date.now()/1000);
   const send=(body=raw,secret=env.STRIPE_RADIO_PLUS_WEBHOOK_SECRET,time=stamp)=>POST(new Request(origin+'/api/musicbat/subscription/webhook',{method:'POST',headers:{'stripe-signature':`t=${time},v1=${createHmac('sha256',secret).update(time+'.'+body).digest('hex')}`},body}));

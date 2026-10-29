@@ -4,7 +4,7 @@ import {catalogBoundRadio} from './catalog-radio-boundary';
 import {membershipBoundRadio} from './membership-radio-boundary';
 
 type RadioEnvironment={
- MUSICBAT_CLOUDFLARE_RADIO?:string;MUSICBAT_STRIPE_MODE?:string;MUSICBAT_RADIO_PLUS_ENABLED?:string;
+ MUSICBAT_STREAMING_EVIDENCE_ENABLED?:string;MUSICBAT_CLOUDFLARE_RADIO?:string;MUSICBAT_STRIPE_MODE?:string;MUSICBAT_RADIO_PLUS_ENABLED?:string;
  DB?:D1Database;BUCKET?:R2Bucket;RADIO_SERVICE?:Pick<Fetcher,'fetch'>;
  RADIO_RUNTIME_ORIGIN?:string;RADIO_RUNTIME_TOKEN?:string;
 };
@@ -22,5 +22,5 @@ export function configuredRadioService(env:RadioEnvironment):Pick<Fetcher,'fetch
  const sandbox=env.MUSICBAT_CLOUDFLARE_RADIO==='test'&&env.MUSICBAT_STRIPE_MODE==='test';
  const service=selectRadioService(env);
  if(sandbox&&(!env.DB||!env.BUCKET))return service;
- return env.DB?catalogBoundRadio(membershipBoundRadio(service,env.DB,env.MUSICBAT_RADIO_PLUS_ENABLED==='test'&&env.MUSICBAT_STRIPE_MODE!=='live'),env.DB,env.BUCKET):undefined;
+ return env.DB?catalogBoundRadio(membershipBoundRadio(service,env.DB,env.MUSICBAT_RADIO_PLUS_ENABLED==='live'&&env.MUSICBAT_STRIPE_MODE==='live'?'live':env.MUSICBAT_RADIO_PLUS_ENABLED==='test'&&env.MUSICBAT_STRIPE_MODE!=='live'),env.DB,env.BUCKET,env.MUSICBAT_STREAMING_EVIDENCE_ENABLED===env.MUSICBAT_STRIPE_MODE&&(env.MUSICBAT_STRIPE_MODE==='test'||env.MUSICBAT_STRIPE_MODE==='live')?env.MUSICBAT_STRIPE_MODE:null):undefined;
 }

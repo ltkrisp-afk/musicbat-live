@@ -69,7 +69,7 @@ export async function createAcceptance({payoutsReady=true}={}) {
     return Response.json(entry.session);
   }
   const routes = new Map();
-  for(const [url,path] of [['/api/musicbat','app/api/musicbat/route.ts'],['/api/musicbat/purchase','app/api/musicbat/purchase/route.ts'],['download','app/api/musicbat/purchase/[purchaseId]/download/route.ts'],['/api/musicbat/channel','app/api/musicbat/channel/route.ts'],['/api/musicbat/channel/audio','app/api/musicbat/channel/audio/route.ts'],['/api/musicbat/stripe/connect','app/api/musicbat/stripe/connect/route.ts'],['/api/musicbat/statutory-radio','app/api/musicbat/statutory-radio/route.ts'],['legacyAudio','app/api/musicbat/audio/[assetId]/route.ts'],['webhook','app/api/musicbat/stripe/webhook/route.ts']]) routes.set(url,await load(path));
+  for(const [url,path] of [['/api/musicbat','app/api/musicbat/route.ts'],['/api/musicbat/agreement','app/api/musicbat/agreement/route.ts'],['/api/musicbat/listening-evidence','app/api/musicbat/listening-evidence/route.ts'],['/api/musicbat/purchase','app/api/musicbat/purchase/route.ts'],['download','app/api/musicbat/purchase/[purchaseId]/download/route.ts'],['/api/musicbat/channel','app/api/musicbat/channel/route.ts'],['/api/musicbat/channel/audio','app/api/musicbat/channel/audio/route.ts'],['/api/musicbat/stripe/connect','app/api/musicbat/stripe/connect/route.ts'],['/api/musicbat/statutory-radio','app/api/musicbat/statutory-radio/route.ts'],['legacyAudio','app/api/musicbat/audio/[assetId]/route.ts'],['webhook','app/api/musicbat/stripe/webhook/route.ts']]) routes.set(url,await load(path));
   const now=Date.now(),expiry=now+86400000;
   f.state.user={userId:'local_musician'};
   for (const [index,genre] of ['Rock','Rock','Jazz'].entries()) {

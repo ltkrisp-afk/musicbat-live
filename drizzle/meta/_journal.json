@@ -134,6 +134,13 @@
       "when": 1793291000000,
       "tag": "0018_final_licensing_safeguards",
       "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "6",
+      "when": 1793292000000,
+      "tag": "0019_membership_integration",
+      "breakpoints": true
     }
   ]
 }

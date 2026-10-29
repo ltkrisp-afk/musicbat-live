@@ -5,7 +5,7 @@ import type { Category } from '../lib/radio-category';
 import type { ChannelOption, ChannelSnapshot } from '../lib/shared-radio-engine';
 import { createRadioRequestQueue } from '../lib/radio-request-queue';
 import { acceptRadioPlayEvent, correctRadioMediaOffset } from '../lib/radio-media-clock';
-type Delivery = {snapshot:ChannelSnapshot;navigation:ChannelOption[];mediaUrl:string|null};
+type Delivery = {streamingEvidenceEnabled?:boolean;snapshot:ChannelSnapshot;navigation:ChannelOption[];mediaUrl:string|null};
 export type RadioPlaybackState={available:boolean;playing:boolean;muted:boolean;volume:number;message:string;onToggle:()=>void;onMute:()=>void;onVolume:(volume:number)=>void};
 export function RadioPlaybackControls({state}:{state:RadioPlaybackState}) {
  return <div aria-label="Radio playback controls" style={{display:'flex',alignItems:'center',flexWrap:'wrap',gap:12,padding:'12px',background:'#171a19',borderRadius:6,margin:'14px 0',minWidth:0}}>
@@ -29,6 +29,7 @@ export function SharedRadioPlayer({onTrack,onError,onPlay,onProgress,onEnded,onI
   const [muted,setMuted]=useState(false);
   const [volume,setVolume]=useState(1);
   const [busy,setBusy]=useState(false);
+  const lastEvidence=useRef(0);
   const heard=useRef({key:"",seconds:0,last:0});
   const silence=useCallback(()=>{
     authority.current=null;setDelivery(null);callbacks.current.onTrack(null,"");callbacks.current.onInteractive?.(false);
@@ -132,7 +133,9 @@ export function SharedRadioPlayer({onTrack,onError,onPlay,onProgress,onEnded,onI
     </div>
     </>}
     <audio ref={audio} preload="none" controlsList="nodownload noremoteplayback" onLoadedMetadata={synchronize}
-      onPlay={()=>{if(audio.current&&!acceptRadioPlayEvent(audio.current,wanted.current)){setPlaying(false);return;}setPlaying(true);heard.current.last=performance.now();callbacks.current.onPlay()}} onPause={()=>{setPlaying(false);heard.current.last=0}} onTimeUpdate={()=>{
+      onPlay={()=>{if(audio.current&&!acceptRadioPlayEvent(audio.current,wanted.current)){setPlaying(false);return;}setPlaying(true);heard.current.last=performance.now();if(authority.current?.delivery.streamingEvidenceEnabled){lastEvidence.current=performance.now();void fetch('/api/musicbat/listening-evidence',{method:'POST'}).catch(()=>undefined);}callbacks.current.onPlay()}} onPause={()=>{setPlaying(false);heard.current.last=0}} onTimeUpdate={()=>{
+        if(authority.current?.delivery.streamingEvidenceEnabled&&audio.current&&!audio.current.paused&&performance.now()-lastEvidence.current>=10000){lastEvidence.current=performance.now();void fetch('/api/musicbat/listening-evidence',{method:'POST'}).catch(()=>undefined);}
+
         synchronize();const a=audio.current,now=performance.now();
         if(a&&!a.paused&&authority.current){if(heard.current.last)heard.current.seconds+=Math.min(1,(now-heard.current.last)/1000);heard.current.last=now;callbacks.current.onPlay();callbacks.current.onProgress(heard.current.seconds)}
       }}

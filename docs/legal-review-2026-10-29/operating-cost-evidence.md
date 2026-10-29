@@ -39,3 +39,13 @@ Sources:
 https://developers.cloudflare.com/workers/platform/pricing/
 https://developers.cloudflare.com/r2/pricing/
 https://developers.cloudflare.com/d1/platform/pricing/
+
+## Newly obtained billing evidence
+
+Read the owner-connected Cloudflare invoice notification received October 28:
+amount due $0.00. This verifies that notification's stated amount only. No
+itemized service usage, billing period, paid-plan status or credit breakdown was
+available in that email. It does not establish that every MusicBat service is
+free or forecast future workload costs. Only a sandbox Stripe account was exposed
+by the connected account inventory. Its sampled 237-cent charges / 37-cent fees
+are simulated evidence and are excluded from actual costs and QCMR.

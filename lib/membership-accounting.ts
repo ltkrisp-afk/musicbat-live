@@ -20,13 +20,13 @@ export function largestRemainder(total:number,weights:{id:string;weight:number}[
  for(let i=0;i<Number(remaining);i++)rows[i].cents++;
  return {allocations:rows.sort((a,b)=>a.id<b.id?-1:1).map(r=>({id:r.id,cents:Number(r.cents)})),unallocated:0};
 }
-export function membershipStatement(events:RevenueEvent[],input:{month:string;deficitCents:number;unallocatedCents:number;plays:{id:string;count:number;beneficiaries:Beneficiary[]}[];receiptPrincipals:Record<string,number>;priorReversed:Record<string,number>}) {
+export function membershipStatement(events:RevenueEvent[],input:{month:string;deficitCents:number;unallocatedCents:number;plays:{id:string;count:number;beneficiaries:Beneficiary[]}[];receiptPrincipals:Record<string,number>;priorReversed:Record<string,number>;mode?:'test'|'live'}) {
  if(!/^\d{4}-(0[1-9]|1[0-2])$/.test(input.month))throw new Error('Invalid UTC month');
  let net=-nonnegativeCents(input.deficitCents);const priorPool=nonnegativeCents(input.unallocatedCents);
  const ids=new Set<string>(),references=new Set<string>(),reversed=new Map<string,bigint>();
  for(const event of events){
   const key=event.kind+':'+event.source_reference;
-  if(ids.has(event.source_id)||references.has(key)||!event.source_reference||event.month!==input.month||event.livemode!==1||event.settled!==1)throw new Error('Unverified, duplicate or wrong-month revenue');
+  if(ids.has(event.source_id)||references.has(key)||!event.source_reference||event.month!==input.month||event.livemode!==(input.mode==='test'?0:1)||event.settled!==1)throw new Error('Unverified, duplicate or wrong-month revenue');
   ids.add(event.source_id);references.add(key);const cents=nonnegativeCents(event.amount_cents);
   if(event.kind==='receipt'||event.kind==='fee-credit')net+=cents;
   else if(event.kind==='principal-reversal'){
