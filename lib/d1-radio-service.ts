@@ -1,3 +1,4 @@
+import {authorizeChannelUse} from './recording-use';
 import {D1SharedRadioEngine} from './d1-shared-radio-engine';
 import {createRadioTransport} from './shared-radio-transport';
 import {currentRadioSource,privateObjectKey,readPrivateRadioObject} from './cloudflare-radio-source';
@@ -35,7 +36,7 @@ export function d1RadioService(db:D1Database,bucket:R2Bucket):Pick<Fetcher,'fetc
    const assignment=await session.prepare('SELECT channel_id FROM radio_engine_sessions WHERE listener_id=?').bind(listener.id).first<{channel_id:string}>();
    if(!row||row.status!=='active'||row.radio_enabled!==1||!assignment)return false;
    const c=await config(assignment.channel_id);
-   return authorizePlayback(row,c.mode,Date.now(),c.territory).allowed;
+   return (await authorizeChannelUse(session,Number(id),c.mode==='radio-plus',c.territory)).allowed && authorizePlayback(row,c.mode,Date.now(),c.territory).allowed;
   },
   media:async(id,request)=>{
    const source=await currentRadioSource(primary(),Number(id));

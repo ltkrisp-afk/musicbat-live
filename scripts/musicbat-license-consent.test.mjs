@@ -5,13 +5,14 @@ import {mkdtemp,rm} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {fixture,upload,load} from './website-fixture.mjs';
+import {createHash} from 'node:crypto';
 import {testAgreement} from './license-fixture.mjs';
 
 test('agreement endpoint returns exact approved text; no active agreement fails closed',async()=>{
  const f=await fixture();try{
   const api=await load('app/api/musicbat/agreement/route.ts',f.state);
   const response=await api.GET();assert.equal(response.status,200);assert.equal(response.headers.get('cache-control'),'no-store');
-  assert.deepEqual((await response.json()).agreement,{version:testAgreement.version,body:testAgreement.body,acceptance_text:testAgreement.acceptanceText});
+  assert.deepEqual((await response.json()).agreement,{version:testAgreement.version,body:testAgreement.body,acceptance_text:testAgreement.acceptanceText,sha256:createHash('sha256').update(testAgreement.body).digest('hex')});
   f.sqlite.exec('DELETE FROM direct_license_current');
   assert.equal((await api.GET()).status,503);assert.equal((await upload(f.route)).status,503);assert.equal(f.objects.size,0);
   assert.equal(f.sqlite.prepare('SELECT count(*) n FROM tracks').get().n,0);

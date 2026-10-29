@@ -94,7 +94,7 @@ test('client route changes select the requested view while local tab changes rem
  }
 });
 
-test('upload acceptance stays unchecked until affirmed and does not require opening the agreement',async()=>{
+test('upload acceptance requires opening, separate electronic consent and affirmative acceptance',async()=>{
  const {Checkbox}=await import('../components/ui/checkbox.tsx');
  const {Dialog}=await import('../components/ui/dialog.tsx');
  const saved={window:globalThis.window,document:globalThis.document,fetch:globalThis.fetch,self:globalThis.self,raf:globalThis.requestAnimationFrame,caf:globalThis.cancelAnimationFrame,act:globalThis.IS_REACT_ACT_ENVIRONMENT};
@@ -107,8 +107,13 @@ test('upload acceptance stays unchecked until affirmed and does not require open
   await act(async()=>{await new Promise(r=>setTimeout(r,10));});
   const box=()=>tree.root.findAllByType(Checkbox).find(node=>node.props.required);
   const dialog=()=>tree.root.findAllByType(Dialog).find(node=>typeof node.props.open==='boolean');
-  assert.equal(box().props.checked,false);assert.equal(box().props.disabled,false);assert.equal(dialog().props.open,false);
+  assert.equal(box().props.checked,false);assert.equal(box().props.disabled,true);assert.equal(dialog().props.open,false);
   const review=tree.root.findAll(node=>node.type==='button'&&node.props.children==='Review Direct Licensing Agreement')[0];assert.match(review.props.className,/text-blue-400/);assert.match(review.props.className,/underline/);
+  await act(async()=>review.props.onClick());
+  assert.equal(box().props.checked,false);assert.equal(box().props.disabled,true);
+  await act(async()=>{ for(const node of tree.root.findAllByType(Checkbox).filter(n=>!n.props.required && n.props.onCheckedChange)) node.props.onCheckedChange(true); });
+  assert.equal(box().props.disabled,false);
+  await act(async()=>dialog().props.onOpenChange(false));
   await act(async()=>box().props.onCheckedChange(true));assert.equal(box().props.checked,true);assert.equal(dialog().props.open,false);
   await act(async()=>box().props.onCheckedChange(false));assert.equal(box().props.checked,false);
   // The dialog is controlled independently of consent; closing never grants acceptance.

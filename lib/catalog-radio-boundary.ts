@@ -1,3 +1,4 @@
+import {authorizeChannelUse} from './recording-use';
 import { currentRadioSource, readPrivateRadioObject, privateObjectKey } from './cloudflare-radio-source';
 import { authorizePlayback, type Permission } from './playback-authorization';
 /** The upload catalog remains authoritative for owner consent. A private runtime
@@ -16,7 +17,8 @@ export function catalogBoundRadio(service: Pick<Fetcher,'fetch'> | undefined, db
       if (audio && (url.searchParams.get('channel')!==data.snapshot.channelId || url.searchParams.get('sequence')!==data.snapshot.performance!.authorityId)) return false;
       const row = await db.prepare('SELECT t.*, p.recording_basis,p.recording_evidence,p.composition_evidence,p.reviewed_by,p.reviewed_at,p.artist_authorized,p.free_allowed,p.plus_allowed,p.starts_at,p.expires_at,p.withdrawn_at,p.territory FROM tracks t LEFT JOIN playback_permissions p ON p.track_id=t.id WHERE t.id=?').bind(id).first<Permission & {status:string;radio_enabled:number;primary_genre:string;subgenre:string|null;style:string|null}>();
       const category=data.snapshot.category;
-      const allowed=!!row && row.status==='active' && row.radio_enabled===1 && authorizePlayback(row,category?'radio-plus':'free-radio',Date.now(),request.headers.get('x-musicbat-territory') ?? 'unknown').allowed;
+      const cleared=await authorizeChannelUse(db,Number(id),!!category,request.headers.get('x-musicbat-territory') ?? 'unknown');
+      const allowed=cleared.allowed && !!row && row.status==='active' && row.radio_enabled===1 && authorizePlayback(row,category?'radio-plus':'free-radio',Date.now(),request.headers.get('x-musicbat-territory') ?? 'unknown').allowed;
       if (!allowed) {
         // Best effort removal from persistent scheduling; delivery still fails
         // closed here if this sidecar does not yet implement controls.

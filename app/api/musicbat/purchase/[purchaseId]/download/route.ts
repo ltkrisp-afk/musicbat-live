@@ -7,10 +7,12 @@ export async function GET(request: Request) {
     const id = new URL(request.url).pathname.split("/").at(-2);
     const user = await getChatGPTUser();
     if (!user) return Response.json({ error: "Sign in to access purchased music." }, { status: 401, headers: { "cache-control": "private, no-store" } });
-    const purchase = await env.DB.prepare("SELECT title, artist_name, audio_path, status FROM purchases WHERE id = ? AND buyer_account_id = ?")
-      .bind(id, user.userId).first<{ title: string; artist_name: string; audio_path: string; status: string }>();
+    const purchase = await env.DB.prepare("SELECT title, artist_name, audio_path, status, track_id FROM purchases WHERE id = ? AND buyer_account_id = ?")
+      .bind(id, user.userId).first<{ title: string; artist_name: string; audio_path: string; status: string; track_id:number }>();
     if (!purchase) return Response.json({ error: "Purchase not found." }, { status: 404 });
     if (purchase.status !== "paid") return Response.json({ error: "Confirmed payment is required before downloading this purchase." }, { status: 402 });
+    const restriction=await env.DB.prepare('SELECT restricted FROM recording_delivery_restrictions WHERE track_id=? ORDER BY id DESC LIMIT 1').bind(purchase.track_id).first<{restricted:number}>();
+    if (restriction?.restricted===1) return Response.json({error:'Delivery is held for a documented rights claim. Your purchase record is preserved; contact support for review or remedies.'},{status:451,headers:{'cache-control':'private, no-store'}});
     const assetId = /^\/api\/musicbat\/audio\/([0-9a-f-]{36}\.(mp3|wav|flac))$/.exec(purchase.audio_path);
     if (!assetId) return Response.json({ error: "The purchased music file is unavailable." }, { status: 404 });
     const object = await env.BUCKET.get(`tracks/${assetId[1]}`);

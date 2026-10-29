@@ -176,17 +176,21 @@ export default function MusicBatLoop({ displayName, artistSlug, initialTab }: { 
   const [signInRequired, setSignInRequired] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [rightsAttested, setRightsAttested] = useState(false);
-  const [agreement, setAgreement] = useState<{version:string; body:string; acceptance_text:string} | null>(null);
+  const [agreement, setAgreement] = useState<{version:string; body:string; acceptance_text:string; sha256:string} | null>(null);
   const [agreementDraft, setAgreementDraft] = useState<{version:string; body:string} | null>(null);
   const [agreementError, setAgreementError] = useState("");
   const [agreementOpen, setAgreementOpen] = useState(false);
+  const [agreementReviewedAt, setAgreementReviewedAt] = useState<number | null>(null);
+  const [reviewReceiptId, setReviewReceiptId] = useState("");
+  const [electronicConsent, setElectronicConsent] = useState(false);
+  const [retainableCopyConfirmed, setRetainableCopyConfirmed] = useState(false);
   useEffect(() => {
     let cancelled = false;
     fetch("/api/musicbat/agreement", { cache: "no-store" }).then(async response => {
-      const data = await response.json() as {draft?:{version:string;body:string}; error?:string; agreement?:{version:string; body:string; acceptance_text:string}};
-      if (!cancelled) setAgreementDraft(data.draft ?? null);
+      const data = await response.json() as {candidate?:{version:string;body:string}; error?:string; agreement?:{version:string; body:string; acceptance_text:string; sha256:string}};
+      if (!cancelled) setAgreementDraft(data.candidate ?? null);
       if (!response.ok || !data.agreement) throw new Error(data.error || "The Direct Licensing Agreement is unavailable.");
-      if (!cancelled) { setAgreement(data.agreement); setRightsAttested(false); }
+      if (!cancelled) { setAgreement(data.agreement); setRightsAttested(false); setAgreementReviewedAt(null); setReviewReceiptId(""); setElectronicConsent(false); setRetainableCopyConfirmed(false); }
     }).catch(error => { if (!cancelled) setAgreementError(error instanceof Error ? error.message : "The Direct Licensing Agreement is unavailable."); });
     return () => { cancelled = true; };
   }, []);
@@ -453,7 +457,7 @@ export default function MusicBatLoop({ displayName, artistSlug, initialTab }: { 
 
   async function addTrack(event: FormEvent) {
     event.preventDefault();
-    if (!rightsAttested || !agreement) { setUploadError("Accept the current Direct Licensing Agreement before uploading."); return; }
+    if (!rightsAttested || !agreement || !agreementReviewedAt || !electronicConsent || !retainableCopyConfirmed) { setUploadError("Accept the current Direct Licensing Agreement before uploading."); return; }
     if (!audioFile) { setUploadError("Choose your music file first."); return; }
     setBusy(true);
     setUploadError("");
@@ -472,6 +476,12 @@ export default function MusicBatLoop({ displayName, artistSlug, initialTab }: { 
       form.set("rightsAttested", String(rightsAttested));
       form.set("agreementAccepted", String(rightsAttested));
       form.set("agreementVersion", agreement.version);
+      form.set("agreementDigest", agreement.sha256);
+      form.set("reviewReceiptId",reviewReceiptId);
+      form.set("agreementReviewedAt", String(agreementReviewedAt));
+      form.set("electronicConsent", String(electronicConsent));
+      form.set("retainableCopyConfirmed", String(retainableCopyConfirmed));
+      form.set("completedSchedules",JSON.stringify({noticeContact:String(fields.get('schedule_noticeContact')??''),scope:String(fields.get('schedule_scope')??''),beneficiaryInstructions:String(fields.get('schedule_beneficiaryInstructions')??'')}));
       form.set("saleEnabled", String(sellTrack));
       form.set("saleRightsAttested", String(saleRightsAttested));
       form.set("salePriceCents", String(Math.round(Number(salePrice) * 100)));
@@ -714,15 +724,34 @@ export default function MusicBatLoop({ displayName, artistSlug, initialTab }: { 
                   </div>
                   <a href="/api/musicbat?view=license-records" target="_blank" rel="noreferrer" className="text-sm text-blue-400 underline">View my accepted terms and rights records</a>
                   <ArtistRightsDeclarations />
-                  <label className="flex cursor-pointer items-start gap-3 rounded-xl border border-white/10 bg-white/[0.03] p-4"><Checkbox required disabled={!agreement} checked={rightsAttested} onCheckedChange={(value) => setRightsAttested(value === true)} className="mt-0.5 border-white/25 data-[state=checked]:border-[#ff3ea5] data-[state=checked]:bg-[#ff3ea5]" /><span className="text-sm leading-relaxed text-white/62">{agreement?.acceptance_text ?? "I own or control the necessary rights to this recording and composition, and I agree to MusicBat’s Direct Licensing Agreement."}</span></label>
+                  <fieldset className="space-y-3 rounded-xl border border-white/15 p-4">
+                    <legend>Execution particulars — Schedules A, C and D</legend>
+                    <label className="block">Artist notice contact<input name="schedule_noticeContact" required maxLength={4000} className="block w-full rounded bg-black/30 p-2" /></label>
+                    <label className="block">Requested uses, territories and start/end dates<textarea name="schedule_scope" required maxLength={4000} className="block w-full rounded bg-black/30 p-2" /><span className="text-xs text-white/60">Identify preview, free discovery, member streaming and/or download sales separately. Noninteractive radio and other uses require separate clearance. Missing authority remains held.</span></label>
+                    <label className="block">Designated recipient, collection authority and beneficiary instructions<textarea name="schedule_beneficiaryInstructions" required maxLength={4000} className="block w-full rounded bg-black/30 p-2" /><span className="text-xs text-white/60">Separate purchase and streaming instructions. Streaming beneficiary shares total 10,000 basis points. Required licensors must approve the 25% QCMR model and zero-unit free discovery terms. This signature does not bind other owners.</span></label>
+                  </fieldset>
+                  <label className="flex cursor-pointer items-start gap-3 rounded-xl border border-white/10 bg-white/[0.03] p-4"><Checkbox required disabled={!agreement || !agreementReviewedAt || !electronicConsent || !retainableCopyConfirmed} checked={rightsAttested} onCheckedChange={(value) => setRightsAttested(value === true)} className="mt-0.5 border-white/25 data-[state=checked]:border-[#ff3ea5] data-[state=checked]:bg-[#ff3ea5]" /><span className="text-sm leading-relaxed text-white/62">{agreement?.acceptance_text ?? "I own or control the necessary rights to this recording and composition, and I agree to MusicBat’s Direct Licensing Agreement."}</span></label>
+                  <label className="flex items-start gap-3 text-sm"><Checkbox checked={electronicConsent} onCheckedChange={value=>setElectronicConsent(value===true)} /><span>I consent to electronic contracting. I may decline and contact the operator for a paper/manual process.</span></label>
+                  <label className="flex items-start gap-3 text-sm"><Checkbox checked={retainableCopyConfirmed} onCheckedChange={value=>setRetainableCopyConfirmed(value===true)} /><span>I can save the supplied UTF-8 text or print a copy of the complete agreement and schedules using my browser.</span></label>
                   <div className="text-sm">
-                    <button type="button" onClick={() => setAgreementOpen(true)} className="text-blue-400 underline underline-offset-4 focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-400">Review Direct Licensing Agreement</button>
-                    <p className="mt-2 text-white/60">Review is encouraged. Opening the agreement is optional; acceptance is required to upload.</p>
+                    <a href="/api/musicbat/agreement?format=text" download className="block text-blue-400 underline">Save the complete agreement and Schedules A–F</a>
+                    <button type="button" onClick={async () => {
+                      setAgreementOpen(true);
+                      if(!agreement)return;
+                      if(agreement.version!=='2026-10-29.3'){setAgreementReviewedAt(Date.now());return;}
+                      try {
+                        const response=await fetch('/api/musicbat/agreement',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({version:agreement.version,sha256:agreement.sha256})});
+                        const data=await response.json() as {agreement?:{body:string;sha256:string};error?:string;reviewReceiptId:string;reviewedAt:number};
+                        if(!response.ok || data.agreement?.body!==agreement.body || data.agreement?.sha256!==agreement.sha256)throw new Error(data.error||'Agreement integrity changed. Reload before accepting.');
+                        setReviewReceiptId(data.reviewReceiptId);setAgreementReviewedAt(data.reviewedAt);
+                      } catch(error){setAgreementReviewedAt(null);setReviewReceiptId('');setAgreementError(error instanceof Error?error.message:'Agreement review failed.');}
+                    }} className="text-blue-400 underline underline-offset-4 focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-400">Review Direct Licensing Agreement</button>
+                    <p className="mt-2 text-white/60">Open the complete agreement and Schedules A–F before accepting. Opening alone does not mean acceptance.</p>
                     {agreementError && <p role="alert" className="mt-2 text-[#ff9dcc]">{agreementError}</p>}
                     <Dialog open={agreementOpen} onOpenChange={setAgreementOpen}>
                       <DialogContent className="max-h-[85dvh] overflow-y-auto bg-[#17141d] text-white sm:max-w-3xl">
                         <DialogTitle>Direct Licensing Agreement</DialogTitle>
-                        <DialogDescription>{agreement ? `Version ${agreement.version}` : agreementDraft ? `REVIEW DRAFT ${agreementDraft.version} — not effective or available for acceptance` : "Agreement unavailable"}</DialogDescription>
+                        <DialogDescription>{agreement ? `Version ${agreement.version}` : agreementDraft ? `Version ${agreementDraft.version} — activation pending; not available for acceptance` : "Agreement unavailable"}</DialogDescription>
                         <div className="whitespace-pre-wrap break-words text-base leading-7">{agreement?.body ?? agreementDraft?.body ?? (agreementError || "Loading the agreement…")}</div>
                       </DialogContent>
                     </Dialog>
@@ -768,6 +797,7 @@ export default function MusicBatLoop({ displayName, artistSlug, initialTab }: { 
             </section>}
           </TabsContent>
         </Tabs>
+        <nav aria-label="Legal and privacy" className="mt-8 flex flex-wrap gap-5 text-sm text-blue-400 underline"><Link href="/legal">Licensing agreement</Link><Link href="/privacy">Privacy and records</Link><Link href="/copyright">Copyright contact</Link></nav>
       </div>
     </main>
   );

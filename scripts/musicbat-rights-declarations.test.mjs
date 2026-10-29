@@ -3,6 +3,7 @@ import {test} from 'node:test';
 import {readFile} from 'node:fs/promises';
 import {fixture,upload,post,load} from './website-fixture.mjs';
 import {testRightsDeclaration} from './license-fixture.mjs';
+import {directLicenseFinal} from '../lib/direct-license-final.ts';
 import {directLicenseDraft} from '../lib/direct-license-draft.ts';
 
 test('complete review draft matches source, is readable without activation and cannot be activated',async()=>{
@@ -10,7 +11,7 @@ test('complete review draft matches source, is readable without activation and c
  const f=await fixture();try{
  f.sqlite.exec('DELETE FROM direct_license_current');
  const api=await load('app/api/musicbat/agreement/route.ts',f.state);const response=await api.GET();
- assert.equal(response.status,503);assert.equal((await response.json()).draft.body,directLicenseDraft.body);
+ assert.equal(response.status,503);assert.equal((await response.json()).candidate.body,directLicenseFinal.body);
  f.sqlite.prepare('INSERT INTO direct_license_versions VALUES (?,?,?,?,?)').run(directLicenseDraft.version,directLicenseDraft.body,'draft','not approval',1);
  assert.throws(()=>f.sqlite.prepare('INSERT INTO direct_license_current VALUES (1,?)').run(directLicenseDraft.version),/Draft agreements/);
  assert.equal((await upload(f.route,{agreementVersion:directLicenseDraft.version})).status,503);

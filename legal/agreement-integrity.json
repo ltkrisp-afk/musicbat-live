@@ -1,0 +1,21 @@
+{
+  "version": "2026-10-29.3",
+  "source": "legal/direct-licensing-agreement-2026-10-29.3.txt",
+  "encoding": "UTF-8",
+  "sizeBytes": 48789,
+  "sha256": "4fc7e2df7ce5de07f31284c5d733e4aaaf102821cb2cdef52ce0ffb697454e73",
+  "schedules": [
+    "A",
+    "B",
+    "C",
+    "D",
+    "E",
+    "F"
+  ],
+  "activation": "held",
+  "blockers": [
+    "Header and Schedule A attorney-review assertions lack supporting evidence; owner reports informal business counsel only.",
+    "Section 7 platform license payer/funding owner decision remains open."
+  ],
+  "digestScope": "Entire exact source file, including unchanged placeholder text. Digest retained outside the body to avoid a self-reference."
+}

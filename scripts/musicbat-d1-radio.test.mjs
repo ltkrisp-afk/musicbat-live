@@ -123,6 +123,7 @@ test('real local Cloudflare D1/R2 executes guarded concurrency and authenticated
  try{
   const db=await mf.getD1Database('DB'),bucket=await mf.getR2Bucket('BUCKET');
   for(const sql of schema.split(';').map(s=>s.trim()).filter(Boolean))await db.prepare(sql).run();
+  await db.prepare('CREATE TABLE artist_license_acceptances(track_id INTEGER,agreement_version TEXT,accepted_at INTEGER)').run();
   await db.prepare('CREATE TABLE tracks(id INTEGER PRIMARY KEY,audio_url TEXT,status TEXT,radio_enabled INTEGER,primary_genre TEXT,subgenre TEXT,style TEXT)').run();
   await db.prepare('CREATE TABLE playback_permissions(track_id INTEGER PRIMARY KEY,recording_basis TEXT,recording_evidence TEXT,composition_evidence TEXT,reviewed_by TEXT,reviewed_at INTEGER,artist_authorized INTEGER,free_allowed INTEGER,plus_allowed INTEGER,starts_at INTEGER,expires_at INTEGER,withdrawn_at INTEGER,territory TEXT)').run();
   const now=Date.now(),expires=now+86400000;

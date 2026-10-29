@@ -127,6 +127,13 @@
       "when": 1793290000000,
       "tag": "0017_artist_rights_declarations",
       "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "6",
+      "when": 1793291000000,
+      "tag": "0018_final_licensing_safeguards",
+      "breakpoints": true
     }
   ]
 }
