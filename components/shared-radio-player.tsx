@@ -117,7 +117,7 @@ export function SharedRadioPlayer({onTrack,onError,onPlay,onProgress,onEnded,onI
   useEffect(()=>{onPlayback?.({available:!!delivery?.mediaUrl,playing,muted,volume,message:playbackMessage,onToggle:togglePlayback,onMute:toggleMute,onVolume:changeVolume});},[delivery?.mediaUrl,playing,muted,volume,playbackMessage,togglePlayback,toggleMute,changeVolume,onPlayback]);
   return <div className={hideTuning?undefined:"mb-6 space-y-3"}>
     {!hideTuning&&<>
-    <RetrofuturaRadio options={options} snapshot={delivery?.snapshot ?? null} onTune={update} />
+    <RetrofuturaRadio outputSetting={{volume,muted}} options={options} snapshot={delivery?.snapshot ?? null} onTune={update} />
     <div aria-label="Radio category controls" style={{display:'flex',alignItems:'center',flexWrap:'wrap',gap:16}}>
     <button type="button" disabled={busy} onClick={()=>void update(null).catch(()=>undefined)}>Free Radio</button>
     {(['genre','subgenre','style'] as const).map(depth=>{

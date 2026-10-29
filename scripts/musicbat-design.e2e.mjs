@@ -14,7 +14,7 @@ try {
  await page.getByRole('button',{name:'Unmute Radio',exact:true}).click();
  await page.getByRole('slider',{name:'Volume',exact:true}).fill('0.4');check(await page.getByRole('slider',{name:'Volume',exact:true}).inputValue()==='0.4');
  const dial=page.getByRole('button',{name:'Push dial to tune category'});await dial.press('ArrowRight');await dial.press('Enter');await page.getByText('Shared channel tuned.',{exact:true}).waitFor();check((await page.getByRole('status').allTextContents()).some(s=>s.includes('tuned')));
- check(await page.locator('.mb-tone-knob:disabled').count()===3);check(await page.locator('.mb-equalizer input:disabled').count()===5);
+ check(await page.locator('.mb-tone-knob').count()===0);check(await page.getByRole('img',{name:'OUTPUT SETTING: 40 percent'}).count()===1);
  await page.screenshot({path:output+'/musicbat-stereo-desktop.png',fullPage:true});
  await page.getByRole('button',{name:'Pause Radio',exact:true}).click();check(await page.getByRole('button',{name:'Play Radio',exact:true}).isVisible());
  for(const width of [320,390,768]){await page.setViewportSize({width,height:1000});check(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));}

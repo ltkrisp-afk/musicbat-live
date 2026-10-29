@@ -3,7 +3,7 @@
 /* eslint-disable @next/next/no-html-link-for-pages */
 import { useCallback, useEffect, useState } from 'react';
 type ArtistTrack={recording_metadata?:string;technical_metadata?:string;compilation_allowed?:number;licensing_allowed?:number;id:number;title:string;artist_name:string;primary_genre:string;subgenre:string|null;style:string|null;energy_lane:string;status:string;radio_enabled:number;radio_status:string;sale_enabled:number;sale_price_cents:number|null;artist_id:string;created_at:string;artist_slug:string;listener_count:number;discovery_listener_count:number;follower_count:number;checkout_count:number;up_count:number;down_count:number;keep_count:number;completion_count:number;repeat_count:number;purchase_count:number};
-const genres=['Alternative','Blues','Classical','Country','Electronic','Experimental','Folk','Hip-Hop','Jazz','Metal','Other','Punk','Pop','Rock'];
+export const genres=['Alternative','Blues','Classical','Country','Electronic','Experimental','Folk','Hip-Hop','Jazz','Metal','Other','Punk','Pop','Rock'];
 async function request(path:string,body?:unknown){const r=await fetch(path,{cache:'no-store',...(body?{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(body)}:{})});const data=await r.json() as {error?:string;tracks:ArtistTrack[];accountId:string;profile?:{artist_name:string}};if(!r.ok)throw new Error(data.error ?? 'Could not save.');return data;}
 export function ArtistOutcomes({track}:{track:Pick<ArtistTrack,'discovery_listener_count'|'follower_count'|'checkout_count'|'purchase_count'>}) {
  const conversion=track.checkout_count>0 ? `${(100*track.purchase_count/track.checkout_count).toFixed(1)}%` : 'No checkouts yet';

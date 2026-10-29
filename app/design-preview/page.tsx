@@ -1,11 +1,12 @@
 "use client";
 import {useEffect,useRef,useState} from 'react';
 import Link from 'next/link';
+import {genres} from '../../components/artist-rotunda';
 import {RetrofuturaRadio} from '../../components/retrofutura-radio';
 import {RadioPlaybackControls} from '../../components/shared-radio-player';
 import type {Category} from '../../lib/radio-category';
 import type {ChannelOption,ChannelSnapshot} from '../../lib/shared-radio-engine';
-const options:ChannelOption[]=[{category:null,label:'Free Radio',locked:false,dormant:false},...['Rock','Electronic','Jazz','Soul'].map(genre=>({category:{genre},label:genre,locked:false,dormant:false})),{category:{genre:'Rock',subgenre:'Punk'},label:'Punk',locked:false,dormant:false},{category:{genre:'Rock',subgenre:'Punk',style:'Hardcore'},label:'Hardcore',locked:false,dormant:false}] as ChannelOption[];
+const options:ChannelOption[]=[{category:null,label:'Free Radio',locked:false,dormant:false},...genres.map(genre=>({category:{genre},label:genre,locked:false,dormant:false}))] as ChannelOption[];
 /** Isolated review route. Audition generates its own quiet calibration signal;
  * it never touches the catalog, processor, rights database or root audio node. */
 export default function ReceiverDesignPreview(){
@@ -24,7 +25,7 @@ export default function ReceiverDesignPreview(){
  return <main className="mb-design-studio">
   <header className="mb-design-nav"><Link href="/" className="mb-design-brand">MusicBat<span>A DISCOVERY OF SOUND</span></Link><span className="mb-design-label">RECEIVER DESIGN AUDITION</span><Link href="/">Back to MusicBat <span aria-hidden="true">↗</span></Link></header>
   <div className="mb-design-intro"><p>INDEPENDENT MUSIC. ANALOG SOUL.</p><h1>Let the music <br/><em>do the talking.</em></h1><span>Walnut. Warm light. Your next discovery.</span></div>
-  <div className="mb-studio-console"><RetrofuturaRadio options={options} snapshot={snapshot} onTune={async next=>{setCategory(next);}} playback={<RadioPlaybackControls state={{available:true,playing,muted,volume,message:error||'Design audition · generated calibration signal. Category changes preview the dial; they do not tune a live station.',onToggle:()=>void toggle(),onMute:()=>setMuted(m=>!m),onVolume:setVolume}}/>}/></div>
-  <footer className="mb-design-footer"><span><i/> LOCAL DESIGN PREVIEW</span><p>Playback, mute and volume control a generated calibration signal. Tone shaping is not connected. No catalog, account, payment or licensing changes.</p><span>MB–76 / MUSICBAT</span></footer>
+  <div className="mb-studio-console"><RetrofuturaRadio outputSetting={{volume,muted}} options={options} snapshot={snapshot} onTune={async next=>{setCategory(next);}} playback={<RadioPlaybackControls state={{available:true,playing,muted,volume,message:error||'Design audition · generated calibration signal. Categories use the existing artist taxonomy; this audition does not tune live music.',onToggle:()=>void toggle(),onMute:()=>setMuted(m=>!m),onVolume:setVolume}}/>}/></div>
+  <footer className="mb-design-footer"><span><i/> LOCAL DESIGN PREVIEW</span><p>Playback, mute and volume control a generated calibration signal. Output meter shows volume setting; live bass/treble analysis is unavailable. No catalog, account, payment or licensing changes.</p><span>MB–76 / MUSICBAT</span></footer>
  </main>;
 }

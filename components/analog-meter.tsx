@@ -1,5 +1,5 @@
 import type {CSSProperties} from 'react';
-/** Status/position instruments, never represented as measured audio amplitude. */
+/** Explicit control-position instrument; not measured audio amplitude. */
 export function AnalogMeter({label,value}:{label:string;value:number}) {
  const level=Math.max(0,Math.min(1,value));
  return <div className="mb-meter" role="img" aria-label={`${label}: ${Math.round(level*100)} percent`}>
