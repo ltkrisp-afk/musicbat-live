@@ -21,7 +21,7 @@ async function stripe<T>(env:PlusRuntime,path:string,fields?:Record<string,strin
 function validSubscription(sub:Subscription,row:Enrollment) {
   const item=sub.items?.data?.[0];
   if(sub.livemode!==false || sub.metadata?.musicbat_plus_id!==row.id || sub.metadata?.musicbat_user_id!==row.user_id || sub.metadata?.musicbat_plus_attempt!==String(row.attempt) || sub.items?.data?.length!==1 ||
-    item?.quantity!==1 || item.price?.currency!=='usd' || item.price.unit_amount!==300 || item.price.recurring?.interval!=='month' || item.price.recurring.interval_count!==1 ||
+    item?.quantity!==1 || item.price?.currency!=='usd' || item.price.unit_amount!==500 || item.price.recurring?.interval!=='month' || item.price.recurring.interval_count!==1 ||
     !Number.isSafeInteger(item.current_period_start) || !Number.isSafeInteger(item.current_period_end) || item.current_period_end<=item.current_period_start)
     throw new Error('Radio Plus subscription verification failed.');
   if(row.subscription_id && row.subscription_id!==sub.id)throw new Error('Radio Plus subscription identity mismatch.');
@@ -52,7 +52,7 @@ export async function plusCheckout(env:PlusRuntime,request:Request,userId:string
   }
   const session=await stripe<Session>(env,'/v1/checkout/sessions',{
     mode:'subscription',success_url:origin+'/?plus=return',cancel_url:origin+'/?plus=cancelled',
-    'payment_method_types[0]':'card','line_items[0][price_data][currency]':'usd','line_items[0][price_data][unit_amount]':'300',
+    'payment_method_types[0]':'card','line_items[0][price_data][currency]':'usd','line_items[0][price_data][unit_amount]':'500',
     'line_items[0][price_data][recurring][interval]':'month','line_items[0][price_data][product_data][name]':'MusicBat Radio Plus',
     'line_items[0][quantity]':'1','metadata[musicbat_plus_id]':row.id,
     'subscription_data[metadata][musicbat_plus_id]':row.id,'subscription_data[metadata][musicbat_user_id]':userId,'subscription_data[metadata][musicbat_plus_attempt]':String(row.attempt),
@@ -102,12 +102,12 @@ export async function plusWebhook(env:PlusRuntime,request:Request) {
   if(sub.status==='active' && sub.latest_invoice) {
     invoice=await stripe<Invoice>(env,'/v1/invoices/'+encodeURIComponent(sub.latest_invoice));
     const line=invoice.lines?.data?.[0];
-    if(invoice.livemode!==false || invoice.id!==sub.latest_invoice || invoice.parent?.subscription_details?.subscription!==sub.id || invoice.status!=='paid' || invoice.currency!=='usd' || invoice.amount_paid!==300 || invoice.amount_due!==300 || invoice.paid_out_of_band===true || invoice.lines?.has_more!==false || invoice.lines.data.length!==1 || line.amount!==300 || line.currency!=='usd' || line.period.start!==item.current_period_start || line.period.end!==item.current_period_end)throw new Error('Paid subscription invoice verification failed.');
+    if(invoice.livemode!==false || invoice.id!==sub.latest_invoice || invoice.parent?.subscription_details?.subscription!==sub.id || invoice.status!=='paid' || invoice.currency!=='usd' || invoice.amount_paid!==500 || invoice.amount_due!==500 || invoice.paid_out_of_band===true || invoice.lines?.has_more!==false || invoice.lines.data.length!==1 || line.amount!==500 || line.currency!=='usd' || line.period.start!==item.current_period_start || line.period.end!==item.current_period_end)throw new Error('Paid subscription invoice verification failed.');
     paidUntil=Math.max(paidUntil,item.current_period_end*1000);
   }
   const writes=[db.prepare('INSERT OR IGNORE INTO radio_plus_events VALUES (?,?,?)').bind(event.id,event.type,Date.now()),
     db.prepare('UPDATE radio_plus_enrollments SET subscription_id=?,status=?,paid_until=?,cancel_at_period_end=?,updated_at=? WHERE id=? AND (subscription_id IS NULL OR subscription_id=?) AND NOT (status=\'canceled\' AND ?<>\'canceled\')').bind(sub.id,sub.status,paidUntil,sub.cancel_at_period_end?1:0,Date.now(),row.id,sub.id,sub.status)];
-  if(invoice)writes.push(db.prepare('INSERT OR IGNORE INTO radio_plus_invoices VALUES (?,?,?,?,?,?)').bind(invoice.id,row.id,sub.id,300,item.current_period_end*1000,Date.now()));
+  if(invoice)writes.push(db.prepare('INSERT OR IGNORE INTO radio_plus_invoices VALUES (?,?,?,?,?,?)').bind(invoice.id,row.id,sub.id,500,item.current_period_end*1000,Date.now()));
   await db.batch(writes);return {received:true};
 }
 export async function handlePlus(env:PlusRuntime,request:Request,userId:string|null) {
@@ -117,7 +117,7 @@ export async function handlePlus(env:PlusRuntime,request:Request,userId:string|n
     if(request.method!=='POST')return new Response(null,{status:405,headers});
     if(request.headers.get('origin')!==new URL(request.url).origin)return new Response(null,{status:403,headers});
     const body=await request.json() as {action?:string;recurringConsent?:boolean;confirmedPriceCents?:number};
-    if(body.action==='join' && (body.recurringConsent!==true || body.confirmedPriceCents!==300))return Response.json({error:'Confirm the $3 monthly recurring membership before checkout.'},{status:409,headers});
+    if(body.action==='join' && (body.recurringConsent!==true || body.confirmedPriceCents!==500))return Response.json({error:'Confirm the $5 monthly recurring membership before checkout.'},{status:409,headers});
     const result=body.action==='join'?await plusCheckout(env,request,userId):body.action==='cancel'?await plusCancel(env,userId):null;
     if(!result)return Response.json({error:'Choose join or cancel.'},{status:400,headers});
     return Response.json(result,{headers});
