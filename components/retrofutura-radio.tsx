@@ -1,81 +1,51 @@
 "use client";
 
-import { useState,type ReactNode } from 'react';
+import { useState,type ReactNode,type CSSProperties } from 'react';
 import { RadioPlusMembership } from './radio-plus-membership';
 import { backDial, dialChoices, exploreDial, rotateDial, type DialState } from '../lib/radio-dial';
 import type { Category } from '../lib/radio-category';
 import type { ChannelOption, ChannelSnapshot } from '../lib/shared-radio-engine';
+import {AnalogMeter} from './analog-meter';
 
-/** Server-connected presentation contract. The parent supplies server snapshots and a category-only
- * tune operation. This component never chooses tracks, rewinds media or resets a ledger. */
+/** Presentation only: tuning remains category-only and audio stays in its root provider. */
 export function RetrofuturaRadio({options,snapshot,onTune,playback}: {
- playback?:ReactNode;
- options: ChannelOption[]; snapshot: ChannelSnapshot | null;
- onTune: (category: Category | null) => Promise<void>;
+ playback?:ReactNode;options:ChannelOption[];snapshot:ChannelSnapshot|null;
+ onTune:(category:Category|null)=>Promise<void>;
 }) {
  const [dial,setDial]=useState<DialState>({parent:null,index:0});
  const [pending,setPending]=useState(false);
- const [message,setMessage]=useState('Turn to browse. Push to tune and explore.');
- const choices=dialChoices(options,dial);
- const selected=choices[dial.index%Math.max(choices.length,1)];
- const category=selected?.category ?? dial.parent;
+ const [message,setMessage]=useState('Turn to hear. Push to explore.');
+ const choices=dialChoices(options,dial),selected=choices[dial.index%Math.max(choices.length,1)],category=selected?.category??dial.parent;
  const turn=(amount:number)=>setDial(s=>rotateDial(s,amount,choices.length));
- async function tune(c:Category|null,explore:boolean) {
-  if (pending) return;
-  setPending(true);
-  try {await onTune(c);if(explore&&c&&!c.style)setDial(exploreDial(c));setMessage(c?'Shared channel tuned.':'Continuous discovery tuned.');}
-  catch(error) {setMessage(error instanceof Error?error.message:'The channel is quiet. Try again.');}
-  finally {setPending(false);}
- }
+ async function tune(c:Category|null,explore:boolean){if(pending)return;setPending(true);try{await onTune(c);if(explore&&c&&!c.style)setDial(exploreDial(c));setMessage(c?'Shared channel tuned.':'Continuous discovery tuned.');}catch(error){setMessage(error instanceof Error?error.message:'The channel is quiet. Try again.');}finally{setPending(false);}}
  const performance=snapshot?.performance;
- const fraction=performance?performance.offsetMs/(performance.endsAt-performance.startedAt):0;
- return <section aria-label="Bat Radio Retrofutura console" style={{
-  background:'repeating-linear-gradient(2deg,#21150f 0px,#21150f 3px,#35241a 5px,#1a110d 9px)',
-  padding:'clamp(8px, 2.5vw, 18px)',width:'100%',boxSizing:'border-box',minWidth:0,borderRadius:18,boxShadow:'0 12px 40px #0008',color:'#eee',maxWidth:820}}>
-  <div style={{background:'linear-gradient(120deg,#6d6f70,#babcb9 40%,#7b7f80)',padding:'clamp(10px, 3vw, 24px)',minWidth:0,boxSizing:'border-box',borderRadius:8,border:'1px solid #d6d7d4'}}>
-   <header style={{display:'flex',justifyContent:'space-between',flexWrap:'wrap',gap:8,color:'#181a19',marginBottom:20}}>
-    <span style={{fontSize:'clamp(15px, 4vw, 22px)',letterSpacing:'clamp(1px, 0.7vw, 4px)',fontWeight:300}}>MUSICBAT</span>
-    <span style={{color:'#ff3ea5',background:'#171a19',padding:'5px 12px',letterSpacing:2}}>BAT RADIO</span>
-   </header>
-    <div style={{background:'#111a15',padding:12,borderRadius:4,minWidth:0,width:'min(100%, 220px)',boxSizing:'border-box',border:'3px solid #555b57'}}>
-     <div style={{color:'#a7b3a4',fontSize:10,letterSpacing:2}}>CHANNEL POSITION</div>
-     <progress aria-label="Shared channel position" value={Math.min(1,Math.max(0,fraction))} max={1}
-      style={{width:'100%',accentColor:'#b6ff32',marginTop:14}} />
-     <div style={{color:'#ff3ea5',fontSize:12,marginTop:12}}>{snapshot?.status==='playing'?'SHARED SIGNAL':'STATION QUIET'}</div>
-     <div style={{color:'#a7b3a4',fontSize:11,marginTop:8}}>Turn to hear. Push to explore.</div>
+ const fraction=performance?Math.min(1,Math.max(0,performance.offsetMs/(performance.endsAt-performance.startedAt))):0;
+ const needle=choices.length?8+(dial.index%choices.length)/Math.max(1,choices.length-1)*84:50;
+ return <section aria-label="Bat Radio Retrofutura console" className="mb-receiver" style={{'--mb-accent':'#ff3ea5','--mb-signal':'#b6ff32'} as CSSProperties}>
+  <div className="mb-receiver-lip" aria-hidden="true" />
+  <div className="mb-receiver-face">
+   <span className="mb-screw mb-screw-tl" aria-hidden="true"/><span className="mb-screw mb-screw-tr" aria-hidden="true"/>
+   <header className="mb-brand-row"><div><div className="mb-wordmark">MusicBat<span className="mb-brand-star" aria-hidden="true">✦</span></div><p>A DISCOVERY OF SOUND</p></div><div className="mb-model">INDEPENDENT SOUND SYSTEM<br/><b>STEREO RECEIVER · MB–76</b></div></header>
+   <div className="mb-tuner-glass">
+    <div className="mb-status-instruments"><AnalogMeter label="STATION" value={snapshot?.status==='playing'?0.72:0}/><AnalogMeter label="POSITION" value={fraction}/></div>
+    <div className="mb-frequency-section"><div className="mb-scale-label"><span>BAT RADIO</span><span className="mb-live-lamp" data-active={snapshot?.status==='playing'}>{snapshot?.status==='playing'?'SHARED SIGNAL':'STANDBY'}</span></div>
+     <div className="mb-frequency-scale" aria-hidden="true"><div className="mb-scale-numbers">{['88','90','92','94','96','98','100','102','104','106','108'].map(n=><span key={n}>{n}</span>)}</div><div className="mb-scale-ticks"/><span className="mb-tuning-needle" style={{left:needle+'%'}}/><div className="mb-scale-numbers mb-secondary-scale">{['DISCOVERY','INDEPENDENT','SOUND'].map(n=><span key={n}>{n}</span>)}</div></div>
+     <div className="mb-shared-position"><span>CHANNEL POSITION</span><progress aria-label="Shared channel position" value={fraction} max={1}/></div>
     </div>
-   {playback}
-   <div style={{display:'grid',gridTemplateColumns:'repeat(3,minmax(0,1fr))',gap:'clamp(3px, 1vw, 8px)'}}>
-    {(['Genre','Subgenre','Style'] as const).map((label,i)=><div key={label} style={{
-     background:'linear-gradient(#101714,#242b28)',boxShadow:'inset 0 2px 8px #000',border:'3px solid #555b57',padding:'clamp(3px, 1.5vw, 12px)',minWidth:0,minHeight:84,boxSizing:'border-box'}}>
-     <div style={{fontSize:'clamp(8px, 2vw, 10px)',letterSpacing:'clamp(0px, 0.4vw, 2px)',color:'#959d95'}}>{label.toUpperCase()}</div>
-     <div style={{marginTop:10,color:'#b6ff32',overflowWrap:'anywhere',fontSize:'clamp(11px, 3vw, 16px)'}}>{
-      category?.[(['genre','subgenre','style'] as const)[i]] ?? '—'}</div>
-    </div>)}
+    <div className="mb-tuning-unit"><span className="mb-engraved-label">CATEGORY TUNING</span><div className="mb-knob-housing"><button type="button" className="mb-machined-knob mb-main-dial" aria-label="Push dial to tune category" disabled={pending||!selected||selected.dormant||selected.locked} onClick={()=>void tune(selected!.category,true)} onWheel={e=>{if(!pending)turn(e.deltaY>0?1:-1)}} onKeyDown={e=>{if(e.key==='ArrowRight'||e.key==='ArrowUp'){e.preventDefault();turn(1);}if(e.key==='ArrowLeft'||e.key==='ArrowDown'){e.preventDefault();turn(-1);}}} style={{'--knob-angle':`${-120+(needle/100)*240}deg`} as CSSProperties}><span className="mb-knob-indicator"/><span className="mb-knob-push">PUSH</span></button></div><div className="mb-turn-buttons"><button type="button" aria-label="Turn dial backward" disabled={pending||!choices.length} onClick={()=>turn(-1)}>−</button><span>TURN / PUSH</span><button type="button" aria-label="Turn dial forward" disabled={pending||!choices.length} onClick={()=>turn(1)}>+</button></div></div>
    </div>
-   <div style={{display:'flex',alignItems:'center',justifyContent:'space-around',flexWrap:'wrap',gap:16,marginTop:24,minWidth:0}}>
-    <div style={{textAlign:'center',color:'#17201c'}}>
-     <div style={{display:'flex',alignItems:'center',justifyContent:'center',gap:'clamp(4px, 2vw, 12px)'}}>
-      <button type="button" aria-label="Turn dial backward" disabled={pending||!choices.length} onClick={()=>turn(-1)}>−</button>
-      <button type="button" aria-label="Push dial to tune category" disabled={pending||!selected||selected.dormant||selected.locked}
-       onClick={()=>void tune(selected!.category,true)} onWheel={e=>{e.preventDefault();if(!pending)turn(e.deltaY>0?1:-1)}}
-       onKeyDown={e=>{if(e.key==='ArrowRight'||e.key==='ArrowUp'){e.preventDefault();turn(1)}if(e.key==='ArrowLeft'||e.key==='ArrowDown'){e.preventDefault();turn(-1)}}}
-       style={{width:'clamp(88px, 28vw, 112px)',height:'clamp(88px, 28vw, 112px)',flexShrink:0,borderRadius:'50%',border:'5px solid #4b514f',
-        background:'conic-gradient(#ddd,#777,#eee,#929695,#ddd)',boxShadow:'0 5px 8px #0006,inset 0 0 0 6px #a2a6a3',cursor:'pointer',color:'#171b19'}}>
-       <span style={{display:'block',color:'#ff3ea5',fontSize:27}}>│</span><span style={{fontSize:10,letterSpacing:1}}>PUSH</span>
-      </button>
-      <button type="button" aria-label="Turn dial forward" disabled={pending||!choices.length} onClick={()=>turn(1)}>+</button>
-     </div>
-     <div aria-live="polite" style={{fontSize:11,marginTop:12}}>{selected?.locked?'Radio Plus required':selected?.dormant?'Awaiting eligible artists':!choices.length?'No deeper categories':'Turn · Push · Explore'}</div>
-    </div>
+   <div className="mb-playback-strip">{playback}</div>
+   <div className="mb-control-shelf">
+    <div className="mb-tone-bank" aria-describedby="mb-tone-note">{['BASS','TREBLE','CONTOUR'].map((name,i)=><div className="mb-tone-control" key={name}><label className="mb-engraved-label">{name}</label><div className="mb-knob-calibration"><span>−10</span><span>0</span><span>+10</span></div><div className={'mb-knob-housing mb-tone-'+i}><button type="button" className="mb-machined-knob mb-tone-knob" disabled aria-label={`${name.toLowerCase()} unavailable — tone processing is not connected`}><span className="mb-knob-indicator"/></button></div></div>)}<p id="mb-tone-note" className="mb-tone-note">Tone controls not connected</p></div>
+    <fieldset className="mb-equalizer" disabled><legend className="mb-engraved-label">EQUALIZER</legend><div className="mb-equalizer-faders">{['60','250','1K','4K','12K'].map(f=><label key={f}><span>{f}</span><input type="range" min="-10" max="10" defaultValue="0" aria-label={`${f} equalizer band unavailable`}/></label>)}</div><span className="mb-tone-note">Not connected</span></fieldset>
+    <div className="mb-identity-plate"><div className="mb-mini-wordmark">MusicBat</div><span>LET THE MUSIC<br/>DO THE TALKING.</span><div className="mb-pink-indicator" aria-hidden="true"/></div>
    </div>
-   <div style={{display:'flex',gap:12,marginTop:20,flexWrap:'wrap',color:'#17201c'}}>
-    <button type="button" onClick={()=>setDial(backDial(dial))} disabled={pending||!dial.parent}>Back one level</button>
-    <button type="button" onClick={()=>void tune(null,false)} disabled={pending||!options.some(o=>o.category===null&&!o.dormant)}>Free Radio · continuous discovery</button>
-    <RadioPlusMembership />
-   </div>
-   <p role="status" style={{color:'#17201c',fontSize:12,marginBottom:0}}>{message}</p>
-
+   <div className="mb-category-windows">{(['Genre','Subgenre','Style'] as const).map((label,i)=><div className="mb-category-window" key={label}><span>{label.toUpperCase()}</span><strong>{category?.[(['genre','subgenre','style'] as const)[i]]??'—'}</strong></div>)}</div>
+   <div className="mb-source-controls"><button type="button" onClick={()=>setDial(backDial(dial))} disabled={pending||!dial.parent}>Back one level</button><button type="button" onClick={()=>void tune(null,false)} disabled={pending||!options.some(o=>o.category===null&&!o.dormant)}>Free Radio · continuous discovery</button><RadioPlusMembership/></div>
+   <div className="mb-console-footer"><p role="status">{message}</p><span>{selected?.locked?'Radio Plus required':selected?.dormant?'Awaiting eligible artists':!choices.length?'No deeper categories':'Turn · Push · Explore'}</span></div>
+   <p className="mb-meter-explanation">Meters show station activity and channel position.</p>
+   <span className="mb-screw mb-screw-bl" aria-hidden="true"/><span className="mb-screw mb-screw-br" aria-hidden="true"/>
   </div>
+  <div className="mb-receiver-foot mb-foot-left" aria-hidden="true"/><div className="mb-receiver-foot mb-foot-right" aria-hidden="true"/>
  </section>;
 }
