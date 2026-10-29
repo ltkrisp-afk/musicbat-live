@@ -7,7 +7,7 @@ import {membershipBoundRadio} from '../lib/membership-radio-boundary.ts';
 const origin='http://localhost:5173';
 const request=body=>new Request(origin+'/api/musicbat/subscription',{method:'POST',headers:{origin,'content-type':'application/json'},body:JSON.stringify(body)});
 async function setup(){const f=await fixture(),env=f.state.env;delete env.MUSICBAT_BASE_URL;const processor=plusFixture(env);return {...f,env,processor};}
-const join=env=>handlePlus(env,request({action:'join',recurringConsent:true,confirmedPriceCents:300}),'patron');
+const join=env=>handlePlus(env,request({action:'join',recurringConsent:true,confirmedPriceCents:500}),'patron');
 test('invalid modes and incomplete sandbox configuration deny enrollment before processor calls or ledger writes',async()=>{
  const f=await setup();try{
   const configured={...f.env};let calls=0;
@@ -67,7 +67,7 @@ test('forged/unsigned and mismatched evidence cannot grant access',async()=>{
   const sub=f.processor.subscriptions.get(f.processor.sessions.get(id).value.subscription),row=f.sqlite.prepare('SELECT * FROM radio_plus_enrollments').get();
   f.sqlite.prepare('UPDATE radio_plus_enrollments SET paid_until=0').run();f.processor.invoices.get(sub.latest_invoice).amount_paid=299;
   await assert.rejects(()=>f.processor.event('invoice.paid',f.processor.invoices.get(sub.latest_invoice)),/verification/);assert.equal(await plusAccess(f.env.DB,'patron'),0);
-  f.processor.invoices.get(sub.latest_invoice).amount_paid=300;sub.metadata.musicbat_user_id='stranger';await assert.rejects(()=>f.processor.event('customer.subscription.updated',sub),/verification/);assert.equal(f.sqlite.prepare('SELECT paid_until FROM radio_plus_enrollments WHERE id=?').get(row.id).paid_until,0);
+  f.processor.invoices.get(sub.latest_invoice).amount_paid=500;sub.metadata.musicbat_user_id='stranger';await assert.rejects(()=>f.processor.event('customer.subscription.updated',sub),/verification/);assert.equal(f.sqlite.prepare('SELECT paid_until FROM radio_plus_enrollments WHERE id=?').get(row.id).paid_until,0);
  }finally{f.sqlite.close();}
 });
 test('private gateway overwrites forged membership headers and storage failure denies delivery',async()=>{
