@@ -124,3 +124,40 @@ also has independently observed successful GitHub development checks:
 [push run 41119806093](https://github.com/ltkrisp-afk/musicbat-live/actions/runs/41119806093)
 and [PR run 41119827887](https://github.com/ltkrisp-afk/musicbat-live/actions/runs/41119827887).
 These results apply to that source checkpoint, not to unexecuted browser or production tests.
+
+## Owner-accepted governance closeout — October 30, 2026
+
+**Status: COMPLETE AND CLOSED.** The owner accepted the Golden Foundation and
+Fundamental Design Rule assignment at governance implementation commit
+`b9b7972760bfb421c0033c9b316afcc24c14ea0a`. This closeout records acceptance only;
+it does not reopen or revise governance, legal terms or architecture.
+
+Preserve all ten Golden Foundation principles, the Fundamental Design Rule and its
+six operational invariants. The accepted engineering baseline remains 337 passing
+tests, zero failures/skips, with successful typecheck, lint, build, agreement-integrity
+and documentation-link checks. No application code changed for this closeout, and
+those checks are retained checkpoint evidence rather than a new test run.
+
+The governance implementation's GitHub development checks were also independently
+observed completed successfully: push run
+[41120530506](https://github.com/ltkrisp-afk/musicbat-live/actions/runs/41120530506)
+and PR run
+[41120540112](https://github.com/ltkrisp-afk/musicbat-live/actions/runs/41120540112).
+This does not complete browser or hosted acceptance. Any checks on the subsequent
+closeout-only commit have their own status and must not inherit these results.
+
+Independent release gates remain: browser and hosted acceptance; unfinished checks,
+if any, on the applicable release candidate; documented historical rights-clearance
+limitations; previously delivered audio and entitlement edge cases; and external
+professional legal review managed by the owner. None reopens this completed assignment.
+
+Do not initiate further legal drafting, governance revisions, architectural
+reconsideration or business-model changes without new material evidence or explicit
+owner authorization. Preserve rights controls, financial allocations, agreements,
+entitlements and audit history. The next engineering priority is browser and hosted
+acceptance of existing functionality, followed by the established photorealistic
+1970s receiver design requirements. Unrelated authorized engineering/design does not
+require reopening legal architecture.
+
+PR #5 remains open, draft and unmerged. No production change, deployment, agreement
+activation or new pull request is authorized or performed by this closeout.
