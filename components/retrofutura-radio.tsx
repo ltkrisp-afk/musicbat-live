@@ -22,10 +22,11 @@ export function RetrofuturaRadio({options,snapshot,onTune,playback,outputSetting
  const performance=snapshot?.performance;
  const fraction=performance?Math.min(1,Math.max(0,performance.offsetMs/(performance.endsAt-performance.startedAt))):0;
  const needle=choices.length?8+(dial.index%choices.length)/Math.max(1,choices.length-1)*84:50;
- return <section aria-label="Bat Radio Retrofutura console" className="mb-receiver" style={{'--mb-accent':'#ff3ea5','--mb-signal':'#b6ff32'} as CSSProperties}>
+ return <section aria-label="Bat Radio Retrofutura console" className="mb-receiver">
   <div className="mb-receiver-lip" aria-hidden="true" />
   <div className="mb-receiver-face">
    <span className="mb-screw mb-screw-tl" aria-hidden="true"/><span className="mb-screw mb-screw-tr" aria-hidden="true"/>
+   <div className="mb-signal-fascia">
    <header className="mb-brand-row"><div><div className="mb-wordmark">MusicBat<span className="mb-brand-star" aria-hidden="true">✦</span></div><p>A DISCOVERY OF SOUND</p></div><div className="mb-model">INDEPENDENT SOUND SYSTEM<br/><b>STEREO RECEIVER · MB–76</b></div></header>
    <div className="mb-tuner-glass">
     <div className="mb-status-instruments">{outputSetting?<><AnalogMeter label="OUTPUT SETTING" value={outputSetting.muted?0:outputSetting.volume}/><span className="mb-instrument-note">Volume control position after mute · not an audio measurement</span></>:<span className="mb-instrument-note">Audio measurements unavailable</span>}</div>
@@ -35,11 +36,14 @@ export function RetrofuturaRadio({options,snapshot,onTune,playback,outputSetting
     </div>
     <div className="mb-tuning-unit"><span className="mb-engraved-label">CATEGORY TUNING</span><div className="mb-knob-housing"><button type="button" className="mb-machined-knob mb-main-dial" aria-label="Push dial to tune category" disabled={pending||!selected||selected.dormant||selected.locked} onClick={()=>void tune(selected!.category,true)} onWheel={e=>{if(!pending)turn(e.deltaY>0?1:-1)}} onKeyDown={e=>{if(e.key==='ArrowRight'||e.key==='ArrowUp'){e.preventDefault();turn(1);}if(e.key==='ArrowLeft'||e.key==='ArrowDown'){e.preventDefault();turn(-1);}}} style={{'--knob-angle':`${-120+(needle/100)*240}deg`} as CSSProperties}><span className="mb-knob-indicator"/><span className="mb-knob-push">PUSH</span></button></div><div className="mb-turn-buttons"><button type="button" aria-label="Turn dial backward" disabled={pending||!choices.length} onClick={()=>turn(-1)}>−</button><span>TURN / PUSH</span><button type="button" aria-label="Turn dial forward" disabled={pending||!choices.length} onClick={()=>turn(1)}>+</button></div></div>
    </div>
+   </div>
+   <div className="mb-control-fascia">
    <div className="mb-playback-strip">{playback}</div>
    <div className="mb-category-windows">{(['Genre','Subgenre','Style'] as const).map((label,i)=><div className="mb-category-window" key={label}><span>{label.toUpperCase()}</span><strong>{category?.[(['genre','subgenre','style'] as const)[i]]??(i===0?'All music':'—')}</strong></div>)}</div>
    <div className="mb-source-controls"><button type="button" onClick={()=>setDial(backDial(dial))} disabled={pending||!dial.parent}>Back one level</button><button type="button" onClick={()=>void tune(null,false)} disabled={pending||!options.some(o=>o.category===null&&!o.dormant)}>Free Radio · continuous discovery</button><RadioPlusMembership/></div>
    <div className="mb-console-footer"><p role="status">{message}</p><span>{selected?.locked?'Category dial · Radio Plus required':selected?.dormant?'Awaiting eligible artists':!choices.length?'No deeper categories':'Turn · Push · Explore'}</span></div>
    <p className="mb-meter-explanation">Output instrument shows the volume control setting. Bass/treble signal analysis is not connected.</p>
+   </div>
    <span className="mb-screw mb-screw-bl" aria-hidden="true"/><span className="mb-screw mb-screw-br" aria-hidden="true"/>
   </div>
   <div className="mb-receiver-foot mb-foot-left" aria-hidden="true"/><div className="mb-receiver-foot mb-foot-right" aria-hidden="true"/>

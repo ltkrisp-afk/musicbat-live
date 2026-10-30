@@ -629,7 +629,7 @@ export default function MusicBatLoop({ displayName, artistSlug, initialTab }: { 
 
   const artistContext = ['catalog','rotunda','shock'].includes(tab) || (tab==='discover' && Boolean(artistSlug) && artists.some(a=>a.slug===artistSlug&&Number(a.is_owner)===1));
   return (
-    <main className={"min-h-screen bg-[#08070b] text-[#f7f4ed]"+(tab==='radio'?' mb-radio-page':'')}>
+    <main className={tab==='radio'?'mb-radio-page min-h-screen':"min-h-screen bg-[#08070b] text-[#f7f4ed]"}>
       <div className="mx-auto max-w-[1440px] px-4 py-4 sm:px-7 sm:py-6 lg:px-10">
         <header className="mb-5 flex flex-wrap items-center justify-between gap-4 border-b border-white/10 pb-5">
           <div className="flex items-center gap-3">
@@ -663,9 +663,8 @@ export default function MusicBatLoop({ displayName, artistSlug, initialTab }: { 
           </TabsContent>
           <TabsContent value="radio">
             <section className="mb-radio-focus">
-              <div className="relative overflow-hidden rounded-[1.75rem] border border-white/10 bg-[#111018] p-6 shadow-[0_28px_90px_rgba(0,0,0,.45)] sm:p-9">
-                <div className="pointer-events-none absolute -right-24 -top-24 size-72 rounded-full bg-[#ff3ea5]/10 blur-3xl" />
-                <div className="relative">
+              <div className="mb-radio-listening-room">
+                <div className="mb-radio-session">
 
                   <RadioConsole />
                   {current ? <>

@@ -199,7 +199,8 @@ test('Retrofutura renders engine-provided hierarchy and authoritative snapshot w
   const html=renderToStaticMarkup(React.createElement(exports.RetrofuturaRadio,{options:f.engine.navigation(listener),snapshot,onTune:async()=>{}}));
   for(const text of ['Rock','GENRE','SUBGENRE','STYLE','Push dial to tune category','planned $5/month','Turn to hear. Push to explore.','SHARED SIGNAL']) assert.ok(html.includes(text),text);
   assert.ok(!html.includes('<audio'));assert.ok(!html.includes('audio_url'));
-  assert.ok(html.includes('#ff3ea5'));assert.ok(html.includes('#b6ff32'));
+  assert.ok(html.includes('mb-signal-fascia'));assert.ok(html.includes('mb-control-fascia'));
+  assert.ok(!html.includes('--mb-signal:#b6ff32'));
  }finally{f.close()}
 });
 test('deleted ledger tails and missing decision history cannot reset rolling accounting',()=>{
