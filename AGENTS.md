@@ -1,5 +1,13 @@
 # MusicBat engineering continuity
 
+Permanent architectural guidance: read
+[MusicBat Golden Foundation](docs/governance/MUSICBAT_GOLDEN_FOUNDATION.md)
+before proposing or changing MusicBat behavior. Apply its ten principles and
+record observable verification for affected behavior. Report verified conflicts
+without automatically changing approved business rules or agreements. The foundation
+does not authorize production actions. The initial alignment findings are in
+`docs/governance/golden-foundation-alignment-2026-10-30.md`.
+
 Use the existing corrected 85/15 development source. The obsolete GitHub default
 `bat-radio-shock-room` at `61fc95f` contains executable 90/10 code and must not
 be used for development, acceptance, or deployment. Continue from
@@ -15,7 +23,7 @@ checks, and remaining Phase 4 prerequisites. See
 `docs/radio-timeout-repair-2026-10-16.md` for the resolved development WebSocket
 failure and application browser verification. Run timing-sensitive browser
 checks sequentially after builds/regressions to avoid CPU contention. Preserve the existing architecture,
-artist rights, free Radio, optional $3/month Radio Plus, and 85/15 base purchase
+artist rights, free Radio, optional $5/month Radio Plus, and 85/15 base purchase
 allocation. Preserve recorded historical financial allocations and downloads.
 
 Use Node 24.19.0 and pnpm 11.25.0. If dependencies require refreshing:
