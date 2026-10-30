@@ -55,7 +55,7 @@ export function d1RadioService(db:D1Database,bucket:R2Bucket):Pick<Fetcher,'fetc
   }
   if(url.pathname==='/catalog/control'){
    if(request.method!=='POST')return new Response(null,{status:405});
-   const body=await request.json() as {trackId?:string;action?:string;reference?:string;category?:unknown};
+   const body=await request.json() as {trackId?:string;action?:string;reference?:string;category?:unknown;creationClassification?:ScheduledTrack['creationClassification']};
    if(!body.trackId||!body.reference?.trim())return new Response(null,{status:400});
    const session=primary();
    if(body.action==='withdraw'){
@@ -68,8 +68,10 @@ export function d1RadioService(db:D1Database,bucket:R2Bucket):Pick<Fetcher,'fetc
     const row=await session.prepare('SELECT track_json FROM radio_engine_catalog WHERE id=?').bind(body.trackId).first<{track_json:string}>();
     if(!row)return Response.json({changed:false});
     const track=JSON.parse(row.track_json) as ScheduledTrack;
-    if(JSON.stringify(track.category)===JSON.stringify(category))return Response.json({changed:false});
-    const next={...track,category,sourceRevision:crypto.randomUUID()};
+    if(body.creationClassification!==undefined&&body.creationClassification!==null&&!['Human','Human + AI','AI'].includes(body.creationClassification))return new Response(null,{status:400});
+    const creation=body.creationClassification===undefined?track.creationClassification:body.creationClassification;
+    if(JSON.stringify(track.category)===JSON.stringify(category)&&(track.creationClassification??null)===(creation??null))return Response.json({changed:false});
+    const next={...track,category,creationClassification:creation,sourceRevision:crypto.randomUUID()};
     await session.prepare('UPDATE radio_engine_catalog SET track_json=? WHERE id=? AND track_json=?').bind(JSON.stringify(next),body.trackId,row.track_json).run();
     // A concurrent correction also forces the caller to discard its old bytes.
     return Response.json({changed:true});

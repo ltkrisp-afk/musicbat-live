@@ -6,6 +6,7 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import ts from 'typescript';
+import {testRightsDeclaration} from './license-fixture.mjs';
 import { fixture, upload, post } from './website-fixture.mjs';
 import { plusFixture } from './radio-plus-fixture.mjs';
 import { handlePlus } from '../lib/radio-plus.ts';
@@ -73,7 +74,7 @@ export async function createAcceptance({payoutsReady=true}={}) {
   const now=Date.now(),expiry=now+86400000;
   f.state.user={userId:'local_musician'};
   for (const [index,genre] of ['Rock','Rock','Jazz'].entries()) {
-    const response=await upload(f.route,{title:'Generated acceptance '+(index+1),artistName:'Local test musician',primaryGenre:genre,subgenre:genre==='Rock'?'Punk':'',style:genre==='Rock'?'Hardcore':''});
+    const response=await upload(f.route,{rightsDeclaration:JSON.stringify({...testRightsDeclaration,creationClassification:['Human','Human + AI','AI'][index]}),title:'Generated acceptance '+(index+1),artistName:'Local test musician',primaryGenre:genre,subgenre:genre==='Rock'?'Punk':'',style:genre==='Rock'?'Hardcore':''});
     if(response.status!==201) throw new Error('Fixture upload failed: '+await response.text());
     const row=f.sqlite.prepare('SELECT * FROM tracks ORDER BY id DESC LIMIT 1').get();
     await f.route.POST(post({action:'set_sale_settings',trackId:row.id,saleEnabled:true,saleRightsAttested:true,salePriceCents:200}));
@@ -83,7 +84,7 @@ export async function createAcceptance({payoutsReady=true}={}) {
     publishCatalogRecording(runtime,row,permission,{artistIds:['generated-musician'],albumId:'generated-album',compilationIds:[],durationMs:30000,directRestrictions:null,metadataReviewed:true},{path,sha256:createHash('sha256').update(object.bytes).digest('hex'),size:object.bytes.length,mediaType:'audio/wav',lawfulCopyReference:'Generated fixture only',reviewedBy:'local acceptance',reviewedAt:now-1,durationEvidence:'PCM sample count',contractReference:'Generated fixture unrestricted',restrictionsReviewed:true});
   }
   if(payoutsReady)f.sqlite.prepare("INSERT INTO artist_accounts(artist_id,stripe_account_id,charges_enabled,payouts_enabled,details_submitted) VALUES ('local_musician','acct_test_local',1,1,1)").run();
-  for(const [id,category] of [['free',null],['rock',{genre:'Rock'}],['punk',{genre:'Rock',subgenre:'Punk'}],['hardcore',{genre:'Rock',subgenre:'Punk',style:'Hardcore'}],['jazz',{genre:'Jazz'}]]) runtime.establishChannel(id,{category,mode:category?'radio-plus':'free-radio',territory:'worldwide',minimumArtists:1,review:{reference:'Generated fixture channel only',verifiedAt:now-1,expiresAt:expiry},gate:null});
+  for(const [id,category] of [['free',null],['rock',{genre:'Rock'}],['punk',{genre:'Rock',subgenre:'Punk'}],['hardcore',{genre:'Rock',subgenre:'Punk',style:'Hardcore'}],['jazz',{genre:'Jazz'}],['ai',{genre:'AI'}]]) runtime.establishChannel(id,{category,mode:category?'radio-plus':'free-radio',territory:'worldwide',minimumArtists:1,review:{reference:'Generated fixture channel only',verifiedAt:now-1,expiresAt:expiry},gate:null});
   if(process.env.MUSICBAT_ACCOUNT_PREVIEW==='1'){const {seedAccountPreview}=await import('./account-preview-evidence.mjs');await seedAccountPreview(f);}
   // Membership now starts as Free; only verified fixture invoices unlock Plus.
   runtime.start();
@@ -93,7 +94,7 @@ export async function createAcceptance({payoutsReady=true}={}) {
     return context.run({user,session:cookie},async()=>{
       if(request.headers.get('origin') && request.headers.get('origin')!==url.origin) return new Response(null,{status:403});
       if(request.headers.get('sec-fetch-site')==='cross-site')return new Response(null,{status:403});
-      if(path==='/__local/account-mobile')return new Response('<!doctype html><html><body style="margin:0;background:#111310;color:#d9ceb5;font-family:Arial"><p style="text-align:center">MusicBat · generated offline account fixture · 390px mobile viewport</p><iframe title="Mobile MusicBat account" src="/account" width="390" height="1250" style="display:block;margin:auto;border:1px solid #6d715d"></iframe></body></html>',{headers:{'content-type':'text/html; charset=utf-8','cache-control':'no-store'}});
+      if(path==='/__local/account-mobile')return new Response('<!doctype html><html><body style="margin:0;background:#111310;color:#d9ceb5;font-family:Arial"><p style="text-align:center">MusicBat · generated offline account fixture · 390px mobile viewport</p><iframe title="Mobile MusicBat account" src="' +(url.searchParams.get('screen')==='radio'?'/?view=radio':'/account')+'" width="390" height="900" style="display:block;margin:auto;border:1px solid #6d715d"></iframe></body></html>',{headers:{'content-type':'text/html; charset=utf-8','cache-control':'no-store'}});
       if(path==='/signin-with-chatgpt' || path==='/__local')return new Response('<h1>MusicBat offline acceptance</h1><p>Generated test audio. No real payments. Storage resets on restart.</p><form method="post" action="/__local/login"><button name="role" value="musician">Musician</button> <button name="role" value="patron">Patron</button></form>',{headers:{'content-type':'text/html; charset=utf-8','cache-control':'no-store'}});
       if(path==='/__local/login' && request.method==='POST') {
         const role=(await request.formData()).get('role');if(!['musician','patron'].includes(role))return new Response(null,{status:400});
@@ -147,7 +148,7 @@ export async function createAcceptance({payoutsReady=true}={}) {
           if(action!=='pay')return new Response(null,{status:400});
           return new Response(null,{status:303,headers:{location:await plus.pay(id)}});
         }
-        return new Response('<h1>Radio Plus offline subscription simulation</h1><p>$3/month recurring membership. No real money is collected. Cancellation stops renewal; access lasts through the paid period.</p><form method="post"><button name="action" value="pay">Simulate successful subscription payment</button> <button name="action" value="cancel">Cancel checkout</button></form>',{headers:{'content-type':'text/html; charset=utf-8','cache-control':'no-store'}});
+        return new Response('<h1>Radio Plus offline subscription simulation</h1><p>$5/month recurring membership. No real money is collected. Cancellation stops renewal; access lasts through the paid period.</p><form method="post"><button name="action" value="pay">Simulate successful subscription payment</button> <button name="action" value="cancel">Cancel checkout</button></form>',{headers:{'content-type':'text/html; charset=utf-8','cache-control':'no-store'}});
       }
       if(path==='/__local/plus-control') {
         if(!user)return new Response(null,{status:401});

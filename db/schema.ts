@@ -2,6 +2,7 @@ import { sql } from "drizzle-orm";
 import { index, integer, real, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
 
 export const tracks = sqliteTable("tracks", {
+  creationClassification: text("creation_classification", { enum: ["Human", "Human + AI", "AI"] }),
   id: integer("id").primaryKey({ autoIncrement: true }),
   artistId: text("artist_id").notNull(),
   artistName: text("artist_name").notNull(),

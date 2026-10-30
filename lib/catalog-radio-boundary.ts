@@ -1,3 +1,4 @@
+import {matchesRadioCategory} from './radio-category';
 import {recordObservedDelivery,type ObservationMode} from './listening-observation';
 import {recordAudioDelivery} from './streaming-evidence';
 import {authorizeChannelUse} from './recording-use';
@@ -17,7 +18,7 @@ export function catalogBoundRadio(service: Pick<Fetcher,'fetch'> | undefined, db
       const id = data.snapshot.performance?.trackId;
       if (!id) return !audio;
       if (audio && (url.searchParams.get('channel')!==data.snapshot.channelId || url.searchParams.get('sequence')!==data.snapshot.performance!.authorityId)) return false;
-      const row = await db.prepare('SELECT t.*, p.recording_basis,p.recording_evidence,p.composition_evidence,p.reviewed_by,p.reviewed_at,p.artist_authorized,p.free_allowed,p.plus_allowed,p.starts_at,p.expires_at,p.withdrawn_at,p.territory FROM tracks t LEFT JOIN playback_permissions p ON p.track_id=t.id WHERE t.id=?').bind(id).first<Permission & {status:string;radio_enabled:number;primary_genre:string;subgenre:string|null;style:string|null}>();
+      const row = await db.prepare('SELECT t.*, p.recording_basis,p.recording_evidence,p.composition_evidence,p.reviewed_by,p.reviewed_at,p.artist_authorized,p.free_allowed,p.plus_allowed,p.starts_at,p.expires_at,p.withdrawn_at,p.territory FROM tracks t LEFT JOIN playback_permissions p ON p.track_id=t.id WHERE t.id=?').bind(id).first<Permission & {status:string;radio_enabled:number;primary_genre:string;subgenre:string|null;style:string|null;creation_classification?:'Human'|'Human + AI'|'AI'|null}>();
       const category=data.snapshot.category;
       const cleared=await authorizeChannelUse(db,Number(id),!!category,request.headers.get('x-musicbat-territory') ?? 'unknown');
       const allowed=cleared.allowed && !!row && row.status==='active' && row.radio_enabled===1 && authorizePlayback(row,category?'radio-plus':'free-radio',Date.now(),request.headers.get('x-musicbat-territory') ?? 'unknown').allowed;
@@ -27,10 +28,10 @@ export function catalogBoundRadio(service: Pick<Fetcher,'fetch'> | undefined, db
         await service!.fetch(new Request(new URL('/catalog/control',url),{method:'POST',headers:request.headers,body:JSON.stringify({trackId:id,action:'withdraw',reference:'catalog-authority-recheck'})})).catch(()=>undefined);
       }
       if (allowed && row) {
-        const synced=await service!.fetch(new Request(new URL('/catalog/control',url),{method:'POST',headers:request.headers,body:JSON.stringify({trackId:id,action:'classify',reference:'catalog-classification-recheck',category:{genre:row.primary_genre,...(row.subgenre?{subgenre:row.subgenre}:{}),...(row.style?{style:row.style}:{})}})}));
+        const synced=await service!.fetch(new Request(new URL('/catalog/control',url),{method:'POST',headers:request.headers,body:JSON.stringify({trackId:id,action:'classify',reference:'catalog-classification-recheck',creationClassification:row.creation_classification??null,category:{genre:row.primary_genre,...(row.subgenre?{subgenre:row.subgenre}:{}),...(row.style?{style:row.style}:{})}})}));
         if (!synced.ok || (await synced.json() as {changed?:boolean}).changed) return false;
       }
-      return allowed && (!category || (!!row && category.genre===row.primary_genre && (!category.subgenre || category.subgenre===row.subgenre) && (!category.style || category.style===row.style)));
+      return allowed && (!category || (!!row && matchesRadioCategory({category:{genre:row.primary_genre,subgenre:row.subgenre??undefined,style:row.style??undefined},creationClassification:row.creation_classification} as Parameters<typeof matchesRadioCategory>[0],category)));
     }
     if (audio && !await check(await service.fetch(snapshotRequest))) return new Response(null,{status:403});
     // R2 is the authoritative private audio store when bound. Never fall back

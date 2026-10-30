@@ -17,6 +17,7 @@ type ActionBody = {
   audioUrl?: string;
   rightsAttested?: boolean;
   trackId?: number;
+  creationClassification?: string;
   listenId?: string;
   performanceKey?: string;
   kind?: string;
@@ -163,10 +164,10 @@ async function cloudflareRadioService() {
 /** Consent is committed first. A failed sidecar sync never undoes withdrawal;
  * the channel gateway independently checks this catalog on every delivery. */
 async function syncArtistRadio(id: number) {
-  const row=await database().prepare('SELECT status,radio_enabled,primary_genre,subgenre,style FROM tracks WHERE id=?').bind(id).first<{status:string;radio_enabled:number;primary_genre:string;subgenre:string|null;style:string|null}>();
+  const row=await database().prepare('SELECT status,radio_enabled,primary_genre,subgenre,style,creation_classification FROM tracks WHERE id=?').bind(id).first<{status:string;radio_enabled:number;primary_genre:string;subgenre:string|null;style:string|null;creation_classification:string|null}>();
   if (!row) return false;
   const body=JSON.stringify({trackId:String(id),reference:'authenticated-artist-catalog',
-    action:row.status==='active' && row.radio_enabled===1?'classify':'withdraw',
+    action:row.status==='active' && row.radio_enabled===1?'classify':'withdraw',creationClassification:row.creation_classification,
     category:{genre:row.primary_genre,...(row.subgenre?{subgenre:row.subgenre}:{}),...(row.style?{style:row.style}:{})}});
   try {
     const service=env.RADIO_SERVICE ?? await cloudflareRadioService();
@@ -247,7 +248,7 @@ export async function GET(request: Request) {
       const user=await requireUser();
       const after=Number(url.searchParams.get('after') ?? 0);
       if(!Number.isSafeInteger(after) || after<0)return fail('Choose a valid catalog cursor.');
-      const rows=await db.prepare(`SELECT t.id,t.artist_name,t.title,t.primary_genre,t.subgenre,t.style,t.status,t.radio_enabled,t.sale_enabled,t.compilation_allowed,t.licensing_allowed,t.recording_metadata,t.technical_metadata FROM tracks t WHERE t.id>? AND (t.artist_id=? OR EXISTS(SELECT 1 FROM track_authority a WHERE a.track_id=t.id AND a.account_id=? AND a.revoked_at IS NULL)) ORDER BY t.id LIMIT 100`).bind(after,user.userId,user.userId).all();
+      const rows=await db.prepare(`SELECT t.id,t.artist_name,t.title,t.primary_genre,t.subgenre,t.style,t.status,t.radio_enabled,t.sale_enabled,t.compilation_allowed,t.licensing_allowed,t.recording_metadata,t.technical_metadata,t.creation_classification FROM tracks t WHERE t.id>? AND (t.artist_id=? OR EXISTS(SELECT 1 FROM track_authority a WHERE a.track_id=t.id AND a.account_id=? AND a.revoked_at IS NULL)) ORDER BY t.id LIMIT 100`).bind(after,user.userId,user.userId).all();
       return Response.json({schema:'musicbat.catalog.v1',tracks:rows.results.map(row=>({...row,recording_metadata:JSON.parse(String(row.recording_metadata)),technical_metadata:JSON.parse(String(row.technical_metadata))})),nextAfter:rows.results.length===100?rows.results[99].id:null},{headers:{'cache-control':'private, no-store'}});
     }
 
@@ -268,7 +269,8 @@ export async function GET(request: Request) {
       await Promise.all(rows.results.map(async row => {
         if (row.radio_status==='rights reviewed; runtime registration required' && await registeredRadioTrack(Number(row.id),{genre:String(row.primary_genre),...(row.subgenre?{subgenre:String(row.subgenre)}:{}),...(row.style?{style:String(row.style)}:{})})) row.radio_status='registered in Radio pool';
       }));
-      return Response.json({tracks:rows.results, profile, accountId:user.userId}, {headers:{'cache-control':'private, no-store'}});
+      const history=await db.prepare(`SELECT a.track_id,a.action,a.detail,a.created_at FROM artist_track_audit a JOIN tracks t ON t.id=a.track_id WHERE a.action IN ('upload','set_creation_classification') AND (t.artist_id=? OR EXISTS(SELECT 1 FROM track_authority r WHERE r.track_id=t.id AND r.account_id=? AND r.revoked_at IS NULL)) ORDER BY a.created_at DESC`).bind(user.userId,user.userId).all();
+      return Response.json({tracks:rows.results, creationHistory:history.results, profile, accountId:user.userId}, {headers:{'cache-control':'private, no-store'}});
     }
 
     if (view === 'artists') {
@@ -401,6 +403,7 @@ export async function POST(request: Request) {
       let rights;
       try { rights = parseRightsDeclaration(JSON.parse(String(form.get("rightsDeclaration") ?? 'null'))); }
       catch (error) { return fail(error instanceof Error ? error.message : 'Complete the artist rights declarations.', 422); }
+      if (!rights.declaration.creationClassification) return fail('Declare Human, Human + AI, or AI for this recording.',422);
       if (!energyLanes.has(energyLane)) return fail("Choose a valid Radio energy lane.");
       if (!primaryGenres.has(primaryGenre)) return fail("Choose a valid primary genre.");
       if (style.length > 80 || (style && !rawSubgenre)) return fail("Style requires a subgenre and must be 80 characters or fewer.");
@@ -435,9 +438,9 @@ export async function POST(request: Request) {
         const now=Date.now();
         const acceptanceId=crypto.randomUUID();
         const result=await db.batch([
-          db.prepare(`INSERT INTO tracks (artist_id,artist_name,title,audio_url,rights_attested,energy_lane,primary_genre,subgenre,mood_tags,sale_enabled,sale_rights_attested,sale_price_cents,sale_currency,status,style,recording_metadata,technical_metadata,radio_enabled)
-            VALUES (?,?,?,?,1,?,?,?,?,?,?,?,'usd','active',?,?,?,?) RETURNING *`)
-            .bind(user.userId,artistName,title,audioUrl,energyLane,primaryGenre,subgenre,JSON.stringify(moodTags),saleEnabled && !rights.reviewRequired && !finalVersion?1:0,saleEnabled?1:0,saleEnabled?salePriceCents:null,style||null,JSON.stringify(metadata),JSON.stringify({...extracted.technical,embedded:extracted.tags}),rights.reviewRequired || finalVersion?0:1),
+          db.prepare(`INSERT INTO tracks (artist_id,artist_name,title,audio_url,rights_attested,energy_lane,primary_genre,subgenre,mood_tags,sale_enabled,sale_rights_attested,sale_price_cents,sale_currency,status,style,recording_metadata,technical_metadata,radio_enabled,creation_classification)
+            VALUES (?,?,?,?,1,?,?,?,?,?,?,?,'usd','active',?,?,?,?,?) RETURNING *`)
+            .bind(user.userId,artistName,title,audioUrl,energyLane,primaryGenre,subgenre,JSON.stringify(moodTags),saleEnabled && !rights.reviewRequired && !finalVersion?1:0,saleEnabled?1:0,saleEnabled?salePriceCents:null,style||null,JSON.stringify(metadata),JSON.stringify({...extracted.technical,embedded:extracted.tags}),rights.reviewRequired || finalVersion?0:1,rights.declaration.creationClassification),
           // Same D1 transaction as the track. Recheck the active version at commit time.
           // A missing/changed agreement produces NULL and aborts the entire batch.
           db.prepare(`INSERT INTO artist_license_acceptances
@@ -453,7 +456,7 @@ export async function POST(request: Request) {
             .bind(acceptanceId,reviewReceiptId,agreement.sha256,reviewedAt,rights.declaration.legalName,rights.declaration.capacity,JSON.stringify({completedSchedules,declaration:rights.declaration,requestedUses:{download:saleEnabled},version:agreement.version}))] : []),
           db.prepare('INSERT INTO artist_profiles VALUES (?,?,?,?) ON CONFLICT(account_id) DO UPDATE SET artist_name=excluded.artist_name,updated_at=excluded.updated_at').bind(user.userId,artistName,now,now),
           db.prepare("INSERT OR IGNORE INTO artist_pages VALUES (?,'artist-' || lower(hex(?)))").bind(user.userId,user.userId),
-          db.prepare('INSERT INTO artist_track_audit SELECT ?,id,?,?,?,? FROM tracks WHERE audio_url=? AND artist_id=?').bind(crypto.randomUUID(),user.userId,'upload',JSON.stringify({artistName,primaryGenre,subgenre,style,rightsAttested:true,saleEnabled}),now,audioUrl,user.userId),
+          db.prepare('INSERT INTO artist_track_audit SELECT ?,id,?,?,?,? FROM tracks WHERE audio_url=? AND artist_id=?').bind(crypto.randomUUID(),user.userId,'upload',JSON.stringify({artistName,primaryGenre,subgenre,style,rightsAttested:true,saleEnabled,creationClassification:rights.declaration.creationClassification}),now,audioUrl,user.userId),
         ]);
         track=result[0].results[0];
         if (!track) throw new Error('Track registration failed');
@@ -484,7 +487,7 @@ export async function POST(request: Request) {
       await db.prepare("INSERT OR IGNORE INTO artist_pages VALUES (?,'artist-' || lower(hex(?)))").bind(user.userId,user.userId).run();
       return Response.json({saved:true});
     }
-    if (['set_recording_metadata','set_catalog_permission','edit_metadata','set_radio','withdraw_track','delete_track','grant_representative','revoke_representative'].includes(body.action ?? '')) {
+    if (['set_creation_classification','set_recording_metadata','set_catalog_permission','edit_metadata','set_radio','withdraw_track','delete_track','grant_representative','revoke_representative'].includes(body.action ?? '')) {
       const id = Number(body.trackId);
       if (!Number.isSafeInteger(id) || id < 1) return fail('A valid track is required.');
       const track = await db.prepare(`SELECT t.* FROM tracks t WHERE t.id=? AND (t.artist_id=? OR EXISTS(SELECT 1 FROM track_authority a WHERE a.track_id=t.id AND a.account_id=? AND a.revoked_at IS NULL))`).bind(id,user.userId,user.userId).first<{id:number;artist_id:string;status:string}>();
@@ -501,7 +504,10 @@ export async function POST(request: Request) {
           : db.prepare('UPDATE track_authority SET revoked_at=? WHERE track_id=? AND account_id=?').bind(now,id,body.representativeId));
       } else {
         if (track.status === 'deleted' && body.action !== 'delete_track') return fail('Deleted tracks cannot be changed.',409);
-        if (body.action === 'set_recording_metadata') {
+        if (body.action === 'set_creation_classification') {
+          if (!['Human','Human + AI','AI'].includes(body.creationClassification ?? '')) return fail('Choose Human, Human + AI, or AI.',422);
+          statements.push(db.prepare("UPDATE tracks SET creation_classification=? WHERE id=? AND status!='deleted' AND (artist_id=? OR EXISTS(SELECT 1 FROM track_authority a WHERE a.track_id=tracks.id AND a.account_id=? AND a.revoked_at IS NULL))").bind(body.creationClassification,id,user.userId,user.userId));
+        } else if (body.action === 'set_recording_metadata') {
           const metadata=recordingMetadata(body.metadata);
           statements.push(db.prepare("UPDATE tracks SET recording_metadata=? WHERE id=? AND status!='deleted' AND (artist_id=? OR EXISTS(SELECT 1 FROM track_authority a WHERE a.track_id=tracks.id AND a.account_id=? AND a.revoked_at IS NULL))").bind(JSON.stringify(metadata),id,user.userId,user.userId));
         } else if (body.action === 'set_catalog_permission') {

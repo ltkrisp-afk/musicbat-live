@@ -194,12 +194,14 @@ export class RadioRuntime {
     } catch (error) { this.db.exec('ROLLBACK'); throw error; }
     this.tick();
   }
-  classify(id: string, category: unknown) {
+  classify(id: string, category: unknown, creationClassification?: ScheduledTrack['creationClassification']) {
     const parsed=parseCategoryCommand(category), source=this.source(id);
     if (!parsed) throw new Error('invalid-classification');
     if (!source || source.status!=='active') return false;
-    if (JSON.stringify(source.track.category)===JSON.stringify(parsed)) return false;
-    const track={...source.track,category:parsed,sourceRevision:createHash('sha256').update(source.asset.sha256+JSON.stringify(parsed)).digest('hex')};
+    if (creationClassification !== undefined && creationClassification !== null && !['Human','Human + AI','AI'].includes(creationClassification)) throw new Error('invalid-creation-classification');
+    const creation=creationClassification===undefined?source.track.creationClassification:creationClassification;
+    if (JSON.stringify(source.track.category)===JSON.stringify(parsed) && (source.track.creationClassification??null)===(creation??null)) return false;
+    const track={...source.track,category:parsed,creationClassification:creation,sourceRevision:createHash('sha256').update(source.asset.sha256+JSON.stringify(parsed)+String(creation)).digest('hex')};
     this.db.exec('BEGIN IMMEDIATE');
     try {
       this.db.prepare('UPDATE radio_sources SET track_json=?,updated_at=? WHERE id=?').run(JSON.stringify(track),this.clock(),id);
@@ -251,9 +253,9 @@ export class RadioRuntime {
       const presented=Buffer.from(request.headers.get('authorization')?.replace(/^Bearer /,'') ?? '');
       if (presented.length!==this.token.length || !timingSafeEqual(presented,this.token)) return new Response(null,{status:401});
       if (request.method!=='POST') return new Response(null,{status:405});
-      const body=await request.json() as {trackId?:string;action?:string;reference?:string;category?:unknown};
+      const body=await request.json() as {trackId?:string;action?:string;reference?:string;category?:unknown;creationClassification?:ScheduledTrack['creationClassification']};
       if (!body.trackId || !body.reference?.trim()) return new Response(null,{status:400});
-      if (body.action==='classify') return Response.json({changed:this.classify(body.trackId,body.category)});
+      if (body.action==='classify') return Response.json({changed:this.classify(body.trackId,body.category,body.creationClassification)});
       if (body.action!=='withdraw') return new Response(null,{status:400});
       this.withdraw(body.trackId,body.reference);
       return Response.json({withdrawn:true});

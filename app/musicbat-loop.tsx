@@ -5,7 +5,7 @@ import {SaveRecordingButton} from "../components/save-recording-button";
 
 import { ArtistRightsDeclarations } from "../components/artist-rights-declarations";
 import { FormEvent, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
-import { Activity, Disc3, Gauge, Radio, ShieldCheck, Sparkles, Upload } from "lucide-react";
+import { Activity, Disc3, Gauge, Radio, ShieldCheck, Upload } from "lucide-react";
 import { ArtistDiscovery, type Artist } from "@/components/artist-discovery";
 import { ArtistRotunda } from "@/components/artist-rotunda";
 import {RadioConsole,usePersistentRadio,useRadioCallbacks} from "@/components/persistent-radio";
@@ -473,7 +473,7 @@ export default function MusicBatLoop({ displayName, artistSlug, initialTab }: { 
       const metadata:Record<string,unknown>={};
       for(const key of ['album','isrc','iswc']) {const value=String(fields.get(key) ?? '').trim();if(value)metadata[key]=value;}
       form.set('metadata',JSON.stringify(metadata));
-      const declaration=Object.fromEntries(['version','legalName','capacity','rightsBasis','masterOwners','compositionOwners','proStatus','proDetails','ipiCae','restrictions','evidenceReference','paymentAuthority'].map(key=>[key,String(fields.get('rights_'+key) ?? '')]));
+      const declaration=Object.fromEntries(['creationClassification','version','legalName','capacity','rightsBasis','masterOwners','compositionOwners','proStatus','proDetails','ipiCae','restrictions','evidenceReference','paymentAuthority'].map(key=>[key,String(fields.get('rights_'+key) ?? '')]));
       form.set('rightsDeclaration',JSON.stringify(declaration));
       form.set("title", title);
       form.set("artistName", artistName);
@@ -629,7 +629,7 @@ export default function MusicBatLoop({ displayName, artistSlug, initialTab }: { 
 
   const artistContext = ['catalog','rotunda','shock'].includes(tab) || (tab==='discover' && Boolean(artistSlug) && artists.some(a=>a.slug===artistSlug&&Number(a.is_owner)===1));
   return (
-    <main className="min-h-screen bg-[#08070b] text-[#f7f4ed]">
+    <main className={"min-h-screen bg-[#08070b] text-[#f7f4ed]"+(tab==='radio'?' mb-radio-page':'')}>
       <div className="mx-auto max-w-[1440px] px-4 py-4 sm:px-7 sm:py-6 lg:px-10">
         <header className="mb-5 flex flex-wrap items-center justify-between gap-4 border-b border-white/10 pb-5">
           <div className="flex items-center gap-3">
@@ -641,21 +641,17 @@ export default function MusicBatLoop({ displayName, artistSlug, initialTab }: { 
           <div className="text-right"><Link href="/account" className="text-sm underline">My Account</Link><div className="text-sm font-semibold text-white/90">{artistContext && artistIdentity ? artistIdentity : displayName}</div><div className="text-xs text-white/45">{artistContext ? canManage ? 'Artist account' : 'Artist setup' : loopStatus}</div></div>
         </header>
 
-        <div className="mb-5 grid grid-cols-4 overflow-hidden rounded-xl border border-white/10 bg-white/[0.025] text-center text-[0.68rem] font-black uppercase tracking-[0.12em] text-white/45">
-          {["Catalog", "Radio", "Response", "Shock Room"].map((step, index) => <div key={step} className="border-r border-white/10 px-2 py-3 last:border-0"><span className="mr-1 text-[#ff69bd]">0{index + 1}</span> {step}</div>)}
-        </div>
-
         <Tabs value={tab} onValueChange={setTab} className="gap-5">
           <TabsList className="h-auto w-full flex-wrap justify-start gap-1 rounded-xl border border-white/10 bg-white/[0.035] p-1.5 sm:w-fit">
             <TabsTrigger value="radio" className="h-10 rounded-lg px-4 text-white/55 data-[state=active]:bg-[#ff3ea5] data-[state=active]:text-white"><Radio /> Radio</TabsTrigger>
             <TabsTrigger value="discover" className="h-10 rounded-lg px-4 text-white/55 data-[state=active]:bg-[#ff3ea5] data-[state=active]:text-white"><Disc3 /> Discover Artists</TabsTrigger>
-            <TabsTrigger value="catalog" className="h-10 rounded-lg px-4 text-white/55 data-[state=active]:bg-[#ff3ea5] data-[state=active]:text-white"><Disc3 /> Add Track</TabsTrigger>
-            {canManage && <TabsTrigger value="shock" className="h-10 rounded-lg px-4 text-white/55 data-[state=active]:bg-[#ff3ea5] data-[state=active]:text-white"><Gauge /> Shock Room</TabsTrigger>}
-          {canManage && <TabsTrigger value="rotunda" className="h-10 rounded-lg px-4 text-white/55 data-[state=active]:bg-[#ff3ea5] data-[state=active]:text-white">Manage Songs</TabsTrigger>}</TabsList>
+            {tab!=='radio'&&<TabsTrigger value="catalog" className="h-10 rounded-lg px-4 text-white/55 data-[state=active]:bg-[#ff3ea5] data-[state=active]:text-white"><Disc3 /> Add Track</TabsTrigger>}
+            {canManage && tab!=='radio' && <TabsTrigger value="shock" className="h-10 rounded-lg px-4 text-white/55 data-[state=active]:bg-[#ff3ea5] data-[state=active]:text-white"><Gauge /> Shock Room</TabsTrigger>}
+          {canManage && tab!=='radio' && <TabsTrigger value="rotunda" className="h-10 rounded-lg px-4 text-white/55 data-[state=active]:bg-[#ff3ea5] data-[state=active]:text-white">Manage Songs</TabsTrigger>}</TabsList>
 
-          <details className="mt-3 text-sm"><summary className="cursor-pointer" onClick={() => void api<{purchases:{id:string;title:string;status:string}[]}>("/api/musicbat/purchase").then(data=>setOwnedPurchases(data.purchases)).catch(()=>setPurchaseMessage("Sign in to access purchased music."))}>My purchased music</summary>
+          {tab!=='radio'&&<details className="mt-3 text-sm"><summary className="cursor-pointer" onClick={() => void api<{purchases:{id:string;title:string;status:string}[]}>("/api/musicbat/purchase").then(data=>setOwnedPurchases(data.purchases)).catch(()=>setPurchaseMessage("Sign in to access purchased music."))}>My purchased music</summary>
             {ownedPurchases.filter(p=>p.status==='paid').map(p=><p key={p.id}><a className="underline" href={`/api/musicbat/purchase/${p.id}/download`}>{p.title} — Download</a></p>)}
-          </details>
+          </details>}
           {legacyOrder && <Button onClick={() => void api<{downloadUrl:string}>("/api/musicbat/purchase",{method:"POST",body:JSON.stringify({action:"recover_legacy_purchase",purchaseId:legacyOrder})}).then(data=>{setPurchaseDownloadUrl(data.downloadUrl);setLegacyOrder(null);setPurchaseMessage("Purchase recovered to your signed-in account.");}).catch(error=>setPurchaseMessage(error.message))}>Recover this purchase to my account</Button>}
           {purchaseMessage && <p role="status" aria-live="polite" className="mt-3 text-sm leading-relaxed text-white/65">{purchaseMessage}{purchaseDownloadUrl && <> <a className="font-black text-[#ff69bd] underline" href={purchaseDownloadUrl}>Download track</a></>}</p>}
           <TabsContent value="discover">
@@ -666,14 +662,14 @@ export default function MusicBatLoop({ displayName, artistSlug, initialTab }: { 
               onRadio={()=>{openRadio();setTab('radio');}} message={message} />
           </TabsContent>
           <TabsContent value="radio">
-            <section className="grid gap-5 lg:grid-cols-[minmax(0,1.55fr)_minmax(310px,.65fr)]">
+            <section className="mb-radio-focus">
               <div className="relative overflow-hidden rounded-[1.75rem] border border-white/10 bg-[#111018] p-6 shadow-[0_28px_90px_rgba(0,0,0,.45)] sm:p-9">
                 <div className="pointer-events-none absolute -right-24 -top-24 size-72 rounded-full bg-[#ff3ea5]/10 blur-3xl" />
                 <div className="relative">
-                  <div className="mb-10 flex items-center justify-between gap-4"><div className="flex items-center gap-2 text-xs font-black uppercase tracking-[0.18em] text-[#ff69bd]"><span className="size-2 rounded-full bg-[#ff3ea5] shadow-[0_0_14px_#ff3ea5]" /> Now in the cave</div><div className="rounded-full border border-white/10 px-3 py-1 text-xs text-white/45">{sharedTrackId ? "Shared channel" : "Quiet"}</div></div>
+
                   <RadioConsole />
                   {current ? <>
-                    <div className="mb-8 min-h-36"><div className="mb-3 text-sm uppercase tracking-[0.16em] text-white/38">Independent signal · {current.primary_genre} / {energyCategory(current.energy_lane)}</div><h1 className="max-w-4xl text-4xl font-black leading-[0.98] tracking-[-0.045em] sm:text-6xl lg:text-7xl">{current.title}</h1><p className="mt-4 text-lg font-semibold text-white/58">{current.artist_name}</p></div>
+                    <div className="mb-8 min-h-36"><div className="mb-3 text-sm uppercase tracking-[0.16em] text-white/38">Independent signal · {current.primary_genre} / {energyCategory(current.energy_lane)}</div><h1 className="mb-now-playing-title">{current.title}</h1><p className="mt-4 text-lg font-semibold text-white/58">{current.artist_name}</p></div>
                     <div className="flex flex-wrap items-center gap-3">
                       <Button type="button" disabled={purchaseBusy} aria-busy={purchaseBusy} onClick={() => void buyCurrentTrack()} aria-label={`Buy ${current.title}`} data-track-id={current.id} className="h-12 shrink-0 rounded-full border border-[#ff3ea5]/50 bg-[#ff3ea5]/20 px-6 text-base font-black text-white disabled:opacity-60">{current.sale_enabled && current.sale_price_cents ? `Buy $${(current.sale_price_cents / 100).toFixed(2)}` : "Buy"}</Button>
                       <SaveRecordingButton key={current.id} trackId={current.id} initialSaved={Boolean(current.viewer_saved)}/>
@@ -689,10 +685,7 @@ export default function MusicBatLoop({ displayName, artistSlug, initialTab }: { 
                   </> : <div className="grid min-h-[390px] place-items-center text-center"><div><Disc3 className="mx-auto mb-5 size-12 text-[#ff69bd]" /><h1 className="text-3xl font-black tracking-tight">{tracks.length ? "This category is quiet." : "Radio needs its first track."}</h1><p className="mx-auto mt-3 max-w-md text-white/52">{tracks.length ? "Use the shared Radio category controls or review the catalog." : "Upload your music file, classify it, and confirm your rights to enter Radio."}</p><Button onClick={() => setTab(tracks.length ? "discover" : "catalog")} className="mt-6 rounded-full bg-[#ff3ea5] px-6 text-white hover:bg-[#ff69bd]">{tracks.length ? "Open catalog" : "Add the first track"}</Button></div></div>}
                 </div>
               </div>
-              <aside className="flex flex-col gap-5">
-                <div className="rounded-[1.5rem] border border-white/10 bg-white/[0.035] p-6"><div className="mb-5 flex items-center gap-2 text-xs font-black uppercase tracking-[0.16em] text-white/45"><Sparkles className="size-4 text-[#ff69bd]" /> Signal status</div><p className="text-lg font-semibold leading-snug">{loading ? "Loading the loop…" : message}</p>{message === "Sign in to use MusicBat." && <a href="/signin-with-chatgpt?return_to=%2F" className="mt-3 inline-block font-bold text-[#ff69bd] underline">Sign in to keep songs in rotation</a>}<div className="mt-6 h-1.5 overflow-hidden rounded-full bg-white/10"><div className={`h-full rounded-full bg-[#ff3ea5] transition-all ${canRespond ? "w-full" : listenId ? "w-2/3" : tracks.length ? "w-1/3" : "w-0"}`} /></div></div>
-                {Boolean(current?.can_manage) && <div className="rounded-[1.5rem] border border-white/10 bg-[#15121b] p-6"><div className="text-xs font-black uppercase tracking-[0.16em] text-[#ff69bd]">Category signal</div><div className="mt-3 text-2xl font-black">Shock Score {current?.shock_score ?? 0}</div><div className="mt-2 text-sm text-white/50">▲ {current?.up_count ?? 0} · ▼ {current?.down_count ?? 0} · Keeps {current?.keep_count ?? 0}</div><div className="mt-1 text-xs text-white/38">Completions {current?.completion_count ?? 0} · Repeat listens {current?.repeat_count ?? 0} · Purchases {current?.purchase_count ?? 0}</div><div className="mt-2 text-sm text-white/50">Position: #{current?.position ?? "—"} — {current?.primary_genre ?? "—"} / {current ? energyCategory(current.energy_lane) : "—"}</div></div>}
-              </aside>
+              <p className="mb-radio-status" role="status">{loading?'Connecting to Radio…':message}</p>
             </section>
           </TabsContent>
 
