@@ -70,7 +70,7 @@ export async function createAcceptance({payoutsReady=true}={}) {
     return Response.json(entry.session);
   }
   const routes = new Map();
-  for(const [url,path] of [['/api/musicbat','app/api/musicbat/route.ts'],['/api/musicbat/account','app/api/musicbat/account/route.ts'],['/api/musicbat/listening-observation','app/api/musicbat/listening-observation/route.ts'],['/api/musicbat/agreement','app/api/musicbat/agreement/route.ts'],['/api/musicbat/listening-evidence','app/api/musicbat/listening-evidence/route.ts'],['/api/musicbat/purchase','app/api/musicbat/purchase/route.ts'],['download','app/api/musicbat/purchase/[purchaseId]/download/route.ts'],['/api/musicbat/channel','app/api/musicbat/channel/route.ts'],['/api/musicbat/channel/audio','app/api/musicbat/channel/audio/route.ts'],['/api/musicbat/stripe/connect','app/api/musicbat/stripe/connect/route.ts'],['/api/musicbat/statutory-radio','app/api/musicbat/statutory-radio/route.ts'],['legacyAudio','app/api/musicbat/audio/[assetId]/route.ts'],['webhook','app/api/musicbat/stripe/webhook/route.ts']]) routes.set(url,await load(path));
+  for(const [url,path] of [['/api/musicbat','app/api/musicbat/route.ts'],['/api/musicbat/account','app/api/musicbat/account/route.ts'],['/api/musicbat/rights','app/api/musicbat/rights/route.ts'],['/api/musicbat/listening-observation','app/api/musicbat/listening-observation/route.ts'],['/api/musicbat/agreement','app/api/musicbat/agreement/route.ts'],['/api/musicbat/listening-evidence','app/api/musicbat/listening-evidence/route.ts'],['/api/musicbat/purchase','app/api/musicbat/purchase/route.ts'],['download','app/api/musicbat/purchase/[purchaseId]/download/route.ts'],['/api/musicbat/channel','app/api/musicbat/channel/route.ts'],['/api/musicbat/channel/audio','app/api/musicbat/channel/audio/route.ts'],['/api/musicbat/stripe/connect','app/api/musicbat/stripe/connect/route.ts'],['/api/musicbat/statutory-radio','app/api/musicbat/statutory-radio/route.ts'],['legacyAudio','app/api/musicbat/audio/[assetId]/route.ts'],['webhook','app/api/musicbat/stripe/webhook/route.ts']]) routes.set(url,await load(path));
   const now=Date.now(),expiry=now+86400000;
   f.state.user={userId:'local_musician'};
   for (const [index,genre] of ['Rock','Rock','Jazz'].entries()) {
@@ -190,6 +190,26 @@ export async function createAcceptance({payoutsReady=true}={}) {
   return {handle,identity(cookie){return sessions.get(cookie);},sqlite:f.sqlite,runtime,async close(){if(closed)return;closed=true;runtime.close();f.sqlite.close();delete globalThis[key];await rm(dir,{recursive:true,force:true});}};
 }
 
+// Only the development adapter translates the managed proxy to its loopback
+// fixture origin. Production payment-origin checks remain unchanged.
+export function managedFixtureRequest(request) {
+  const url=new URL(request.url);
+  if(process.env.MUSICBAT_MANAGED_ACCEPTANCE!=='1'||url.hostname!=='terminal.local')return request;
+  const origin=request.headers.get('origin');
+  if(origin&&origin!==url.origin)throw new Error('Foreign fixture origin');
+  const headers=new Headers(request.headers);url.hostname='localhost';
+  if(origin)headers.set('origin',url.origin);
+  return new Request(url, {method:request.method,headers,...(!['GET','HEAD'].includes(request.method)?{body:request.body,duplex:'half'}:{})});
+}
+export function managedFixtureResponse(response,origin) {
+  if(process.env.MUSICBAT_MANAGED_ACCEPTANCE!=='1'||new URL(origin).hostname!=='terminal.local')return response;
+  const location=response.headers.get('location');if(!location)return response;
+  const target=new URL(location,origin);
+  if(target.hostname!=='localhost')return response;
+  const headers=new Headers(response.headers);headers.set('location',new URL(target.pathname+target.search+target.hash,origin).href);
+  return new Response(response.body,{status:response.status,headers});
+}
+
 export async function acceptancePlugin() {
   const app=await createAcceptance();
   return {name:'musicbat-offline-acceptance',enforce:'pre',api:{close:()=>app.close()},
@@ -208,7 +228,9 @@ export async function acceptancePlugin() {
       for(const name of Object.keys(req.headers))if(name.startsWith('oai-authenticated-user-'))delete req.headers[name];
       req.rawHeaders=Object.entries(req.headers).flatMap(([k,v])=>[k,String(v)]);
       try {
-        const response=await app.handle(await readHttpRequest(req,'http://'+req.headers.host,25*1024*1024+65536));
+        const incoming=await readHttpRequest(req,'http://'+req.headers.host,25*1024*1024+65536);
+        const handled=await app.handle(managedFixtureRequest(incoming));
+        const response=handled?managedFixtureResponse(handled,new URL(incoming.url).origin):handled;
         if(response){
           if(req.method==='POST' && req.url?.split('?')[0]==='/api/musicbat' && response.ok){
             for(const entry of server.moduleGraph.idToModuleMap.values())if(entry.id?.includes('/app/[artistSlug]/page.tsx'))server.moduleGraph.invalidateModule(entry);

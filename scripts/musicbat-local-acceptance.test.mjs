@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import {test} from 'node:test';
-import {createAcceptance,acceptancePlugin} from './local-acceptance.mjs';
+import {createAcceptance,acceptancePlugin,managedFixtureRequest,managedFixtureResponse} from './local-acceptance.mjs';
 const origin='http://localhost:5173';
 test('offline identities, catalog Radio, settlement, history and withdrawal use existing handlers',async()=>{
  process.env.NODE_ENV='development';const app=await createAcceptance();
@@ -62,4 +62,35 @@ test('development plugin supplies the existing artist page with isolated catalog
   assert.ok(transformed);assert.ok(!transformed.includes("from 'cloudflare:workers'"));assert.match(transformed,/artist-6c6f63616c5f6d7573696369616e/);assert.match(transformed,/notFound/);assert.match(transformed,/artistSlug=\{artistSlug\}/);
   assert.equal(plugin.transform(source,'/checkout/app/page.tsx'),undefined);
  }finally{await plugin.api.close();}
+});
+
+test('offline browser rights workflow reaches real private handler and preserves independently authorized sales',async()=>{
+ process.env.NODE_ENV='development';const app=await createAcceptance();
+ try {
+  async function login(role){const r=await app.handle(new Request(origin+'/__local/login',{method:'POST',headers:{origin},body:new URLSearchParams({role})}));return r.headers.get('set-cookie').split(';')[0];}
+  const owner=await login('musician'),other=await login('patron');
+  const call=(cookie,body)=>app.handle(new Request(origin+'/api/musicbat/rights'+(body?'':'?trackId=1'),{method:body?'POST':'GET',headers:{cookie,origin,'content-type':'application/json'},body:body?JSON.stringify(body):undefined}));
+  assert.equal((await call(owner)).status,200);assert.equal((await call(other)).status,403);
+  const request={action:'request_review',trackId:1,uses:['member-stream'],masterAuthority:'Synthetic fixture authority',compositionAuthority:'Synthetic fixture authority',restrictions:'Generated fixture only'};
+  assert.equal((await call(other,request)).status,403);assert.equal((await call(owner,request)).status,200);
+  assert.equal((await call(owner,{action:'withdraw_use',trackId:1,use:'member-stream'})).status,200);
+  const status=await (await call(owner)).json();assert.equal(status.cases[0].state,'hold');assert.equal(status.cases[0].use,'member-stream');assert.equal(status.requests.length,1);
+  assert.equal(app.sqlite.prepare('SELECT sale_enabled FROM tracks WHERE id=1').get().sale_enabled,1);
+ }finally{await app.close();}
+});
+
+test('managed fixture proxy preserves production origin policy and rejects foreign submissions',async()=>{
+ const old=process.env.MUSICBAT_MANAGED_ACCEPTANCE;process.env.MUSICBAT_MANAGED_ACCEPTANCE='1';process.env.NODE_ENV='development';const app=await createAcceptance();
+ try {
+  const external='http://terminal.local:4173';
+  const request=(path,body,cookie='')=>new Request(external+path,{method:'POST',headers:{origin:external,cookie,'content-type':'application/json'},body:JSON.stringify(body)});
+  const login=await app.handle(managedFixtureRequest(new Request(external+'/__local/login',{method:'POST',headers:{origin:external},body:new URLSearchParams({role:'patron'})})));
+  const cookie=login.headers.get('set-cookie').split(';')[0];
+  const checkout=await app.handle(managedFixtureRequest(request('/api/musicbat/subscription',{action:'join',recurringConsent:true,confirmedPriceCents:500},cookie)));
+  assert.equal(checkout.status,200);assert.match((await checkout.json()).checkoutUrl,/^\/__local\/plus-checkout\//);
+  assert.throws(()=>managedFixtureRequest(new Request(external+'/api/musicbat/subscription',{method:'POST',headers:{origin:'https://foreign.invalid'},body:'{}'})),/Foreign/);
+  const response=managedFixtureResponse(new Response(null,{status:303,headers:{location:'http://localhost:4173/?plus=return'}}),external);
+  assert.equal(response.headers.get('location'),external+'/?plus=return');
+  delete process.env.MUSICBAT_MANAGED_ACCEPTANCE;const untouched=request('/api/musicbat/subscription',{});assert.equal(managedFixtureRequest(untouched),untouched);
+ }finally{await app.close();if(old===undefined)delete process.env.MUSICBAT_MANAGED_ACCEPTANCE;else process.env.MUSICBAT_MANAGED_ACCEPTANCE=old;}
 });
