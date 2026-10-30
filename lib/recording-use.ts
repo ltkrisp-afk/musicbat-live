@@ -27,10 +27,17 @@ export function evaluateUse(row: UseDecision | null, context:{now:number;territo
   return {allowed:true,reason:'independently-cleared-use'};
 }
 export async function authorizeRecordingUse(db:Pick<D1Database,'prepare'>,trackId:number,use:RecordingUse,territory:string,now=Date.now()) {
+  const caseHold=await db.prepare("SELECT 1 FROM rights_case_current WHERE track_id=? AND use=? AND state='hold' LIMIT 1").bind(trackId,use).first();
+  if(caseHold)return {allowed:false,reason:'rights-case-hold'};
   const acceptance=await db.prepare('SELECT agreement_version FROM artist_license_acceptances WHERE track_id=? ORDER BY accepted_at DESC LIMIT 1').bind(trackId).first<{agreement_version:string}>();
   // Historical permissions are preserved under their own checks. Never backfill
   // a license or change a completed purchase merely by applying this migration.
-  if (acceptance?.agreement_version!=='2026-10-29.3') return {allowed:true,reason:'legacy-authorization-boundary'};
+  if (!acceptance) return {allowed:true,reason:'legacy-authorization-boundary'};
+  if (acceptance.agreement_version!=='2026-10-29.3') {
+    const policy=await db.prepare('SELECT model FROM agreement_clearance_policy WHERE version=?').bind(acceptance.agreement_version).first<{model:string}>();
+    if(policy?.model==='legacy')return {allowed:true,reason:'legacy-authorization-boundary'};
+    if(policy?.model!=='scoped')return {allowed:false,reason:'agreement-policy-not-established'};
+  }
   const track=await db.prepare('SELECT status,sale_price_cents FROM tracks WHERE id=?').bind(trackId).first<{status:string;sale_price_cents:number}>();
   if (track?.status!=='active') return {allowed:false,reason:'recording-withdrawn'};
   const ingestion=await db.prepare('SELECT state FROM recording_ingestion_current WHERE track_id=?').bind(trackId).first<{state:string}>();

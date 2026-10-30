@@ -1,6 +1,6 @@
 export const declarationVersion = 'rights-2026-10-29.1';
 export type ArtistRightsDeclaration = {
-  version: string; creationClassification?: 'Human'|'Human + AI'|'AI'; legalName: string; capacity: string; rightsBasis: string;
+  version: string; distributionStatus?:string; distributionDetails?:string; creationClassification?: 'Human'|'Human + AI'|'AI'; legalName: string; capacity: string; rightsBasis: string;
   masterOwners: string; compositionOwners: string; proStatus: string;
   proDetails: string; ipiCae: string; restrictions: string;
   evidenceReference: string; paymentAuthority: string;
@@ -20,7 +20,14 @@ export function parseRightsDeclaration(value: unknown): { declaration: ArtistRig
     if (!['Human','Human + AI','AI'].includes(String(input.creationClassification))) throw new Error('Choose Human, Human + AI, or AI for this recording.');
     result.creationClassification = String(input.creationClassification);
   }
-  const reviewRequired = result.rightsBasis !== 'sole' || result.proStatus !== 'none' || result.restrictions.toLowerCase() !== 'none';
+  if (input.distributionStatus !== undefined) {
+    if (!['never','nonexclusive','terminated','restricted','unknown'].includes(String(input.distributionStatus))) throw new Error('Choose the current distribution authority status.');
+    if (typeof input.distributionDetails !== 'string' || input.distributionDetails.length > 4000) throw new Error('Check the distribution authority details.');
+    result.distributionStatus=String(input.distributionStatus);result.distributionDetails=input.distributionDetails.trim();
+    if (result.distributionStatus!=='never'&&!result.distributionDetails) throw new Error('Describe current authority, surviving restrictions and supporting evidence.');
+  }
+  const distributionReview=['restricted','unknown'].includes(result.distributionStatus??'');
+  const reviewRequired = distributionReview || result.rightsBasis !== 'sole' || result.proStatus !== 'none' || result.restrictions.toLowerCase() !== 'none';
   if (reviewRequired && !result.evidenceReference) throw new Error('Supply a private authorization document reference or describe the missing authorization. Affected uses stay on review hold.');
   return { declaration: result as ArtistRightsDeclaration, reviewRequired };
 }

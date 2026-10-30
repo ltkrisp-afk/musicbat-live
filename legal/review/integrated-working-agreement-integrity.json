@@ -1,0 +1,16 @@
+{
+  "version": "working-2026-10-30.3",
+  "status": "review only; not imported, registered or activated",
+  "source": "legal/review/musicbat-integrated-working-agreement-2026-10-30.3.md",
+  "sha256": "b6ad46fff2c8d7611407fb0d4eb3367bfa9618f77e935306e531cf21f6ddf503",
+  "sizeBytes": 51117,
+  "historicalBaseSha256": "4fc7e2df7ce5de07f31284c5d733e4aaaf102821cb2cdef52ce0ffb697454e73",
+  "schedules": [
+    "A",
+    "B",
+    "C",
+    "D",
+    "E",
+    "F"
+  ]
+}

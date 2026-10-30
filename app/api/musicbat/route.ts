@@ -539,7 +539,7 @@ export async function POST(request: Request) {
       if (body.action==='delete_track') {
         // Consent is already revoked. A concurrent purchase must have captured
         // its snapshot before this commit; keep pending payments as well as paid.
-        const retained=await db.prepare("SELECT t.audio_url FROM tracks t WHERE t.id=? AND t.status='deleted' AND NOT EXISTS(SELECT 1 FROM purchases p WHERE p.audio_path=t.audio_url AND (p.status IN ('paid','pending','awaiting_checkout','payment_review') OR p.sale_withdrawn_at IS NOT NULL AND p.cleanup_state!='expired' AND p.status!='refunded')) AND NOT EXISTS(SELECT 1 FROM tracks other WHERE other.audio_url=t.audio_url AND other.id!=t.id AND other.status!='deleted')").bind(id).first<{audio_url:string}>();
+        const retained=await db.prepare("SELECT t.audio_url FROM tracks t WHERE t.id=? AND t.status='deleted' AND NOT EXISTS(SELECT 1 FROM rights_case_current c WHERE c.track_id=t.id AND c.state IN ('received','hold')) AND NOT EXISTS(SELECT 1 FROM purchases p WHERE p.audio_path=t.audio_url AND (p.status IN ('paid','pending','awaiting_checkout','payment_review') OR p.sale_withdrawn_at IS NOT NULL AND p.cleanup_state!='expired' AND p.status!='refunded')) AND NOT EXISTS(SELECT 1 FROM tracks other WHERE other.audio_url=t.audio_url AND other.id!=t.id AND other.status!='deleted')").bind(id).first<{audio_url:string}>();
         const asset=retained && /^\/api\/musicbat\/audio\/([0-9a-f-]{36}\.(?:mp3|wav|flac))$/.exec(retained.audio_url)?.[1];
         contentRemoval='retained for purchase obligations';
         if(asset) {

@@ -473,7 +473,7 @@ export default function MusicBatLoop({ displayName, artistSlug, initialTab }: { 
       const metadata:Record<string,unknown>={};
       for(const key of ['album','isrc','iswc']) {const value=String(fields.get(key) ?? '').trim();if(value)metadata[key]=value;}
       form.set('metadata',JSON.stringify(metadata));
-      const declaration=Object.fromEntries(['creationClassification','version','legalName','capacity','rightsBasis','masterOwners','compositionOwners','proStatus','proDetails','ipiCae','restrictions','evidenceReference','paymentAuthority'].map(key=>[key,String(fields.get('rights_'+key) ?? '')]));
+      const declaration=Object.fromEntries(['distributionStatus','distributionDetails','creationClassification','version','legalName','capacity','rightsBasis','masterOwners','compositionOwners','proStatus','proDetails','ipiCae','restrictions','evidenceReference','paymentAuthority'].map(key=>[key,String(fields.get('rights_'+key) ?? '')]));
       form.set('rightsDeclaration',JSON.stringify(declaration));
       form.set("title", title);
       form.set("artistName", artistName);

@@ -126,6 +126,8 @@ test('real local Cloudflare D1/R2 executes guarded concurrency and authenticated
   await db.prepare('CREATE TABLE artist_license_acceptances(track_id INTEGER,agreement_version TEXT,accepted_at INTEGER)').run();
   await db.prepare('CREATE TABLE tracks(id INTEGER PRIMARY KEY,audio_url TEXT,status TEXT,radio_enabled INTEGER,primary_genre TEXT,subgenre TEXT,style TEXT)').run();
   await db.prepare('CREATE TABLE playback_permissions(track_id INTEGER PRIMARY KEY,recording_basis TEXT,recording_evidence TEXT,composition_evidence TEXT,reviewed_by TEXT,reviewed_at INTEGER,artist_authorized INTEGER,free_allowed INTEGER,plus_allowed INTEGER,starts_at INTEGER,expires_at INTEGER,withdrawn_at INTEGER,territory TEXT)').run();
+  const caseSchema=await readFile('drizzle/0022_rights_operations.sql','utf8');
+  for(const sql of [caseSchema.match(/CREATE TABLE[\s\S]*?;\n/)[0],caseSchema.match(/CREATE INDEX[^;]+;/)[0],caseSchema.match(/CREATE VIEW[^;]+;/)[0]])await db.prepare(sql).run();
   const now=Date.now(),expires=now+86400000;
   const p={...permission,reviewed_at:now-1,starts_at:now-1,expires_at:expires,territory:'worldwide'};
   const reviewed={...track('1'),durationMs:30000,permission:p};

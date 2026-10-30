@@ -50,3 +50,9 @@ recovery evidence and transaction history. Do not reset verified records or use
 production recordings as fixtures. Distinguish browser service failures from
 application failures. Record PASS/FAIL/BLOCKED/NOT RUN, actual UTC observations
 and evidence references. Never label responsive Chromium as physical Safari.
+
+Permanent execution authority: read
+[MusicBat Legal Governance & Execution Authority](docs/governance/MUSICBAT_LEGAL_EXECUTION_AUTHORITY.md).
+Separate implementation readiness, legal-review readiness and production activation.
+Continue independently authorized development while documenting operation-specific
+legal questions; do not claim professional legal approval or silently change owner rules.

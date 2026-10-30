@@ -460,3 +460,12 @@ export const savedRecordings=sqliteTable('saved_recordings',{accountId:text('acc
 export const listeningDelivery=sqliteTable('listening_delivery',{id:text('id').primaryKey(),listenerId:text('listener_id').notNull(),trackId:integer('track_id').notNull(),performanceId:text('performance_id').notNull(),mode:text('mode').notNull(),byteStart:integer('byte_start').notNull(),byteEnd:integer('byte_end').notNull(),totalBytes:integer('total_bytes').notNull(),deliveredAt:integer('delivered_at').notNull()});
 export const listeningObservations=sqliteTable('listening_observations',{listenId:text('listen_id').primaryKey(),listenerId:text('listener_id').notNull(),trackId:integer('track_id').notNull(),performanceId:text('performance_id').notNull(),mode:text('mode').notNull(),durationMs:integer('duration_ms').notNull(),performanceStart:integer('performance_start').notNull(),performanceEnd:integer('performance_end').notNull(),firstOffsetMs:integer('first_offset_ms').notNull(),lastPositionMs:integer('last_position_ms').notNull(),maxPositionMs:integer('max_position_ms').notNull(),observedMs:integer('observed_ms').notNull().default(0),lastAt:integer('last_at').notNull(),state:text('state').notNull(),exitReason:text('exit_reason'),verifiedCompletionAt:integer('verified_completion_at'),createdAt:integer('created_at').notNull(),updatedAt:integer('updated_at').notNull()});
 export const listeningObservationEvents=sqliteTable('listening_observation_events',{id:text('id').primaryKey(),listenId:text('listen_id').notNull(),event:text('event').notNull(),reason:text('reason'),observedAt:integer('observed_at').notNull(),positionMs:integer('position_ms').notNull(),acceptedMs:integer('accepted_ms').notNull()});
+
+export const rightsCaseEvents = sqliteTable("rights_case_events", {
+ id: integer("id").primaryKey({autoIncrement:true}), caseId: text("case_id").notNull(),
+ trackId: integer("track_id").notNull().references(()=>tracks.id), use: text("use").notNull(),
+ state: text("state").notNull(), actorId: text("actor_id").notNull(), reason: text("reason").notNull(),
+ authorityReference: text("authority_reference").notNull(), createdAt: integer("created_at").notNull(),
+});
+
+export const agreementClearancePolicy=sqliteTable("agreement_clearance_policy",{version:text("version").primaryKey(),model:text("model").notNull()});

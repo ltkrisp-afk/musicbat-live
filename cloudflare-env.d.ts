@@ -13,6 +13,7 @@ declare namespace Cloudflare {
     MUSICBAT_STREAMING_EVIDENCE_ENABLED?: string;
     MUSICBAT_ACCOUNTING_ENABLED?: string;
     MUSICBAT_OPERATOR_ID?: string;
+    MUSICBAT_RIGHTS_REVIEW_ENABLED?: string;
     STRIPE_SECRET_KEY?: string;
     STRIPE_WEBHOOK_SECRET?: string;
     STRIPE_RADIO_PLUS_WEBHOOK_SECRET?: string;
