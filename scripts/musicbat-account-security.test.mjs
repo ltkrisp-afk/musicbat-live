@@ -49,3 +49,16 @@ test('Shock Room requires artist authority, isolates artists, rejects expired se
  f.state.user={userId:'owner'};assert.equal((await shock()).status,200);
  }finally{f.sqlite.close()}
 });
+
+test('appointed representative receives only authorized Shock Room rows and their own saved status',async()=>{
+ const f=await fixture();try{
+  await upload(f.route,{title:'Represented recording'});f.state.user={userId:'other-artist'};await upload(f.route,{title:'Private other recording'});
+  f.sqlite.prepare("INSERT INTO track_authority VALUES(1,'representative','owner',1,NULL)").run();
+  f.sqlite.prepare("INSERT INTO saved_recordings VALUES('representative',1,1)").run();
+  f.state.user={userId:'representative'};
+  const response=await f.route.GET(request('/api/musicbat?view=shock-room'));assert.equal(response.status,200);
+  const data=await response.json();assert.equal(data.rows.length,1);assert.equal(data.rows[0].title,'Represented recording');assert.equal(data.rows[0].viewer_saved,1);
+  f.sqlite.prepare("UPDATE track_authority SET revoked_at=2 WHERE account_id='representative'").run();
+  assert.equal((await f.route.GET(request('/api/musicbat?view=shock-room'))).status,403);
+ }finally{f.sqlite.close();}
+});

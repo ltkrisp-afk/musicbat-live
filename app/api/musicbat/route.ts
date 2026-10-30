@@ -299,7 +299,7 @@ export async function GET(request: Request) {
         WHERE t.status = 'active' AND t.rights_attested = 1
       ) ranked WHERE track_id IN (SELECT t.id FROM tracks t WHERE t.artist_id=? OR EXISTS(SELECT 1 FROM track_authority a WHERE a.track_id=t.id AND a.account_id=? AND a.revoked_at IS NULL))
         ORDER BY primary_genre, energy_lane, position, track_id
-      `).bind(user.userId,user.userId).all();
+      `).bind(user.userId,user.userId,user.userId).all();
       return Response.json({ rows: rows.results }, {headers:{'cache-control':'private, no-store','vary':'Cookie'}});
     }
 

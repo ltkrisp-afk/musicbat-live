@@ -30,7 +30,12 @@ async function stripe<T>(env:PlusRuntime,path:string,fields?:Record<string,strin
   configured(env);
   const input=new Request('https://api.stripe.com'+path,{method:fields?'POST':'GET',headers:{authorization:'Bearer '+env.STRIPE_SECRET_KEY,'Stripe-Version':'2025-03-31.basil',...(fields?{'content-type':'application/x-www-form-urlencoded'}:{}),...(key?{'idempotency-key':key}:{})},body:fields?new URLSearchParams(fields):undefined,signal:AbortSignal.timeout(10000)});
   const response=await (env.RADIO_PLUS_PROCESSOR ? env.RADIO_PLUS_PROCESSOR.fetch(input) : fetch(input));
-  if(!response.ok)throw new Error('Radio Plus payment service is unavailable.');
+  if(!response.ok){
+    const detail=await response.json().catch(()=>null) as {error?:{type?:unknown;code?:unknown;param?:unknown}}|null;
+    const safe=(value:unknown)=>typeof value==='string'&&/^[a-zA-Z0-9_.\[\]-]{1,100}$/.test(value)?value:undefined;
+    console.error('MusicBat Radio Plus processor request failed',{status:response.status,type:safe(detail?.error?.type),code:safe(detail?.error?.code),parameter:safe(detail?.error?.param)});
+    throw new Error('Radio Plus payment service is unavailable.');
+  }
   return response.json() as Promise<T>;
 }
 function validSubscription(sub:Subscription,row:Enrollment,env:PlusRuntime) {

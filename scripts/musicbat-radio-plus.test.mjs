@@ -130,3 +130,13 @@ test('invoice evidence write failure rolls back entitlement and event so deliver
   f.sqlite.exec('DROP TRIGGER test_invoice_failure');await f.processor.pay(id);assert.ok(await plusAccess(f.env.DB,'patron')>Date.now());
  }finally{f.sqlite.close();}
 });
+
+test('processor failures retain bounded diagnostic codes without leaking payment data or secret messages',async()=>{
+ const f=await setup(),log=console.error,events=[];console.error=(...args)=>events.push(args);
+ try {
+  f.env.RADIO_PLUS_PROCESSOR={fetch:async()=>Response.json({error:{type:'invalid_request_error',code:'parameter_invalid_empty',param:'line_items[0]',message:'DO_NOT_LOG_SECRET_OR_CUSTOMER_DATA',request_log_url:'https://private.invalid/secret'}},{status:400})};
+  const r=await join(f.env);assert.equal(r.status,400);assert.match((await r.json()).error,/payment service is unavailable/);
+  assert.equal(events[0][1].status,400);assert.equal(events[0][1].parameter,'line_items[0]');assert.equal(events[0][1].code,'parameter_invalid_empty');assert.ok(!JSON.stringify(events).includes('DO_NOT_LOG'));assert.ok(!JSON.stringify(events).includes('private.invalid'));
+  assert.equal(await plusAccess(f.env.DB,'patron'),0);
+ }finally{console.error=log;f.sqlite.close();}
+});
