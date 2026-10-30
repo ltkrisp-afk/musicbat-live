@@ -32,3 +32,13 @@ Retrofutura, physical push/turn dial, persistent shared audio and category sched
 
 ## Operations
 Native custom domain and SSL statuses active. HTTPS production page and catalog observed. Worker log access works, with privacy-reduced audit projections. No continuous alerting/response SLA or current D1/R2 restore drill was evidenced. Source archives are not backups of mutable purchases/audio. Saved versions establish source rollback candidates only, not safe schema rollback; older versions can reintroduce security flaws. No destructive down migration or restore was attempted.
+
+## October 30 architectural governance continuation
+
+The deployment/configuration observations above are historical October 20/21 evidence,
+not a new production inspection. All future engineering applies the permanent
+[Golden Foundation Fundamental Design Rule](../governance/MUSICBAT_GOLDEN_FOUNDATION.md#fundamental-design-rule)
+and its six operational invariants. Use the current
+[rights-engine control and verification map](../legal-review-2026-10-30/rights-engine-completion.md#fundamental-rule-verification)
+for PR #5's scoped authorization, withdrawal, case and preservation boundaries.
+This update changes no deployed architecture, agreement, payment formula or release gate.

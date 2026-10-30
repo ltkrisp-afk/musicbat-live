@@ -56,3 +56,13 @@ Permanent execution authority: read
 Separate implementation readiness, legal-review readiness and production activation.
 Continue independently authorized development while documenting operation-specific
 legal questions; do not claim professional legal approval or silently change owner rules.
+
+The Golden Foundation's **Fundamental Design Rule** is permanent: governance must
+be continuous, enforceable and proportional. Apply its six operational invariants
+and acceptance criteria to affected changes. Map permission → recording/rights
+holder/agreement/use → service control → accountable evidence. Verify both the
+restricted use and independently cleared uses, financial independence and historical
+preservation. Reuse existing consent and review workflows; expose understandable
+status and corrective actions without unnecessary interruptions or blanket account
+restrictions. Report legacy boundaries, manual responsibilities and unverified
+limits explicitly; do not change functioning systems merely to restate this rule.

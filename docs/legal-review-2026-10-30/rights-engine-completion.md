@@ -65,3 +65,62 @@ Browser/mobile/hosted acceptance and live processor integration were **not execu
 **Implementation:** local automated engineering validation passed. **Legal-review readiness:** complete working text, schedules, diff, control map and evidence prepared; current authorities and actual grants still need professional evaluation. **Production activation: BLOCKED / NOT AUTHORIZED.** These are separate decisions.
 
 Remaining release work is authentic nonproduction browser/operator acceptance, current production-copy transition rehearsal where authorized, actual recording-level evidence review and operational notice handling, then owner authorization for any contract activation, configuration, merge or deployment. Owner license-cost ceilings remain a decision only for uses requiring platform-paid licenses. There is no need to reopen the approved business model or suspend unrelated development. Current photographic receiver acceptance and separately deferred Rotunda work are not claimed complete by this legal-engine assignment.
+
+## Fundamental rule verification
+
+Owner directive, October 30, 2026: embed continuous, enforceable and proportional
+governance permanently without restarting legal integration. Starting remote PR #5
+head was verified as `d891fe48dbe5f26055c16fa062287511ea305880`, open, draft and
+unmerged. The local source tree matched that remote checkpoint exactly
+(`b88a6591e6fa2c533a67606733c485afca0a412b`) and the working tree was clean before edits.
+Local commit metadata differs because the restored source was committed through the
+GitHub connector; source-tree identity, rather than an assumed local ancestry, was
+verified. This continuation changes documentation only; it adds no runtime dependency,
+consent requirement, agreement amendment, schema migration or operational restriction.
+
+The canonical rule and acceptance criteria are embedded in the existing
+[Golden Foundation](../governance/MUSICBAT_GOLDEN_FOUNDATION.md#fundamental-design-rule).
+`AGENTS.md`, the existing execution-authority document and launch architecture link to
+that source. This section extends the existing implementation report rather than
+creating a competing governance document.
+
+| Invariant | Source and evidence | Verified outcome and exact limits |
+| --- | --- | --- |
+| A — Permission specificity | `lib/rights-operations.ts`, `lib/recording-use.ts`, existing `artist_license_acceptances`, `artist_rights_declarations`, `recording_use_reviews`, and `artist_acceptance_evidence`; independent-owner/PRO/composition/territory tests in `scripts/musicbat-rights-operations.test.mjs` and `scripts/musicbat-final-licensing.test.mjs` | Scoped clearances link a recording and accepted declaration to master/composition evidence, use, territory/term, reviewer and recipient. Unknown future agreement policy fails closed. Explicit historical boundaries remain: no acceptance or a known legacy version follows its existing service checks. This is not proof of complete rights evidence for every historical/production recording. Real rights-holder authority requires inspection of actual retained grants. |
+| B — Proportional restrictions | `rights_case_current`, `lib/recording-use.ts`, migration 0022 guards; test “artist can withdraw member streaming without disabling cleared downloads or historical entitlements”; separate historical-entitlement test in final-licensing suite | A member-stream hold denies that use while cleared download authorization remains true. Download restrictions independently fence new sales. Ordinary withdrawal preserves purchases; a separately reviewed delivery restriction can deny bytes without deleting entitlement. A noninteractive-radio hold necessarily affects both tiers because both rely on that transmission permission. |
+| C — Continuous governance | Authenticated `withdraw_use` and operator case decisions in `app/api/musicbat/rights/route.ts`; immutable `rights_case_events`; `lib/catalog-radio-boundary.ts`, `lib/d1-radio-service.ts`, `lib/streaming-evidence.ts`; expiry, counter-notice, multiple-case and unknown-version tests | Current holds are checked at authorization/delivery boundaries and before eligible listening credit. Case transitions retain server actor/time and evidence references; one resolved case cannot lift another. Expiry is evaluated against current time. This does not push an immediate stop to already buffered audio, recall delivered bytes, automatically send statutory notices or authorize a new agreement. |
+| D — Financial independence | Existing `lib/membership-accounting.ts` and settlement modules, streaming-beneficiary instructions and statement records; purchase/final-licensing regression suites | Existing 85/15 purchases and fixed 25% new QCMR funding remain independent; largest-remainder allocation, refunds, deficit and unallocated carry-forward tests pass. Rights evidence and recipient instructions remain distinct from bank disbursement. No new financial formula, expense deduction or external payment is introduced. |
+| E — Historical preservation | Existing immutable consent evidence and agreement integrity verifier; case append-only triggers; purchase-download restriction handling; cleanup guard in `app/api/musicbat/route.ts` | Retained agreement bytes and schedules remain unchanged; cases reject destructive edits; unresolved case audio and purchase records survive offer deletion. No production records were inspected or migrated here. Source recovery is not a backup of mutable production data. |
+| F — Traceability | Private rights API, `artist_track_audit`, `recording_use_reviews`, `rights_case_events`, delivery restrictions, existing financial reconciliation; API/privacy/revoked-representative tests | Authorized reviewers can inspect actor/time, recording/use, decision, reason and evidence references. Other accounts cannot access the private workflow or self-approve; revoked representatives lose access. A reference is not the supporting document itself. The operator remains accountable for retaining genuine evidence, reviewing notices and carrying out external duties documented in the runbook. |
+
+User-experience inspection: existing `components/recording-rights-workflow.tsx` stays
+inside a selected recording's rights utility. It supplies save/review/withdrawal status,
+a targeted review request and explicit failure feedback. The radio surface is not
+expanded with legal administration. Existing identity and accepted terms are reused;
+this continuation introduces no repeated acceptance, verification prompt or blanket
+account restriction. This is source inspection; no new browser usability or accessibility
+acceptance is claimed.
+
+Acceptance result: the existing tested controls demonstrate bounded enforcement of
+the six invariants. Universal historical rights clearance, immediate mid-response audio
+revocation, real notice delivery and real financial disbursement remain outside what
+these tests establish. No demonstrated runtime defect requiring code changes was
+found in this targeted assessment. Those evidence limits do not authorize changes to
+working business rules or the activation of held agreements.
+
+Continuation verification: complete local regression **337 passed, 0 failed,
+0 skipped/cancelled**; typecheck, lint, build and historical agreement integrity passed.
+Documentation links and whitespace were checked. Browser/hosted acceptance was not
+rerun for this documentation-only change. Production, live payments, DNS, contract
+activation, PR merge and deployment remain unauthorized and were not performed.
+
+Exact files changed in this continuation: `AGENTS.md`,
+`docs/governance/MUSICBAT_GOLDEN_FOUNDATION.md`,
+`docs/governance/MUSICBAT_LEGAL_EXECUTION_AUTHORITY.md`,
+`docs/launch-readiness-2026-10-20/architecture.md`, and this report.
+
+The preceding implementation checkpoint `d891fe48dbe5f26055c16fa062287511ea305880`
+also has independently observed successful GitHub development checks:
+[push run 41119806093](https://github.com/ltkrisp-afk/musicbat-live/actions/runs/41119806093)
+and [PR run 41119827887](https://github.com/ltkrisp-afk/musicbat-live/actions/runs/41119827887).
+These results apply to that source checkpoint, not to unexecuted browser or production tests.

@@ -18,6 +18,41 @@ Established by the owner on October 30, 2026.
 9. MusicBat must never become the gatekeeper it was created to eliminate.
 10. The software must demonstrate these principles through observable, testable behavior.
 
+## Fundamental Design Rule
+
+**MusicBat governance must be continuous, enforceable, and proportional. Every permission governs its corresponding operation, every obligation has an accountable mechanism, and every restriction affects only what it legally needs to affect.**
+
+This owner-established rule applies to the marketplace, radio, artist and listener
+accounts, rights management, financial systems and interface design. It extends the
+existing ten principles; it grants no new rights and changes no executed agreement.
+
+### Operational invariants and acceptance criteria
+
+| Invariant | Required engineering acceptance |
+| --- | --- |
+| A. Permission specificity | Identify the recording, granting rights holder or authorized representative, applicable agreement/version and authorized use; evaluate master and composition authority, territory, term and restrictions. An account role, upload or declaration alone is not clearance. Identify historical authorization boundaries explicitly rather than implying they have been newly cleared. |
+| B. Proportional restrictions | Test the denied operation and an independently authorized operation together. Streaming withdrawal must not itself revoke cleared download sales, existing entitlements or accounting. Broader restrictions require a documented dependency or applicable obligation; shared transmission permission legitimately governs both radio tiers. |
+| C. Continuous governance | Re-evaluate current authority at the affected service boundary and retain authenticated, time-linked changes. Exercise withdrawal, expiry, dispute, resolution and agreement-policy transitions. Resolution removes only its own restriction; it never manufactures missing authority or silently restores publication. State the actual enforcement boundary and any already delivered/buffered audio limitation. |
+| D. Financial independence | Preserve 85/15 eligible digital-purchase allocations, fixed 25% new QCMR pool funding, separate carry-forward liabilities and verified recipient instructions. Link obligations to durable reconciliation, holds and responsible operators. A new rights restriction does not erase earned amounts or permit platform expenses to be deducted from artists. |
+| E. Historical preservation | Retain executed agreement bytes/version/digest, lawful purchase entitlements, case evidence and accounting history. Apply reviewed delivery restrictions separately from entitlement records. Corrections and withdrawals must be traceable; do not reset evidence to simplify a workflow. |
+| F. Traceability | An authorized reviewer must be able to inspect the actor, recording/use, reason, relevant grant or contract, decision/time, supporting evidence and outcome. Evidence references require actual retained supporting material; tests and operator assertions are not artist signatures or legal approval. Record external/manual duties and their accountable role. |
+
+Governance belongs underneath the music experience. Reuse current account identity,
+recording declarations and acceptance evidence. Request renewed consent or additional
+verification only for an identified change or missing requirement. Keep detailed
+administration in account utilities. Show the affected use, understandable status and
+a corrective action where appropriate; do not imply a blanket account ban, revoked
+ownership or successful clearance from a pending request. Preserve accessible feedback
+and distinguish a failed save from a successfully recorded restriction.
+
+For every affected change, reviewers must record: the permission or obligation and
+its evidence; responsible service or operator; enforcement boundary; denied and
+unaffected cases; preservation result; executed checks and unverified limits. Add
+behavior tests only for a demonstrated new behavior or defect. Document-only changes
+reuse the existing behavioral evidence rather than adding tests that merely search
+for governance wording. See the bounded implementation assessment and acceptance
+matrix in [rights-engine completion](../legal-review-2026-10-30/rights-engine-completion.md#fundamental-rule-verification).
+
 ## Architectural application
 
 Developers and AI agents must use these principles when proposing, implementing,

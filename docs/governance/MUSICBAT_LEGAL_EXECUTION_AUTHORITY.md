@@ -36,3 +36,8 @@ Existing restrictions on production deployment, contract activation and PR mergi
 ## Continuous, enforceable and proportional governance
 
 Every permission governs its corresponding operation. Every obligation needs an accountable mechanism and evidence. Every restriction affects only the operations its legal or contractual basis requires. An artist's withdrawal of streaming permission must reach the radio engine without silently revoking independently authorized downloads, historical accounting or existing customer entitlements. The artist experiences a coherent music service; the software carries the administrative work underneath it.
+
+The canonical Fundamental Design Rule, six operational invariants and engineering
+acceptance criteria are maintained in the existing
+[Golden Foundation](MUSICBAT_GOLDEN_FOUNDATION.md#fundamental-design-rule).
+Apply that single architectural source alongside the execution authority above.
