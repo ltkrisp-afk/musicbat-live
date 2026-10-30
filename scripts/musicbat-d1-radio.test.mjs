@@ -119,7 +119,7 @@ test('real local Cloudflare D1/R2 executes guarded concurrency and authenticated
    return forwardRadio(request,service,request.headers.get('x-fixture-listener'));
   }};
  `},bundle:true,platform:'browser',format:'esm',write:false});
- const mf=new Miniflare({modules:true,script:bundle.outputFiles[0].text,d1Databases:['DB'],r2Buckets:['BUCKET']});
+ const mf=new Miniflare({compatibilityFlags:['streams_enable_constructors'],modules:true,script:bundle.outputFiles[0].text,d1Databases:['DB'],r2Buckets:['BUCKET']});
  try{
   const db=await mf.getD1Database('DB'),bucket=await mf.getR2Bucket('BUCKET');
   for(const sql of schema.split(';').map(s=>s.trim()).filter(Boolean))await db.prepare(sql).run();

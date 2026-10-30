@@ -1,4 +1,5 @@
 import { plusAccess } from './radio-plus';
+export function radioMembershipMode(env:{MUSICBAT_RADIO_PLUS_ENABLED?:string;MUSICBAT_STRIPE_MODE?:string;MUSICBAT_RELEASE_PAUSED?:string}):false|'test'|'live'{if(env.MUSICBAT_RELEASE_PAUSED==='1')return false;return env.MUSICBAT_RADIO_PLUS_ENABLED==='live'&&env.MUSICBAT_STRIPE_MODE==='live'?'live':env.MUSICBAT_RADIO_PLUS_ENABLED==='test'&&env.MUSICBAT_STRIPE_MODE!=='live'?'test':false;}
 /** Entitlements are server-owned invoice evidence, never browser headers. */
 export function membershipBoundRadio(service:Pick<Fetcher,'fetch'>|undefined,db:D1Database,testEnabled:boolean|'test'|'live'=false):Pick<Fetcher,'fetch'>|undefined {
   if(!service)return undefined;

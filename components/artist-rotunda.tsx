@@ -9,7 +9,7 @@ export function ArtistOutcomes({track}:{track:Pick<ArtistTrack,'discovery_listen
  const conversion=track.checkout_count>0 ? `${(100*track.purchase_count/track.checkout_count).toFixed(1)}%` : 'No checkouts yet';
  return <p className="text-xs text-white/60">Discovery listeners {track.discovery_listener_count} · Artist followers {track.follower_count} · Paid purchases / checkout attempts {track.purchase_count} / {track.checkout_count} · Checkout conversion {conversion}. Discovery counts recorded Radio starts, including Free Radio; it does not prove listening duration. Followers are artist-wide. Conversion measures paid checkouts, not listener-to-buyer attribution.</p>;
 }
-export function ArtistRotunda({onChange,onUpload}:{onChange:()=>Promise<void>;onUpload:()=>void}) {
+export function ArtistRotunda({onChange,onUpload,periodMetrics=[]}:{onChange:()=>Promise<void>;onUpload:()=>void;periodMetrics?:TrackPeriodMetric[]}) {
  const [observedAt,setObservedAt]=useState(0);
  const [tracks,setTracks]=useState<ArtistTrack[]>([]),[account,setAccount]=useState(''),[name,setName]=useState(''),[error,setError]=useState(''),[busy,setBusy]=useState(false);
  const load=useCallback(async()=>{try{const data=await request('/api/musicbat?view=rotunda');setTracks(data.tracks);setObservedAt(Date.now());setAccount(data.accountId);setName(data.profile?.artist_name ?? data.tracks[0]?.artist_name ?? 'Your artist identity');setError('');}catch(e){setError(e instanceof Error?e.message:'Sign in to manage your music.');}},[]);
@@ -29,7 +29,8 @@ export function ArtistRotunda({onChange,onUpload}:{onChange:()=>Promise<void>;on
    <p className="text-sm text-white/60">{t.artist_slug && <a className="underline" href={'/'+t.artist_slug}>View artist page</a>} · Released {t.created_at.slice(0,10)} · {new Date(t.created_at.replace(' ','T')+'Z').getTime() > observedAt-14*86400000 ? 'Initial Discovery' : 'Ongoing discovery'}</p>
    <p className="text-sm">{Number(t.listener_count)<2 ? 'Not enough listener activity yet.' : `${t.listener_count} distinct qualified listeners. These are observed counts, not a statistical verdict.`}</p>
    <ArtistOutcomes track={t} />
-   <p className="text-xs text-white/60">Like {t.up_count} · Not for Me {t.down_count} · Keeps {t.keep_count} · Completions {t.completion_count} · Repeat listens {t.repeat_count} · Purchases {t.purchase_count}</p>
+   {periodMetrics.find(m=>m.id===t.id)&&<TrackPeriodOutcomes metric={periodMetrics.find(m=>m.id===t.id)!}/> }
+   <p className="text-xs text-white/60">Like {t.up_count} · Not for Me {t.down_count} · Keeps {t.keep_count} · Completion records (includes legacy) {t.completion_count} · Repeat listens {t.repeat_count} · Purchases {t.purchase_count}</p>
    {t.status!=='deleted' && <>
     <details><summary className="cursor-pointer font-bold text-[#ff3ea5]">Edit Song</summary>
     <form key={[t.title,t.primary_genre,t.subgenre,t.style,t.energy_lane].join("|")} onSubmit={e=>{e.preventDefault();const f=new FormData(e.currentTarget);void save({action:'edit_metadata',trackId:t.id,title:f.get('title'),primaryGenre:f.get('genre'),subgenre:f.get('subgenre'),style:f.get('style'),energyLane:f.get('energy')})}} className="grid gap-3 sm:grid-cols-2">
@@ -67,3 +68,6 @@ export function ArtistRotunda({onChange,onUpload}:{onChange:()=>Promise<void>;on
   </article>)}
  </section>;
 }
+
+export type TrackPeriodMetric={id:number;title:string;observed_sessions:number;observed_ms:number;average_percent_heard:number|null;verified_completions:number;early_exits:number;retained_sessions:number;period_up:number;period_down:number};
+export function TrackPeriodOutcomes({metric:m}:{metric:TrackPeriodMetric}){return <div className="mb-period-outcomes"><h3>Selected reporting period</h3><p>{m.observed_sessions} observed sessions · {(m.observed_ms/1000).toFixed(1)} observed seconds · {m.average_percent_heard==null?'No observed coverage':m.average_percent_heard.toFixed(1)+'% average heard'}</p><p>{m.verified_completions} verified completions · {m.early_exits} early exits · Completion {m.observed_sessions?(100*m.verified_completions/m.observed_sessions).toFixed(1)+'%':'—'} · Retention {m.observed_sessions?(100*m.retained_sessions/m.observed_sessions).toFixed(1)+'%':'—'}</p><p>Period responses ▲ {m.period_up} · ▼ {m.period_down}. Retention: at least 12 observed seconds (or the whole shorter recording). Historical unverified listens are excluded.</p></div>;}

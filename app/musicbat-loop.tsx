@@ -1,4 +1,5 @@
 "use client";
+import {SaveRecordingButton} from "../components/save-recording-button";
 /* Authentication and download endpoints retain full document navigation. */
 /* eslint-disable @next/next/no-html-link-for-pages */
 
@@ -24,6 +25,7 @@ const readLocation = () => window.location.search;
 const serverLocation = () => "";
 
 type Track = {
+  viewer_saved?:number;
   id: number;
   artist_id: string;
   artist_slug: string;
@@ -233,6 +235,8 @@ export default function MusicBatLoop({ displayName, artistSlug, initialTab }: { 
     ? "Free Radio is for listening. Voting and Keep require Radio Plus on a Plus station."
     : !qualified ? "Play this station for at least 12 seconds to unlock voting and Keep for this track." : null;
   const keepActive = Boolean(current?.viewer_keep_in_rotation);
+
+  useEffect(()=>{void fetch('/api/musicbat/account?section=preferences',{cache:'no-store'}).then(r=>r.ok?r.json():null).then(d=>{if((d as {preferences?:{following_only:number}}|null)?.preferences?.following_only)setFollowingOnly(true);}).catch(()=>undefined);},[]);
 
   const fetchRadio = useCallback(() => Promise.all([
       api<{ tracks: Track[] }>("/api/musicbat?view=tracks"),
@@ -634,7 +638,7 @@ export default function MusicBatLoop({ displayName, artistSlug, initialTab }: { 
             </div>
             <div><Link href="/" className="text-[0.72rem] font-black uppercase tracking-[0.24em] text-[#ff69bd]">MusicBat</Link><p className="mt-1 text-[0.6rem] tracking-wider text-white/55">YOUR MUSIC. YOUR RIGHTS. YOUR MONEY.</p></div>
           </div>
-          <div className="text-right"><div className="text-sm font-semibold text-white/90">{artistContext && artistIdentity ? artistIdentity : displayName}</div><div className="text-xs text-white/45">{artistContext ? canManage ? 'Artist account' : 'Artist setup' : loopStatus}</div></div>
+          <div className="text-right"><Link href="/account" className="text-sm underline">My Account</Link><div className="text-sm font-semibold text-white/90">{artistContext && artistIdentity ? artistIdentity : displayName}</div><div className="text-xs text-white/45">{artistContext ? canManage ? 'Artist account' : 'Artist setup' : loopStatus}</div></div>
         </header>
 
         <div className="mb-5 grid grid-cols-4 overflow-hidden rounded-xl border border-white/10 bg-white/[0.025] text-center text-[0.68rem] font-black uppercase tracking-[0.12em] text-white/45">
@@ -672,6 +676,7 @@ export default function MusicBatLoop({ displayName, artistSlug, initialTab }: { 
                     <div className="mb-8 min-h-36"><div className="mb-3 text-sm uppercase tracking-[0.16em] text-white/38">Independent signal · {current.primary_genre} / {energyCategory(current.energy_lane)}</div><h1 className="max-w-4xl text-4xl font-black leading-[0.98] tracking-[-0.045em] sm:text-6xl lg:text-7xl">{current.title}</h1><p className="mt-4 text-lg font-semibold text-white/58">{current.artist_name}</p></div>
                     <div className="flex flex-wrap items-center gap-3">
                       <Button type="button" disabled={purchaseBusy} aria-busy={purchaseBusy} onClick={() => void buyCurrentTrack()} aria-label={`Buy ${current.title}`} data-track-id={current.id} className="h-12 shrink-0 rounded-full border border-[#ff3ea5]/50 bg-[#ff3ea5]/20 px-6 text-base font-black text-white disabled:opacity-60">{current.sale_enabled && current.sale_price_cents ? `Buy $${(current.sale_price_cents / 100).toFixed(2)}` : "Buy"}</Button>
+                      <SaveRecordingButton key={current.id} trackId={current.id} initialSaved={Boolean(current.viewer_saved)}/>
                       <div className="flex shrink-0 items-center gap-1" role="group" aria-label="Radio feedback" aria-describedby={feedbackHint ? "radio-feedback-help" : undefined} style={!canRespond ? {opacity:0.45} : undefined}>
                         <Button type="button" variant="ghost" aria-label="More like this" title="More like this" disabled={busy || !canRespond} onClick={() => void sendRadioFeedback("up")} className="size-10 rounded-full px-0 text-lg font-black text-white/65 hover:bg-[#ff3ea5]/15 hover:text-[#ff69bd]">▲</Button>
                         <Button type="button" variant="ghost" aria-label="Less like this" title="Less like this" disabled={busy || !canRespond} onClick={() => void sendRadioFeedback("down")} className="size-10 rounded-full px-0 text-lg font-black text-white/65 hover:bg-[#ff3ea5]/15 hover:text-[#ff69bd]">▼</Button>

@@ -1,3 +1,6 @@
+import {beginObservation,observationMode} from '../../../lib/listening-observation';
+import {radioMembershipMode} from '../../../lib/membership-radio-boundary';
+import {plusAccess} from '../../../lib/radio-plus';
 import { verifiedCurrentAgreement } from "../../../lib/agreement-integrity";
 import { parseRightsDeclaration } from "../../../lib/artist-rights-declaration";
 import { env } from "cloudflare:workers";
@@ -178,8 +181,8 @@ async function syncArtistRadio(id: number) {
 async function assignedPerformance(userId: string, request: Request) {
   const headers=new Headers({'x-musicbat-listener':userId,'x-musicbat-territory':(request as Request & {cf?:{country?:string}}).cf?.country ?? 'unknown','authorization':'Bearer '+(env.RADIO_RUNTIME_TOKEN ?? '')});
   try {
-    const membership=await database().prepare('SELECT paid_until,status FROM radio_plus_enrollments WHERE user_id=?').bind(userId).first<{paid_until:number;status:string}>();
-    headers.set('x-musicbat-plus-until',String(env.MUSICBAT_RADIO_PLUS_ENABLED==='test' && env.MUSICBAT_STRIPE_MODE!=='live' && membership && ['active','past_due'].includes(membership.status) && Number.isSafeInteger(membership.paid_until) && membership.paid_until>Date.now()?membership.paid_until:0));
+    const mode=radioMembershipMode(env);
+    headers.set('x-musicbat-plus-until',String(mode?await plusAccess(database(),userId,Date.now(),mode):0));
     let response;
     const service=env.RADIO_SERVICE ?? await cloudflareRadioService();
     if (service) response=await service.fetch(new Request('https://radio.internal/channel',{headers}));
@@ -189,8 +192,8 @@ async function assignedPerformance(userId: string, request: Request) {
       response=await fetch(new URL('/channel',url),{headers,redirect:'error',signal:AbortSignal.timeout(2000)});
     }
     if (!response?.ok) return null;
-    const data=await response.json() as {snapshot:{simulation:boolean;status:string;channelId:string;category:unknown;performance:{trackId:string;authorityId:string}|null}};
-    return data.snapshot.status==='playing' && !data.snapshot.simulation && data.snapshot.performance ? {trackId:data.snapshot.performance.trackId,interactive:!!data.snapshot.category && typeof data.snapshot.category==='object' && typeof (data.snapshot.category as {genre?:unknown}).genre==='string',key:data.snapshot.channelId+':'+data.snapshot.performance.authorityId} : null;
+    const data=await response.json() as {snapshot:{simulation:boolean;status:string;channelId:string;category:unknown;performance:{trackId:string;authorityId:string;startedAt:number;endsAt:number;offsetMs:number}|null}};
+    return data.snapshot.status==='playing' && !data.snapshot.simulation && data.snapshot.performance ? {trackId:data.snapshot.performance.trackId,interactive:!!data.snapshot.category && typeof data.snapshot.category==='object' && typeof (data.snapshot.category as {genre?:unknown}).genre==='string',key:data.snapshot.channelId+':'+data.snapshot.performance.authorityId,startedAt:data.snapshot.performance.startedAt,endsAt:data.snapshot.performance.endsAt,offsetMs:data.snapshot.performance.offsetMs} : null;
   } catch {return null;}
 }
 
@@ -287,7 +290,8 @@ export async function GET(request: Request) {
       if (!managed) return fail("Artist access is required for Shock Room.",403);
       const rows = await db.prepare(`SELECT * FROM (
         SELECT t.id AS track_id, t.title, t.artist_name, t.primary_genre, t.energy_lane,
-          ${shockStatsSql}, ${shockScoreSql} AS shock_score,
+          EXISTS(SELECT 1 FROM saved_recordings s WHERE s.track_id=t.id AND s.account_id=?) AS viewer_saved,
+        ${shockStatsSql}, ${shockScoreSql} AS shock_score,
           ROW_NUMBER() OVER (PARTITION BY t.primary_genre, t.energy_lane ORDER BY ${shockScoreSql} DESC, t.title COLLATE NOCASE, t.id) AS position
         FROM tracks t
         WHERE t.status = 'active' AND t.rights_attested = 1
@@ -307,12 +311,13 @@ export async function GET(request: Request) {
         EXISTS(SELECT 1 FROM artist_accounts a WHERE a.artist_id = t.artist_id AND a.charges_enabled = 1 AND a.payouts_enabled = 1 AND a.details_submitted = 1) AS seller_ready,
         EXISTS(SELECT 1 FROM listens l WHERE l.track_id = t.id AND l.listener_id = ? AND l.qualified = 1) AS viewer_qualified,
         EXISTS(SELECT 1 FROM track_keeps k WHERE k.track_id = t.id AND k.listener_id = ?) AS viewer_keep_in_rotation,
+        EXISTS(SELECT 1 FROM saved_recordings s WHERE s.track_id=t.id AND s.account_id=?) AS viewer_saved,
         ${shockStatsSql}, ${shockScoreSql} AS shock_score,
         ROW_NUMBER() OVER (PARTITION BY t.primary_genre, t.energy_lane ORDER BY ${shockScoreSql} DESC, t.title COLLATE NOCASE, t.id) AS position
       FROM tracks t
       WHERE t.status = 'active' AND t.rights_attested = 1
       ORDER BY t.created_at DESC, t.id DESC
-    `).bind(viewer?.userId ?? "", viewer?.userId ?? "", viewer?.userId ?? "").all();
+    `).bind(viewer?.userId ?? "", viewer?.userId ?? "", viewer?.userId ?? "", viewer?.userId ?? "").all();
     return Response.json({ tracks: rows.results.map((track) => {
       const visible = { ...track };
       if (!track.can_manage) for (const key of ['up_count','down_count','keep_count','completion_count','repeat_count','purchase_count','shock_score','position']) delete visible[key];
@@ -662,6 +667,7 @@ export async function POST(request: Request) {
           SELECT 1 FROM listens WHERE track_id=? AND listener_id=? AND radio_performance=?
         )`).bind(crypto.randomUUID(),trackId,user.userId,assigned.key,trackId,user.userId,assigned.key).run();
       const listen = await db.prepare("SELECT id FROM listens WHERE track_id=? AND listener_id=? AND radio_performance=? LIMIT 1").bind(trackId,user.userId,assigned.key).first<{id:string}>();
+      await beginObservation(db,user.userId,listen!.id,assigned,observationMode(env));
       return Response.json({ listenId:listen!.id, minimumSeconds: 12 });
     }
 
@@ -685,6 +691,8 @@ export async function POST(request: Request) {
       const trackId = Number(body.trackId);
       const listenId = body.listenId?.trim() ?? "";
       if (!Number.isInteger(trackId) || trackId < 1 || !listenId) return fail("A valid track and listen are required.");
+      const verified=await db.prepare("SELECT 1 FROM listening_observations WHERE listen_id=? AND listener_id=? AND track_id=? AND mode=? AND state='completed' AND verified_completion_at IS NOT NULL").bind(listenId,user.userId,trackId,observationMode(env)).first();
+      if(!verified)return fail('Delivered audio and observed full-recording playback are required for verified completion.',409);
       const completed = await db.prepare(`UPDATE listens SET completed_at = CURRENT_TIMESTAMP
         WHERE id = ? AND track_id = ? AND listener_id = ? AND qualified = 1 RETURNING id`).bind(listenId, trackId, user.userId).first();
       if (!completed) return fail("A qualified listen is required to record completion.", 409);

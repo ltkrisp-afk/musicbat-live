@@ -6,7 +6,7 @@ import ts from 'typescript';
 registerHooks({
   resolve(specifier, context, next) {
     // Handler test doubles are evaluated as data URLs, which have no relative file base.
-    if (context.parentURL?.startsWith('data:') && /\/lib\/(artist-rights-declaration|direct-license-draft|direct-license-final|agreement-integrity|recording-use|membership-accounting|membership-ledger)$/.test(specifier)) {
+    if (context.parentURL?.startsWith('data:') && /\/lib\/(artist-rights-declaration|direct-license-draft|direct-license-final|agreement-integrity|recording-use|membership-accounting|membership-ledger|listening-observation|membership-radio-boundary|radio-plus)$/.test(specifier)) {
       return {url:new URL('../lib/'+specifier.split('/').at(-1)+'.ts',import.meta.url).href,shortCircuit:true};
     }
     if (specifier.startsWith('.') && context.parentURL?.startsWith('file:') && !/\.[a-z]+$/i.test(specifier)) {
