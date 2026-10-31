@@ -231,7 +231,8 @@ test('Shock Room ranks listener behavior within genre and energy; exposure alone
 
   globalThis.musicbatRotationState.user = { userId: 'listener-a' };
   assert.equal((await route.POST(post({ action: 'radio_feedback', trackId: 1, listenId: 'a1', signal: 'down' }))).status, 200);
-  assert.equal((await route.POST(post({ action: 'complete_listen', trackId: 1, listenId: 'a2' }))).status, 200);
+  // Legacy qualified records alone no longer authorize a new verified completion.
+  assert.equal((await route.POST(post({ action: 'complete_listen', trackId: 1, listenId: 'a2' }))).status, 409);
   globalThis.musicbatRotationState.user = {userId:'artist-1'};
   const afterSignals = await (await getShockRoom()).json();
   const rankedOne = afterSignals.rows.find(row => row.track_id === 1);

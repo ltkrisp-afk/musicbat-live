@@ -1,0 +1,10 @@
+import {readFile} from 'node:fs/promises';
+import {createHash} from 'node:crypto';
+import assert from 'node:assert/strict';
+import {directLicenseFinal} from '../lib/direct-license-final.ts';
+const manifest=JSON.parse(await readFile('legal/agreement-integrity.json','utf8'));
+const bytes=await readFile(manifest.source),digest=createHash('sha256').update(bytes).digest('hex');
+assert.equal(bytes.length,manifest.sizeBytes);assert.equal(digest,manifest.sha256);
+assert.equal(directLicenseFinal.sha256,digest);assert.equal(directLicenseFinal.body,bytes.toString('utf8'));
+for(const schedule of manifest.schedules) assert.match(directLicenseFinal.body,new RegExp('## Schedule '+schedule+' -'));
+console.log(JSON.stringify({version:manifest.version,sha256:digest,sizeBytes:bytes.length,schedules:manifest.schedules,activation:manifest.activation,blockers:manifest.blockers},null,2));

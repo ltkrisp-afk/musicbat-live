@@ -1,5 +1,13 @@
 # MusicBat engineering continuity
 
+Permanent architectural guidance: read
+[MusicBat Golden Foundation](docs/governance/MUSICBAT_GOLDEN_FOUNDATION.md)
+before proposing or changing MusicBat behavior. Apply its ten principles and
+record observable verification for affected behavior. Report verified conflicts
+without automatically changing approved business rules or agreements. The foundation
+does not authorize production actions. The initial alignment findings are in
+`docs/governance/golden-foundation-alignment-2026-10-30.md`.
+
 Use the existing corrected 85/15 development source. The obsolete GitHub default
 `bat-radio-shock-room` at `61fc95f` contains executable 90/10 code and must not
 be used for development, acceptance, or deployment. Continue from
@@ -15,7 +23,7 @@ checks, and remaining Phase 4 prerequisites. See
 `docs/radio-timeout-repair-2026-10-16.md` for the resolved development WebSocket
 failure and application browser verification. Run timing-sensitive browser
 checks sequentially after builds/regressions to avoid CPU contention. Preserve the existing architecture,
-artist rights, free Radio, optional $3/month Radio Plus, and 85/15 base purchase
+artist rights, free Radio, optional $5/month Radio Plus, and 85/15 base purchase
 allocation. Preserve recorded historical financial allocations and downloads.
 
 Use Node 24.19.0 and pnpm 11.25.0. If dependencies require refreshing:
@@ -42,3 +50,23 @@ recovery evidence and transaction history. Do not reset verified records or use
 production recordings as fixtures. Distinguish browser service failures from
 application failures. Record PASS/FAIL/BLOCKED/NOT RUN, actual UTC observations
 and evidence references. Never label responsive Chromium as physical Safari.
+
+Permanent execution authority: read
+[MusicBat Legal Governance & Execution Authority](docs/governance/MUSICBAT_LEGAL_EXECUTION_AUTHORITY.md).
+Separate implementation readiness, legal-review readiness and production activation.
+Continue independently authorized development while documenting operation-specific
+legal questions; do not claim professional legal approval or silently change owner rules.
+
+The Golden Foundation's **Fundamental Design Rule** is permanent: governance must
+be continuous, enforceable and proportional. Apply its six operational invariants
+and acceptance criteria to affected changes. Map permission → recording/rights
+holder/agreement/use → service control → accountable evidence. Verify both the
+restricted use and independently cleared uses, financial independence and historical
+preservation. Reuse existing consent and review workflows; expose understandable
+status and corrective actions without unnecessary interruptions or blanket account
+restrictions. Report legacy boundaries, manual responsibilities and unverified
+limits explicitly; do not change functioning systems merely to restate this rule.
+
+## Engineering continuity and acceptance gates
+
+Before each engineering assignment, read [Engineering Continuity and Acceptance](docs/governance/ENGINEERING_CONTINUITY_AND_ACCEPTANCE.md). Verify required account/environment access independently; preserve prior checkpoints; record actual evidence. Classify work as IMPLEMENTED, VALIDATED, DEPLOYED, ACCEPTED or BLOCKED according to the observed stage. Passing tests alone do not establish hosted acceptance. Do not assume the owner's phone/dashboard session is the cloud agent's authenticated environment. Record a specific blocker rather than silently substituting a local fixture or stale hosted build.

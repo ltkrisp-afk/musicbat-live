@@ -20,7 +20,7 @@ function fixture(){const db=new DatabaseSync(':memory:');for(let i=0;i<5;i++)exe
 test('version 13 immutable history, all pending migrations registered and compatibility preserves data',()=>{
  assert.deepEqual(journal.entries.slice(0,5),old.entries);
  for(let i=0;i<5;i++)assert.equal(readFileSync(`drizzle/${old.entries[i].tag}.sql`,'utf8'),readFileSync(`release/v13/baseline/${old.entries[i].tag}.sql`,'utf8'));
- assert.equal(migrations.length,16);assert.deepEqual(journal.entries.slice(6).map(e=>e.tag.slice(0,4)),['0006','0007','0008','0009','0010','0011','0012','0013','0014','0015']);
+ assert.equal(migrations.length,23);assert.deepEqual(journal.entries.slice(6).map(e=>e.tag.slice(0,4)),['0006','0007','0008','0009','0010','0011','0012','0013','0014','0015','0016','0017','0018','0019','0020','0021','0022']);
  const db=fixture(),before={};for(const t of ['purchases','artist_accounts','stripe_events','hangers','radio_feedback','track_keeps'])before[t]=rows(db,t);
  db.exec('BEGIN IMMEDIATE');for(let i=5;i<migrations.length;i++)execute(db,migrations[i]);db.exec('COMMIT');
  for(const t of ['artist_accounts','stripe_events','hangers'])assert.deepEqual(rows(db,t),before[t]);

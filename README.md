@@ -1,5 +1,17 @@
 # MusicBat Minimum Working Loop
 
+## Development governance
+
+“Keep the mystery in the music. Take the mystery out of the business.”
+
+Developers and AI agents must follow the permanent
+[MusicBat Golden Foundation](docs/governance/MUSICBAT_GOLDEN_FOUNDATION.md)
+and [engineering instructions](AGENTS.md). The foundation guides architecture and
+observable verification; it does not amend agreements or authorize deployment.
+See the [initial alignment findings](docs/governance/golden-foundation-alignment-2026-10-30.md)
+for verified discrepancies and evidence boundaries. Historical implementation notes
+below must not override newer owner-approved rules or current verified source.
+
 A deployable proof of the MusicBat activity engine:
 
 1. An artist uploads an MP3, WAV, or FLAC file (up to 25 MiB), supplies a track title and artist/band name, and attests their rights.

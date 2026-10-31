@@ -1,3 +1,4 @@
+import { authorizeRecordingUse } from "../../../../lib/recording-use";
 import { getChatGPTUser } from "../../../chatgpt-auth";
 import { env } from "cloudflare:workers";
 import { buyerIdentity } from "./buyer";
@@ -99,6 +100,8 @@ export async function POST(request: Request) {
       FROM tracks t LEFT JOIN artist_accounts a ON a.artist_id = t.artist_id
       WHERE t.id = ? AND t.status = 'active' AND t.rights_attested = 1
     `).bind(trackId).first<TrackForSale>();
+    if (track && !(await authorizeRecordingUse(env.DB,trackId,'download-sale',(request as Request & {cf?:{country?:string}}).cf?.country ?? 'unknown')).allowed)
+      return response({error:'This recording is awaiting download rights or verification clearance.'},409);
     if (!track) return response({ error: "That song is unavailable." }, 404);
     if (!track.sale_enabled || !track.sale_rights_attested || !track.sale_price_cents) return response({ error: "This artist has not offered the track for sale yet." }, 409);
     if (!Number.isSafeInteger(track.sale_price_cents) || track.sale_price_cents < 1 || track.sale_price_cents > 99999999) return response({ error: "This song has an invalid sale price." }, 409);

@@ -7,7 +7,7 @@ import {membershipBoundRadio} from '../lib/membership-radio-boundary.ts';
 const origin='http://localhost:5173';
 const request=body=>new Request(origin+'/api/musicbat/subscription',{method:'POST',headers:{origin,'content-type':'application/json'},body:JSON.stringify(body)});
 async function setup(){const f=await fixture(),env=f.state.env;delete env.MUSICBAT_BASE_URL;const processor=plusFixture(env);return {...f,env,processor};}
-const join=env=>handlePlus(env,request({action:'join',recurringConsent:true,confirmedPriceCents:300}),'patron');
+const join=env=>handlePlus(env,request({action:'join',recurringConsent:true,confirmedPriceCents:500}),'patron');
 test('invalid modes and incomplete sandbox configuration deny enrollment before processor calls or ledger writes',async()=>{
  const f=await setup();try{
   const configured={...f.env};let calls=0;
@@ -67,7 +67,7 @@ test('forged/unsigned and mismatched evidence cannot grant access',async()=>{
   const sub=f.processor.subscriptions.get(f.processor.sessions.get(id).value.subscription),row=f.sqlite.prepare('SELECT * FROM radio_plus_enrollments').get();
   f.sqlite.prepare('UPDATE radio_plus_enrollments SET paid_until=0').run();f.processor.invoices.get(sub.latest_invoice).amount_paid=299;
   await assert.rejects(()=>f.processor.event('invoice.paid',f.processor.invoices.get(sub.latest_invoice)),/verification/);assert.equal(await plusAccess(f.env.DB,'patron'),0);
-  f.processor.invoices.get(sub.latest_invoice).amount_paid=300;sub.metadata.musicbat_user_id='stranger';await assert.rejects(()=>f.processor.event('customer.subscription.updated',sub),/verification/);assert.equal(f.sqlite.prepare('SELECT paid_until FROM radio_plus_enrollments WHERE id=?').get(row.id).paid_until,0);
+  f.processor.invoices.get(sub.latest_invoice).amount_paid=500;sub.metadata.musicbat_user_id='stranger';await assert.rejects(()=>f.processor.event('customer.subscription.updated',sub),/verification/);assert.equal(f.sqlite.prepare('SELECT paid_until FROM radio_plus_enrollments WHERE id=?').get(row.id).paid_until,0);
  }finally{f.sqlite.close();}
 });
 test('private gateway overwrites forged membership headers and storage failure denies delivery',async()=>{
@@ -109,4 +109,34 @@ test('restricted sandbox membership uses verified invoices for activation, renew
    f.env.STRIPE_SECRET_KEY=key;assert.equal((await plusStatus(f.env,'patron')).available,false);assert.equal((await join(f.env)).status,503);
   }
  }finally{f.sqlite.close();}
+});
+
+test('$5 checkout amount and monthly interval are sent to Stripe; old $3 confirmation is rejected',async()=>{
+ const f=await setup();try{
+  const processor=f.env.RADIO_PLUS_PROCESSOR;let fields;
+  f.env.RADIO_PLUS_PROCESSOR={async fetch(request){if(request.method==='POST' && new URL(request.url).pathname==='/v1/checkout/sessions')fields=new URLSearchParams(await request.clone().text());return processor.fetch(request);}};
+  assert.equal((await handlePlus(f.env,request({action:'join',recurringConsent:true,confirmedPriceCents:300}),'patron')).status,409);
+  await paid(f);assert.equal(fields.get('line_items[0][price_data][unit_amount]'),'500');assert.equal(fields.get('line_items[0][price_data][recurring][interval]'),'month');
+  assert.equal(f.sqlite.prepare('SELECT amount_cents FROM radio_plus_invoices').get().amount_cents,500);
+ }finally{f.sqlite.close();}
+});
+
+test('invoice evidence write failure rolls back entitlement and event so delivery can retry',async()=>{
+ const f=await setup();try{
+  const response=await join(f.env),id=(await response.json()).checkoutUrl.split('/').at(-1);
+  f.sqlite.exec("CREATE TRIGGER test_invoice_failure BEFORE INSERT ON radio_plus_invoices BEGIN SELECT RAISE(ABORT,'invoice storage unavailable'); END;");
+  await assert.rejects(()=>f.processor.pay(id),/invoice storage unavailable/);
+  assert.equal(await plusAccess(f.env.DB,'patron'),0);assert.equal(f.sqlite.prepare('SELECT count(*) n FROM radio_plus_events').get().n,0);
+  f.sqlite.exec('DROP TRIGGER test_invoice_failure');await f.processor.pay(id);assert.ok(await plusAccess(f.env.DB,'patron')>Date.now());
+ }finally{f.sqlite.close();}
+});
+
+test('processor failures retain bounded diagnostic codes without leaking payment data or secret messages',async()=>{
+ const f=await setup(),log=console.error,events=[];console.error=(...args)=>events.push(args);
+ try {
+  f.env.RADIO_PLUS_PROCESSOR={fetch:async()=>Response.json({error:{type:'invalid_request_error',code:'parameter_invalid_empty',param:'line_items[0]',message:'DO_NOT_LOG_SECRET_OR_CUSTOMER_DATA',request_log_url:'https://private.invalid/secret'}},{status:400})};
+  const r=await join(f.env);assert.equal(r.status,400);assert.match((await r.json()).error,/payment service is unavailable/);
+  assert.equal(events[0][1].status,400);assert.equal(events[0][1].parameter,'line_items[0]');assert.equal(events[0][1].code,'parameter_invalid_empty');assert.ok(!JSON.stringify(events).includes('DO_NOT_LOG'));assert.ok(!JSON.stringify(events).includes('private.invalid'));
+  assert.equal(await plusAccess(f.env.DB,'patron'),0);
+ }finally{console.error=log;f.sqlite.close();}
 });

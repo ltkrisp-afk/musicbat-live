@@ -1,9 +1,11 @@
 "use client";
+import {SaveRecordingButton} from "../components/save-recording-button";
 /* Authentication and download endpoints retain full document navigation. */
 /* eslint-disable @next/next/no-html-link-for-pages */
 
+import { ArtistRightsDeclarations } from "../components/artist-rights-declarations";
 import { FormEvent, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
-import { Activity, Disc3, Gauge, Radio, ShieldCheck, Sparkles, Upload } from "lucide-react";
+import { Activity, Disc3, Gauge, Radio, ShieldCheck, Upload } from "lucide-react";
 import { ArtistDiscovery, type Artist } from "@/components/artist-discovery";
 import { ArtistRotunda } from "@/components/artist-rotunda";
 import {RadioConsole,usePersistentRadio,useRadioCallbacks} from "@/components/persistent-radio";
@@ -11,6 +13,7 @@ import Link from "next/link";
 
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
+import { Dialog, DialogContent, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
@@ -22,6 +25,7 @@ const readLocation = () => window.location.search;
 const serverLocation = () => "";
 
 type Track = {
+  viewer_saved?:number;
   id: number;
   artist_id: string;
   artist_slug: string;
@@ -174,6 +178,25 @@ export default function MusicBatLoop({ displayName, artistSlug, initialTab }: { 
   const [signInRequired, setSignInRequired] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [rightsAttested, setRightsAttested] = useState(false);
+  const [agreement, setAgreement] = useState<{version:string; body:string; acceptance_text:string; sha256:string} | null>(null);
+  const [agreementDraft, setAgreementDraft] = useState<{version:string; body:string} | null>(null);
+  const [agreementError, setAgreementError] = useState("");
+  const agreementReviewRef=useRef<HTMLButtonElement>(null);
+  const [agreementOpen, setAgreementOpen] = useState(false);
+  const [agreementReviewedAt, setAgreementReviewedAt] = useState<number | null>(null);
+  const [reviewReceiptId, setReviewReceiptId] = useState("");
+  const [electronicConsent, setElectronicConsent] = useState(false);
+  const [retainableCopyConfirmed, setRetainableCopyConfirmed] = useState(false);
+  useEffect(() => {
+    let cancelled = false;
+    fetch("/api/musicbat/agreement", { cache: "no-store" }).then(async response => {
+      const data = await response.json() as {candidate?:{version:string;body:string}; error?:string; agreement?:{version:string; body:string; acceptance_text:string; sha256:string}};
+      if (!cancelled) setAgreementDraft(data.candidate ?? null);
+      if (!response.ok || !data.agreement) throw new Error(data.error || "The Direct Licensing Agreement is unavailable.");
+      if (!cancelled) { setAgreement(data.agreement); setRightsAttested(false); setAgreementReviewedAt(null); setReviewReceiptId(""); setElectronicConsent(false); setRetainableCopyConfirmed(false); }
+    }).catch(error => { if (!cancelled) setAgreementError(error instanceof Error ? error.message : "The Direct Licensing Agreement is unavailable."); });
+    return () => { cancelled = true; };
+  }, []);
   const [sellTrack, setSellTrack] = useState(false);
   const [salePrice, setSalePrice] = useState("1.00");
   const [uploadEnergyLane, setUploadEnergyLane] = useState<EnergyLane>("medium");
@@ -212,6 +235,8 @@ export default function MusicBatLoop({ displayName, artistSlug, initialTab }: { 
     ? "Free Radio is for listening. Voting and Keep require Radio Plus on a Plus station."
     : !qualified ? "Play this station for at least 12 seconds to unlock voting and Keep for this track." : null;
   const keepActive = Boolean(current?.viewer_keep_in_rotation);
+
+  useEffect(()=>{void fetch('/api/musicbat/account?section=preferences',{cache:'no-store'}).then(r=>r.ok?r.json():null).then(d=>{if((d as {preferences?:{following_only:number}}|null)?.preferences?.following_only)setFollowingOnly(true);}).catch(()=>undefined);},[]);
 
   const fetchRadio = useCallback(() => Promise.all([
       api<{ tracks: Track[] }>("/api/musicbat?view=tracks"),
@@ -437,6 +462,7 @@ export default function MusicBatLoop({ displayName, artistSlug, initialTab }: { 
 
   async function addTrack(event: FormEvent) {
     event.preventDefault();
+    if (!rightsAttested || !agreement || !agreementReviewedAt || !electronicConsent || !retainableCopyConfirmed) { setUploadError("Accept the current Direct Licensing Agreement before uploading."); return; }
     if (!audioFile) { setUploadError("Choose your music file first."); return; }
     setBusy(true);
     setUploadError("");
@@ -447,10 +473,20 @@ export default function MusicBatLoop({ displayName, artistSlug, initialTab }: { 
       const metadata:Record<string,unknown>={};
       for(const key of ['album','isrc','iswc']) {const value=String(fields.get(key) ?? '').trim();if(value)metadata[key]=value;}
       form.set('metadata',JSON.stringify(metadata));
+      const declaration=Object.fromEntries(['distributionStatus','distributionDetails','creationClassification','version','legalName','capacity','rightsBasis','masterOwners','compositionOwners','proStatus','proDetails','ipiCae','restrictions','evidenceReference','paymentAuthority'].map(key=>[key,String(fields.get('rights_'+key) ?? '')]));
+      form.set('rightsDeclaration',JSON.stringify(declaration));
       form.set("title", title);
       form.set("artistName", artistName);
       form.set("audio", audioFile);
       form.set("rightsAttested", String(rightsAttested));
+      form.set("agreementAccepted", String(rightsAttested));
+      form.set("agreementVersion", agreement.version);
+      form.set("agreementDigest", agreement.sha256);
+      form.set("reviewReceiptId",reviewReceiptId);
+      form.set("agreementReviewedAt", String(agreementReviewedAt));
+      form.set("electronicConsent", String(electronicConsent));
+      form.set("retainableCopyConfirmed", String(retainableCopyConfirmed));
+      form.set("completedSchedules",JSON.stringify({noticeContact:String(fields.get('schedule_noticeContact')??''),scope:String(fields.get('schedule_scope')??''),beneficiaryInstructions:String(fields.get('schedule_beneficiaryInstructions')??'')}));
       form.set("saleEnabled", String(sellTrack));
       form.set("saleRightsAttested", String(saleRightsAttested));
       form.set("salePriceCents", String(Math.round(Number(salePrice) * 100)));
@@ -459,7 +495,8 @@ export default function MusicBatLoop({ displayName, artistSlug, initialTab }: { 
       form.set("subgenre", uploadSubgenre);
       form.set("style", uploadStyle);
       form.set("moodTags", uploadMoodTags);
-      await api("/api/musicbat", { method: "POST", body: form });
+      const uploaded = await api<{rightsReview?:string}>("/api/musicbat", { method: "POST", body: form });
+      if (uploaded.rightsReview === "required") setUploadError("Recording received on rights-review hold. Sales and streaming remain disabled until supporting authorization is reviewed.");
       setTitle("");
       setArtistName("");
       setAudioFile(null);
@@ -592,7 +629,7 @@ export default function MusicBatLoop({ displayName, artistSlug, initialTab }: { 
 
   const artistContext = ['catalog','rotunda','shock'].includes(tab) || (tab==='discover' && Boolean(artistSlug) && artists.some(a=>a.slug===artistSlug&&Number(a.is_owner)===1));
   return (
-    <main className="min-h-screen bg-[#08070b] text-[#f7f4ed]">
+    <main className={tab==='radio'?'mb-radio-page min-h-screen':"min-h-screen bg-[#08070b] text-[#f7f4ed]"}>
       <div className="mx-auto max-w-[1440px] px-4 py-4 sm:px-7 sm:py-6 lg:px-10">
         <header className="mb-5 flex flex-wrap items-center justify-between gap-4 border-b border-white/10 pb-5">
           <div className="flex items-center gap-3">
@@ -601,24 +638,20 @@ export default function MusicBatLoop({ displayName, artistSlug, initialTab }: { 
             </div>
             <div><Link href="/" className="text-[0.72rem] font-black uppercase tracking-[0.24em] text-[#ff69bd]">MusicBat</Link><p className="mt-1 text-[0.6rem] tracking-wider text-white/55">YOUR MUSIC. YOUR RIGHTS. YOUR MONEY.</p></div>
           </div>
-          <div className="text-right"><div className="text-sm font-semibold text-white/90">{artistContext && artistIdentity ? artistIdentity : displayName}</div><div className="text-xs text-white/45">{artistContext ? canManage ? 'Artist account' : 'Artist setup' : loopStatus}</div></div>
+          <div className="text-right"><Link href="/account" className="text-sm underline">My Account</Link><div className="text-sm font-semibold text-white/90">{artistContext && artistIdentity ? artistIdentity : displayName}</div><div className="text-xs text-white/45">{artistContext ? canManage ? 'Artist account' : 'Artist setup' : loopStatus}</div></div>
         </header>
-
-        <div className="mb-5 grid grid-cols-4 overflow-hidden rounded-xl border border-white/10 bg-white/[0.025] text-center text-[0.68rem] font-black uppercase tracking-[0.12em] text-white/45">
-          {["Catalog", "Radio", "Response", "Shock Room"].map((step, index) => <div key={step} className="border-r border-white/10 px-2 py-3 last:border-0"><span className="mr-1 text-[#ff69bd]">0{index + 1}</span> {step}</div>)}
-        </div>
 
         <Tabs value={tab} onValueChange={setTab} className="gap-5">
           <TabsList className="h-auto w-full flex-wrap justify-start gap-1 rounded-xl border border-white/10 bg-white/[0.035] p-1.5 sm:w-fit">
             <TabsTrigger value="radio" className="h-10 rounded-lg px-4 text-white/55 data-[state=active]:bg-[#ff3ea5] data-[state=active]:text-white"><Radio /> Radio</TabsTrigger>
             <TabsTrigger value="discover" className="h-10 rounded-lg px-4 text-white/55 data-[state=active]:bg-[#ff3ea5] data-[state=active]:text-white"><Disc3 /> Discover Artists</TabsTrigger>
-            <TabsTrigger value="catalog" className="h-10 rounded-lg px-4 text-white/55 data-[state=active]:bg-[#ff3ea5] data-[state=active]:text-white"><Disc3 /> Add Track</TabsTrigger>
-            {canManage && <TabsTrigger value="shock" className="h-10 rounded-lg px-4 text-white/55 data-[state=active]:bg-[#ff3ea5] data-[state=active]:text-white"><Gauge /> Shock Room</TabsTrigger>}
-          {canManage && <TabsTrigger value="rotunda" className="h-10 rounded-lg px-4 text-white/55 data-[state=active]:bg-[#ff3ea5] data-[state=active]:text-white">Manage Songs</TabsTrigger>}</TabsList>
+            {tab!=='radio'&&<TabsTrigger value="catalog" className="h-10 rounded-lg px-4 text-white/55 data-[state=active]:bg-[#ff3ea5] data-[state=active]:text-white"><Disc3 /> Add Track</TabsTrigger>}
+            {canManage && tab!=='radio' && <TabsTrigger value="shock" className="h-10 rounded-lg px-4 text-white/55 data-[state=active]:bg-[#ff3ea5] data-[state=active]:text-white"><Gauge /> Shock Room</TabsTrigger>}
+          {canManage && tab!=='radio' && <TabsTrigger value="rotunda" className="h-10 rounded-lg px-4 text-white/55 data-[state=active]:bg-[#ff3ea5] data-[state=active]:text-white">Manage Songs</TabsTrigger>}</TabsList>
 
-          <details className="mt-3 text-sm"><summary className="cursor-pointer" onClick={() => void api<{purchases:{id:string;title:string;status:string}[]}>("/api/musicbat/purchase").then(data=>setOwnedPurchases(data.purchases)).catch(()=>setPurchaseMessage("Sign in to access purchased music."))}>My purchased music</summary>
+          {tab!=='radio'&&<details className="mt-3 text-sm"><summary className="cursor-pointer" onClick={() => void api<{purchases:{id:string;title:string;status:string}[]}>("/api/musicbat/purchase").then(data=>setOwnedPurchases(data.purchases)).catch(()=>setPurchaseMessage("Sign in to access purchased music."))}>My purchased music</summary>
             {ownedPurchases.filter(p=>p.status==='paid').map(p=><p key={p.id}><a className="underline" href={`/api/musicbat/purchase/${p.id}/download`}>{p.title} — Download</a></p>)}
-          </details>
+          </details>}
           {legacyOrder && <Button onClick={() => void api<{downloadUrl:string}>("/api/musicbat/purchase",{method:"POST",body:JSON.stringify({action:"recover_legacy_purchase",purchaseId:legacyOrder})}).then(data=>{setPurchaseDownloadUrl(data.downloadUrl);setLegacyOrder(null);setPurchaseMessage("Purchase recovered to your signed-in account.");}).catch(error=>setPurchaseMessage(error.message))}>Recover this purchase to my account</Button>}
           {purchaseMessage && <p role="status" aria-live="polite" className="mt-3 text-sm leading-relaxed text-white/65">{purchaseMessage}{purchaseDownloadUrl && <> <a className="font-black text-[#ff69bd] underline" href={purchaseDownloadUrl}>Download track</a></>}</p>}
           <TabsContent value="discover">
@@ -629,16 +662,16 @@ export default function MusicBatLoop({ displayName, artistSlug, initialTab }: { 
               onRadio={()=>{openRadio();setTab('radio');}} message={message} />
           </TabsContent>
           <TabsContent value="radio">
-            <section className="grid gap-5 lg:grid-cols-[minmax(0,1.55fr)_minmax(310px,.65fr)]">
-              <div className="relative overflow-hidden rounded-[1.75rem] border border-white/10 bg-[#111018] p-6 shadow-[0_28px_90px_rgba(0,0,0,.45)] sm:p-9">
-                <div className="pointer-events-none absolute -right-24 -top-24 size-72 rounded-full bg-[#ff3ea5]/10 blur-3xl" />
-                <div className="relative">
-                  <div className="mb-10 flex items-center justify-between gap-4"><div className="flex items-center gap-2 text-xs font-black uppercase tracking-[0.18em] text-[#ff69bd]"><span className="size-2 rounded-full bg-[#ff3ea5] shadow-[0_0_14px_#ff3ea5]" /> Now in the cave</div><div className="rounded-full border border-white/10 px-3 py-1 text-xs text-white/45">{sharedTrackId ? "Shared channel" : "Quiet"}</div></div>
+            <section className="mb-radio-focus">
+              <div className="mb-radio-listening-room">
+                <div className="mb-radio-session">
+
                   <RadioConsole />
                   {current ? <>
-                    <div className="mb-8 min-h-36"><div className="mb-3 text-sm uppercase tracking-[0.16em] text-white/38">Independent signal · {current.primary_genre} / {energyCategory(current.energy_lane)}</div><h1 className="max-w-4xl text-4xl font-black leading-[0.98] tracking-[-0.045em] sm:text-6xl lg:text-7xl">{current.title}</h1><p className="mt-4 text-lg font-semibold text-white/58">{current.artist_name}</p></div>
+                    <div className="mb-8 min-h-36"><div className="mb-3 text-sm uppercase tracking-[0.16em] text-white/38">Independent signal · {current.primary_genre} / {energyCategory(current.energy_lane)}</div><h1 className="mb-now-playing-title">{current.title}</h1><p className="mt-4 text-lg font-semibold text-white/58">{current.artist_name}</p></div>
                     <div className="flex flex-wrap items-center gap-3">
                       <Button type="button" disabled={purchaseBusy} aria-busy={purchaseBusy} onClick={() => void buyCurrentTrack()} aria-label={`Buy ${current.title}`} data-track-id={current.id} className="h-12 shrink-0 rounded-full border border-[#ff3ea5]/50 bg-[#ff3ea5]/20 px-6 text-base font-black text-white disabled:opacity-60">{current.sale_enabled && current.sale_price_cents ? `Buy $${(current.sale_price_cents / 100).toFixed(2)}` : "Buy"}</Button>
+                      <SaveRecordingButton key={current.id} trackId={current.id} initialSaved={Boolean(current.viewer_saved)}/>
                       <div className="flex shrink-0 items-center gap-1" role="group" aria-label="Radio feedback" aria-describedby={feedbackHint ? "radio-feedback-help" : undefined} style={!canRespond ? {opacity:0.45} : undefined}>
                         <Button type="button" variant="ghost" aria-label="More like this" title="More like this" disabled={busy || !canRespond} onClick={() => void sendRadioFeedback("up")} className="size-10 rounded-full px-0 text-lg font-black text-white/65 hover:bg-[#ff3ea5]/15 hover:text-[#ff69bd]">▲</Button>
                         <Button type="button" variant="ghost" aria-label="Less like this" title="Less like this" disabled={busy || !canRespond} onClick={() => void sendRadioFeedback("down")} className="size-10 rounded-full px-0 text-lg font-black text-white/65 hover:bg-[#ff3ea5]/15 hover:text-[#ff69bd]">▼</Button>
@@ -651,10 +684,7 @@ export default function MusicBatLoop({ displayName, artistSlug, initialTab }: { 
                   </> : <div className="grid min-h-[390px] place-items-center text-center"><div><Disc3 className="mx-auto mb-5 size-12 text-[#ff69bd]" /><h1 className="text-3xl font-black tracking-tight">{tracks.length ? "This category is quiet." : "Radio needs its first track."}</h1><p className="mx-auto mt-3 max-w-md text-white/52">{tracks.length ? "Use the shared Radio category controls or review the catalog." : "Upload your music file, classify it, and confirm your rights to enter Radio."}</p><Button onClick={() => setTab(tracks.length ? "discover" : "catalog")} className="mt-6 rounded-full bg-[#ff3ea5] px-6 text-white hover:bg-[#ff69bd]">{tracks.length ? "Open catalog" : "Add the first track"}</Button></div></div>}
                 </div>
               </div>
-              <aside className="flex flex-col gap-5">
-                <div className="rounded-[1.5rem] border border-white/10 bg-white/[0.035] p-6"><div className="mb-5 flex items-center gap-2 text-xs font-black uppercase tracking-[0.16em] text-white/45"><Sparkles className="size-4 text-[#ff69bd]" /> Signal status</div><p className="text-lg font-semibold leading-snug">{loading ? "Loading the loop…" : message}</p>{message === "Sign in to use MusicBat." && <a href="/signin-with-chatgpt?return_to=%2F" className="mt-3 inline-block font-bold text-[#ff69bd] underline">Sign in to keep songs in rotation</a>}<div className="mt-6 h-1.5 overflow-hidden rounded-full bg-white/10"><div className={`h-full rounded-full bg-[#ff3ea5] transition-all ${canRespond ? "w-full" : listenId ? "w-2/3" : tracks.length ? "w-1/3" : "w-0"}`} /></div></div>
-                {Boolean(current?.can_manage) && <div className="rounded-[1.5rem] border border-white/10 bg-[#15121b] p-6"><div className="text-xs font-black uppercase tracking-[0.16em] text-[#ff69bd]">Category signal</div><div className="mt-3 text-2xl font-black">Shock Score {current?.shock_score ?? 0}</div><div className="mt-2 text-sm text-white/50">▲ {current?.up_count ?? 0} · ▼ {current?.down_count ?? 0} · Keeps {current?.keep_count ?? 0}</div><div className="mt-1 text-xs text-white/38">Completions {current?.completion_count ?? 0} · Repeat listens {current?.repeat_count ?? 0} · Purchases {current?.purchase_count ?? 0}</div><div className="mt-2 text-sm text-white/50">Position: #{current?.position ?? "—"} — {current?.primary_genre ?? "—"} / {current ? energyCategory(current.energy_lane) : "—"}</div></div>}
-              </aside>
+              <p className="mb-radio-status" role="status">{loading?'Connecting to Radio…':message}</p>
             </section>
           </TabsContent>
 
@@ -690,14 +720,47 @@ export default function MusicBatLoop({ displayName, artistSlug, initialTab }: { 
                     <Button type="button" disabled={busy} onClick={() => fileInputRef.current?.click()} className="h-12 w-full justify-start rounded-xl border border-white/12 bg-white/[0.045] px-4 text-sm font-normal text-white/65 hover:bg-white/10"><Upload /> <span className="truncate">{audioFile ? audioFile.name : "Choose music file"}</span></Button>
                     <p className="mt-2 text-sm text-white/45">MP3, WAV, or FLAC · up to 25 MB.</p>
                   </div>
-                  <label className="flex cursor-pointer items-start gap-3 rounded-xl border border-white/10 bg-white/[0.03] p-4"><Checkbox checked={rightsAttested} onCheckedChange={(value) => setRightsAttested(value === true)} className="mt-0.5 border-white/25 data-[state=checked]:border-[#ff3ea5] data-[state=checked]:bg-[#ff3ea5]" /><span className="text-sm leading-relaxed text-white/62">I own this recording or am authorized to present it, and I permit MusicBat to stream it in this test loop.</span></label>
+                  <a href="/api/musicbat?view=license-records" target="_blank" rel="noreferrer" className="text-sm text-blue-400 underline">View my accepted terms and rights records</a>
+                  <ArtistRightsDeclarations />
+                  <fieldset className="space-y-3 rounded-xl border border-white/15 p-4">
+                    <legend>Execution particulars — Schedules A, C and D</legend>
+                    <label className="block">Artist notice contact<input name="schedule_noticeContact" required maxLength={4000} className="block w-full rounded bg-black/30 p-2" /></label>
+                    <label className="block">Requested uses, territories and start/end dates<textarea name="schedule_scope" required maxLength={4000} className="block w-full rounded bg-black/30 p-2" /><span className="text-xs text-white/60">Identify preview, free discovery, member streaming and/or download sales separately. Noninteractive radio and other uses require separate clearance. Missing authority remains held.</span></label>
+                    <label className="block">Designated recipient, collection authority and beneficiary instructions<textarea name="schedule_beneficiaryInstructions" required maxLength={4000} className="block w-full rounded bg-black/30 p-2" /><span className="text-xs text-white/60">Separate purchase and streaming instructions. Streaming beneficiary shares total 10,000 basis points. Required licensors must approve the 25% QCMR model and zero-unit free discovery terms. This signature does not bind other owners.</span></label>
+                  </fieldset>
+                  <label className="flex cursor-pointer items-start gap-3 rounded-xl border border-white/10 bg-white/[0.03] p-4"><Checkbox required disabled={!agreement || !agreementReviewedAt || !electronicConsent || !retainableCopyConfirmed} checked={rightsAttested} onCheckedChange={(value) => setRightsAttested(value === true)} className="mt-0.5 border-white/25 data-[state=checked]:border-[#ff3ea5] data-[state=checked]:bg-[#ff3ea5]" /><span className="text-sm leading-relaxed text-white/62">{agreement?.acceptance_text ?? "I own or control the necessary rights to this recording and composition, and I agree to MusicBat’s Direct Licensing Agreement."}</span></label>
+                  <label className="flex items-start gap-3 text-sm"><Checkbox checked={electronicConsent} onCheckedChange={value=>setElectronicConsent(value===true)} /><span>I consent to electronic contracting. I may decline and contact the operator for a paper/manual process.</span></label>
+                  <label className="flex items-start gap-3 text-sm"><Checkbox checked={retainableCopyConfirmed} onCheckedChange={value=>setRetainableCopyConfirmed(value===true)} /><span>I can save the supplied UTF-8 text or print a copy of the complete agreement and schedules using my browser.</span></label>
+                  <div className="text-sm">
+                    <a href="/api/musicbat/agreement?format=text" download className="block text-blue-400 underline">Save the complete agreement and Schedules A–F</a>
+                    <button ref={agreementReviewRef} type="button" onClick={async () => {
+                      setAgreementOpen(true);
+                      if(!agreement)return;
+                      if(agreement.version!=='2026-10-29.3'){setAgreementReviewedAt(Date.now());return;}
+                      try {
+                        const response=await fetch('/api/musicbat/agreement',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({version:agreement.version,sha256:agreement.sha256})});
+                        const data=await response.json() as {agreement?:{body:string;sha256:string};error?:string;reviewReceiptId:string;reviewedAt:number};
+                        if(!response.ok || data.agreement?.body!==agreement.body || data.agreement?.sha256!==agreement.sha256)throw new Error(data.error||'Agreement integrity changed. Reload before accepting.');
+                        setReviewReceiptId(data.reviewReceiptId);setAgreementReviewedAt(data.reviewedAt);
+                      } catch(error){setAgreementReviewedAt(null);setReviewReceiptId('');setAgreementError(error instanceof Error?error.message:'Agreement review failed.');}
+                    }} className="text-blue-400 underline underline-offset-4 focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-400">Review Direct Licensing Agreement</button>
+                    <p className="mt-2 text-white/60">Open the complete agreement and Schedules A–F before accepting. Opening alone does not mean acceptance.</p>
+                    {agreementError && <p role="alert" className="mt-2 text-[#ff9dcc]">{agreementError}</p>}
+                    <Dialog open={agreementOpen} onOpenChange={setAgreementOpen}>
+                      <DialogContent onCloseAutoFocus={event=>{event.preventDefault();agreementReviewRef.current?.focus();}} className="max-h-[85dvh] overflow-y-auto bg-[#17141d] text-white sm:max-w-3xl">
+                        <DialogTitle>Direct Licensing Agreement</DialogTitle>
+                        <DialogDescription>{agreement ? `Version ${agreement.version}` : agreementDraft ? `Version ${agreementDraft.version} — activation pending; not available for acceptance` : "Agreement unavailable"}</DialogDescription>
+                        <div className="whitespace-pre-wrap break-words text-base leading-7">{agreement?.body ?? agreementDraft?.body ?? (agreementError || "Loading the agreement…")}</div>
+                      </DialogContent>
+                    </Dialog>
+                  </div>
                   <label className="flex cursor-pointer items-start gap-3 rounded-xl border border-white/10 bg-white/[0.03] p-4"><Checkbox checked={sellTrack} onCheckedChange={(value) => { setSellTrack(value === true); if (value !== true) setSaleRightsAttested(false); }} className="mt-0.5 border-white/25 data-[state=checked]:border-[#ff3ea5] data-[state=checked]:bg-[#ff3ea5]" /><span className="text-sm leading-relaxed text-white/62">Offer this track for sale as a downloadable music file.</span></label>
                   {sellTrack && <div className="space-y-3 rounded-xl border border-[#ff3ea5]/25 bg-[#ff3ea5]/5 p-4">
                     <label className="block"><span className="mb-2 block text-sm font-semibold text-white/65">Price in USD</span><Input value={salePrice} onChange={(event) => setSalePrice(event.target.value)} required min="0.50" max="1000" step="0.01" type="number" inputMode="decimal" className="h-11 rounded-xl border-white/12 bg-black/20 px-4 text-white" /></label>
                     <label className="flex cursor-pointer items-start gap-3"><Checkbox checked={saleRightsAttested} onCheckedChange={(value) => setSaleRightsAttested(value === true)} className="mt-0.5 border-white/25 data-[state=checked]:border-[#ff3ea5] data-[state=checked]:bg-[#ff3ea5]" /><span className="text-sm leading-relaxed text-white/62">I authorize MusicBat to sell and deliver this recording to buyers.</span></label>
                   </div>}
                   <details><summary className="cursor-pointer text-sm">Album and identifiers (optional)</summary><p className="text-xs text-white/60">No identifier is required. Add or correct credits later in Manage Songs.</p>{['album','isrc','iswc'].map(key=><label key={key} className="block text-sm">{key==='album'?'Album':key.toUpperCase()}<input name={key} maxLength={key==='album'?200:30} className="block w-full rounded border border-white/20 bg-black/30 p-2" /></label>)}</details>
-                  <Button disabled={busy || !rightsAttested || !audioFile || !uploadGenre || (sellTrack && !saleRightsAttested)} type="submit" className="h-12 w-full rounded-xl bg-[#ff3ea5] text-base font-black text-white hover:bg-[#ff69bd]">{busy ? "Uploading your track…" : "Upload music"}</Button>
+                  <Button disabled={busy || !agreement || !rightsAttested || !audioFile || !uploadGenre || (sellTrack && !saleRightsAttested)} type="submit" className="h-12 w-full rounded-xl bg-[#ff3ea5] text-base font-black text-white hover:bg-[#ff69bd]">{busy ? "Uploading your track…" : "Upload music"}</Button>
                   {uploadError && <p role="alert" className="text-sm text-[#ff9dcc]">{uploadError}{signInRequired && <> <a className="font-bold underline" href="/signin-with-chatgpt?return_to=%2F">Sign in to upload</a></>}</p>}
                 </div>
               </form>
@@ -732,6 +795,7 @@ export default function MusicBatLoop({ displayName, artistSlug, initialTab }: { 
             </section>}
           </TabsContent>
         </Tabs>
+        <nav aria-label="Legal and privacy" className="mt-8 flex flex-wrap gap-5 text-sm text-blue-400 underline"><Link href="/legal">Licensing agreement</Link><Link href="/privacy">Privacy and records</Link><Link href="/copyright">Copyright contact</Link></nav>
       </div>
     </main>
   );

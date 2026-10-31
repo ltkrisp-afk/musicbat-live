@@ -32,7 +32,7 @@ test('one live audio element and volume survive screen replacement and membershi
    await act(async()=>tree.update(view(name)));
    assert.equal(audioRefs,1);assert.equal(tree.root.findAllByType('audio').length,1);assert.equal(audio.volume,0.35);assert.equal(audio.muted,true);assert.equal(audio.paused,false);assert.equal(audio.src,src);assert.equal(audio.loads,loads);assert.equal(audio.pauses,pauses);
   }
-  await act(async()=>{tree.root.findByProps({children:'About Radio Plus · planned $3/month'}).props.onClick();});
+  await act(async()=>{tree.root.findByProps({children:'About Radio Plus · planned $5/month'}).props.onClick();});
   assert.equal(opened,true);assert.equal(audio.paused,false);assert.equal(audio.volume,0.35);assert.equal(audioRefs,1);
   await act(async()=>tree.root.findByType('audio').props.onPlay());assert.equal(heard.at(-1),'Radio');
  }finally{if(tree)await act(async()=>tree.unmount());globalThis.self=saved.self;globalThis.document=saved.document;globalThis.window=saved.window;globalThis.fetch=saved.fetch;globalThis.IS_REACT_ACT_ENVIRONMENT=saved.act;}

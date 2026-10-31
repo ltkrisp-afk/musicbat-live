@@ -1,3 +1,4 @@
+import {testRightsDeclaration} from './license-fixture.mjs';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { test } from 'node:test';
@@ -10,6 +11,7 @@ async function loadRoute(path, state) {
   const stripe = await readFile(new URL('../app/api/musicbat/stripe/stripe.ts', import.meta.url), 'utf8');
   const source = (await readFile(new URL(path, import.meta.url), 'utf8'))
     .replace(/import \{[^;]+\} from \"[^\"]*stripe\";/s, stripe)
+    .replace(/import \{ parseRightsDeclaration \} from [^;]+;/,await readFile('lib/artist-rights-declaration.ts','utf8'))
     .replace(/import \{ authorizePlayback, type Permission \} from [^;]+;/, policy)
     .replace('import { env } from "cloudflare:workers";', 'const env = globalThis.musicbatTestState.env;')
     .replace('import { getChatGPTUser } from "../../chatgpt-auth";', 'const getChatGPTUser = async () => globalThis.musicbatTestState.user;');
@@ -22,6 +24,7 @@ function fixture() {
   const grant = {recording_basis:'direct', recording_evidence:'test-recording-contract', composition_evidence:'test-composition-contract', reviewed_by:'test-reviewer', reviewed_at:0, artist_authorized:1, free_allowed:1, plus_allowed:1, starts_at:0, expires_at:9999999999999, withdrawn_at:null, territory:'worldwide'};
   const state = { user: { userId: 'artist-1', displayName: 'Account name' }, failInsert: false, env: {
     DB: { async batch(statements) { return Promise.all(statements.map(s=>s.execute())); }, prepare(sql) { return { bind(...values) { return { async run() { return {}; }, async execute() { return {results: sql.includes("INSERT INTO tracks") ? [await this.first()] : []}; }, async first() {
+      if (sql.includes('SELECT v.version')) return {version:'test-only-v1'};
       if (sql.includes('playback_permissions')) return grant;
       if (sql.includes('INSERT INTO tracks')) {
         if (state.failInsert) throw new Error('simulated catalog failure');
@@ -51,6 +54,9 @@ function upload(overrides = {}) {
   form.set('energyLane', overrides.energyLane ?? 'medium');
   form.set('subgenre', overrides.subgenre ?? '');
   form.set('moodTags', overrides.moodTags ?? '');
+  form.set('agreementAccepted', overrides.agreementAccepted ?? 'true');
+  form.set('agreementVersion', overrides.agreementVersion ?? 'test-only-v1');
+  form.set('rightsDeclaration', JSON.stringify(testRightsDeclaration));
   form.set('rightsAttested', overrides.rightsAttested ?? 'true');
   form.set('audio', new File([overrides.bytes ?? wav], overrides.filename ?? 'track.wav', { type: 'audio/wav' }));
   return new Request('https://musicbat.audio/api/musicbat', { method: 'POST', body: form });

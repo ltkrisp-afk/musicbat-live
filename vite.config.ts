@@ -55,7 +55,10 @@ export default defineConfig(async ({ command }) => {
   const localAcceptance = acceptance ? await import("./scripts/local-acceptance.mjs") : null;
 
   return {
+    // Dynamic Vinext navigation imports require their public ESM export names.
+    build: { rolldownOptions: { preserveEntrySignatures: "strict" as const } },
     server: {
+      ...(managedLinux ? {allowedHosts:["terminal.local"]}:{}),
       ...(acceptance ? { host: "127.0.0.1", strictPort: true } : {}),
       ...(managedLinux && !acceptance ? { host: "0.0.0.0", allowedHosts: ["terminal.local"] } : {}),
       ...(isCodexSeatbeltSandbox ? { watch: { useFsEvents: false, usePolling: true } } : {}),

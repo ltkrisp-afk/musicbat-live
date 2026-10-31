@@ -1,8 +1,12 @@
+import {matchesRadioCategory} from './radio-category';
+import {recordObservedDelivery,type ObservationMode} from './listening-observation';
+import {recordAudioDelivery} from './streaming-evidence';
+import {authorizeChannelUse} from './recording-use';
 import { currentRadioSource, readPrivateRadioObject, privateObjectKey } from './cloudflare-radio-source';
 import { authorizePlayback, type Permission } from './playback-authorization';
 /** The upload catalog remains authoritative for owner consent. A private runtime
  * import cannot bypass a later withdrawal or classification correction. */
-export function catalogBoundRadio(service: Pick<Fetcher,'fetch'> | undefined, db: D1Database, bucket?: R2Bucket): Pick<Fetcher,'fetch'> | undefined {
+export function catalogBoundRadio(service: Pick<Fetcher,'fetch'> | undefined, db: D1Database, bucket?: R2Bucket,evidenceMode:'test'|'live'|null=null,analyticsMode:ObservationMode='unconfigured'): Pick<Fetcher,'fetch'> | undefined {
   if (!service) return undefined;
   return { async fetch(input: RequestInfo | URL, init?: RequestInit) {
     const request = new Request(input,init), url = new URL(request.url);
@@ -14,19 +18,20 @@ export function catalogBoundRadio(service: Pick<Fetcher,'fetch'> | undefined, db
       const id = data.snapshot.performance?.trackId;
       if (!id) return !audio;
       if (audio && (url.searchParams.get('channel')!==data.snapshot.channelId || url.searchParams.get('sequence')!==data.snapshot.performance!.authorityId)) return false;
-      const row = await db.prepare('SELECT t.*, p.recording_basis,p.recording_evidence,p.composition_evidence,p.reviewed_by,p.reviewed_at,p.artist_authorized,p.free_allowed,p.plus_allowed,p.starts_at,p.expires_at,p.withdrawn_at,p.territory FROM tracks t LEFT JOIN playback_permissions p ON p.track_id=t.id WHERE t.id=?').bind(id).first<Permission & {status:string;radio_enabled:number;primary_genre:string;subgenre:string|null;style:string|null}>();
+      const row = await db.prepare('SELECT t.*, p.recording_basis,p.recording_evidence,p.composition_evidence,p.reviewed_by,p.reviewed_at,p.artist_authorized,p.free_allowed,p.plus_allowed,p.starts_at,p.expires_at,p.withdrawn_at,p.territory FROM tracks t LEFT JOIN playback_permissions p ON p.track_id=t.id WHERE t.id=?').bind(id).first<Permission & {status:string;radio_enabled:number;primary_genre:string;subgenre:string|null;style:string|null;creation_classification?:'Human'|'Human + AI'|'AI'|null}>();
       const category=data.snapshot.category;
-      const allowed=!!row && row.status==='active' && row.radio_enabled===1 && authorizePlayback(row,category?'radio-plus':'free-radio',Date.now(),request.headers.get('x-musicbat-territory') ?? 'unknown').allowed;
-      if (!allowed) {
+      const cleared=await authorizeChannelUse(db,Number(id),!!category,request.headers.get('x-musicbat-territory') ?? 'unknown');
+      const allowed=cleared.allowed && !!row && row.status==='active' && row.radio_enabled===1 && authorizePlayback(row,category?'radio-plus':'free-radio',Date.now(),request.headers.get('x-musicbat-territory') ?? 'unknown').allowed;
+      if (!allowed && (!row || row.status!=='active' || row.radio_enabled!==1 || row.withdrawn_at!==null)) {
         // Best effort removal from persistent scheduling; delivery still fails
         // closed here if this sidecar does not yet implement controls.
         await service!.fetch(new Request(new URL('/catalog/control',url),{method:'POST',headers:request.headers,body:JSON.stringify({trackId:id,action:'withdraw',reference:'catalog-authority-recheck'})})).catch(()=>undefined);
       }
       if (allowed && row) {
-        const synced=await service!.fetch(new Request(new URL('/catalog/control',url),{method:'POST',headers:request.headers,body:JSON.stringify({trackId:id,action:'classify',reference:'catalog-classification-recheck',category:{genre:row.primary_genre,...(row.subgenre?{subgenre:row.subgenre}:{}),...(row.style?{style:row.style}:{})}})}));
+        const synced=await service!.fetch(new Request(new URL('/catalog/control',url),{method:'POST',headers:request.headers,body:JSON.stringify({trackId:id,action:'classify',reference:'catalog-classification-recheck',creationClassification:row.creation_classification??null,category:{genre:row.primary_genre,...(row.subgenre?{subgenre:row.subgenre}:{}),...(row.style?{style:row.style}:{})}})}));
         if (!synced.ok || (await synced.json() as {changed?:boolean}).changed) return false;
       }
-      return allowed && (!category || (!!row && category.genre===row.primary_genre && (!category.subgenre || category.subgenre===row.subgenre) && (!category.style || category.style===row.style)));
+      return allowed && (!category || (!!row && matchesRadioCategory({category:{genre:row.primary_genre,subgenre:row.subgenre??undefined,style:row.style??undefined},creationClassification:row.creation_classification} as Parameters<typeof matchesRadioCategory>[0],category)));
     }
     if (audio && !await check(await service.fetch(snapshotRequest))) return new Response(null,{status:403});
     // R2 is the authoritative private audio store when bound. Never fall back
@@ -54,6 +59,19 @@ export function catalogBoundRadio(service: Pick<Fetcher,'fetch'> | undefined, db
         await response.body?.cancel();
         return new Response(null,{status:409,headers:{'cache-control':'no-store'}});
       }
+      if(request.method==='GET' && response.body){
+        const original=response.body.getReader();let bytes=0;
+        const metadata=evidenceMode?await db.prepare('SELECT technical_metadata FROM tracks WHERE id=?').bind(id).first<{technical_metadata:string}>():null;
+        const technical=metadata?JSON.parse(metadata.technical_metadata) as {durationMs?:number}:{};
+        const range=response.headers.get('content-range');const total=range?Number(range.split('/').at(-1)):Number(response.headers.get('content-length'));
+        const listener=request.headers.get('x-musicbat-listener');
+        const category=(await after.clone().json() as {snapshot:{category:unknown}}).snapshot.category;
+        const observedHeaders=new Headers(response.headers);observedHeaders.delete('content-length');
+        return new Response(new ReadableStream({async pull(controller){try{const part=await original.read();if(part.done){
+          if(listener){try{await recordObservedDelivery(db,{listenerId:listener,trackId:id,performanceId:snap.channelId+':'+snap.performance!.authorityId,mode:analyticsMode,start:range?Number(/^bytes (\d+)-/.exec(range)?.[1]??0):0,bytes,total});}catch{console.warn('MusicBat observation delivery evidence unavailable');}}
+          if(listener&&evidenceMode)await recordAudioDelivery(db,{listenerId:listener,mode:evidenceMode,trackId:id,performanceId:snap.channelId+':'+snap.performance!.authorityId,durationMs:technical.durationMs??0,territory:request.headers.get('x-musicbat-territory')??'unknown',memberChannel:!!category,bytes,totalBytes:total,sourceReference:key});
+          controller.close();return;}bytes+=part.value.byteLength;controller.enqueue(part.value);}catch(error){controller.error(error);}},cancel:reason=>original.cancel(reason)}),{status:response.status,headers:observedHeaders});
+      }
       return response;
     }
     const response=await service.fetch(request);
@@ -62,6 +80,6 @@ export function catalogBoundRadio(service: Pick<Fetcher,'fetch'> | undefined, db
       await response.body?.cancel();
       return Response.json({error:'This recording is no longer eligible for Radio.'},{status:409,headers:{'cache-control':'no-store'}});
     }
-    return response;
+    return Response.json({...await response.json() as Record<string,unknown>,streamingEvidenceEnabled:!!evidenceMode,analyticsEvidenceEnabled:true},{status:response.status,headers:response.headers});
   }};
 }

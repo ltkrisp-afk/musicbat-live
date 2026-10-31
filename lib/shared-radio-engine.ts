@@ -1,5 +1,5 @@
 import { evaluateRadioPlayback, type ComplianceContext, type PlaybackEvent, type StatutoryGate } from './radio-compliance';
-import { parseCategoryCommand, type Category, type CategoryTrack } from './radio-category';
+import { matchesRadioCategory, parseCategoryCommand, type Category, type CategoryTrack } from './radio-category';
 import type { PlaybackMode } from './playback-authorization';
 
 /** Storage adapter must provide one real SQLite connection and BEGIN IMMEDIATE semantics.
@@ -28,8 +28,7 @@ type EventRow = { sequence: number; track_json: string; started_at: number; ende
 export type ListenerAuthority = { id: string; plusUntil: number | null };
 export type ChannelOption = { category: Category | null; dormant: boolean; locked: boolean };
 const same = (a: Category | null, b: Category | null) => JSON.stringify(a) === JSON.stringify(b);
-const inCategory = (t: ScheduledTrack, c: Category | null) => !c || (t.category.genre === c.genre &&
-  (!c.subgenre || t.category.subgenre === c.subgenre) && (!c.style || t.category.style === c.style));
+const inCategory = matchesRadioCategory;
 
 /** Server-owned clock/catalog/configuration. Listener commands never carry clocks, tracks or modes.
  * Media is delivered separately after current authority/source validation. */

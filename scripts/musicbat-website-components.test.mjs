@@ -42,7 +42,7 @@ test('patron shell excludes artist navigation and direct artist-only tab content
  for(const initialTab of ['radio','rotunda','shock']){const rendered=renderToStaticMarkup(createElement(MusicBatLoop,{displayName:'Patron',initialTab}));assert.doesNotMatch(rendered,/Manage Songs|Save identity|Remove Song|Listening is exposure\. Choice is signal/);}
 });
 test('Manage Songs provides upload control linked to parent navigation',()=>{
- const rendered=renderToStaticMarkup(createElement(ArtistRotunda,{onChange:async()=>{},onUpload:()=>{}}));assert.match(rendered,/>Add Track<\/button>/);assert.doesNotMatch(rendered,/Use Add Music/);
+ const rendered=renderToStaticMarkup(createElement(ArtistRotunda,{onChange:async()=>{},onUpload:()=>{}}));assert.match(rendered,/>Upload recording<\/button>/);assert.doesNotMatch(rendered,/Use Add Music/);
 });
 test('Retrofutura locks ineligible Plus channels while preserving Free Radio and rotary browsing',()=>{
  const free={category:null,dormant:false,locked:false},plus={category:{genre:'Rock'},dormant:false,locked:true};

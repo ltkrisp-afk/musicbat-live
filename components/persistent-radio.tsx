@@ -43,8 +43,8 @@ export function RadioConsole() {
     void tune(next).catch(()=>{});
   }
   return <div className="mb-6 space-y-3">
-    <RetrofuturaRadio options={state.options} snapshot={state.snapshot} onTune={tune} playback={<><RadioPlaybackControls state={playback} />{error&&<p role="status" style={{color:'#17201c',fontSize:12}}>{error}</p>}</>} />
-    <div style={{display:'flex',alignItems:'center',flexWrap:'wrap',gap:16}}>
+    <RetrofuturaRadio outputSetting={{volume:playback.volume,muted:playback.muted}} options={state.options} snapshot={state.snapshot} onTune={tune} playback={<><RadioPlaybackControls state={playback} />{error&&<p role="status" style={{color:'#17201c',fontSize:12}}>{error}</p>}</>} />
+    <details className="mb-category-fallback"><summary>Category list</summary><div style={{display:'flex',alignItems:'center',flexWrap:'wrap',gap:16}}>
       <button type="button" disabled={busy} onClick={()=>void tune(null).catch(()=>{})}>Free Radio</button>
       {(['genre','subgenre','style'] as const).map(depth=>{
         if(depth==='subgenre'&&!category?.genre || depth==='style'&&!category?.subgenre)return null;
@@ -54,6 +54,6 @@ export function RadioConsole() {
           {choices.map(o=><option key={JSON.stringify(o.category)} value={o.category![depth]} disabled={o.locked||o.dormant}>{o.category![depth]}{o.locked?' · Radio Plus':o.dormant?' · Quiet':''}</option>)}
         </select></label>;
       })}
-    </div>
+    </div></details>
   </div>;
 }

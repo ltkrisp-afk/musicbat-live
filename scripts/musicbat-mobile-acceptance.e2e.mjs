@@ -11,7 +11,7 @@ const evidence = { scope: 'Chromium actual application with generated local fixt
 let browser;
 try {
   await mkdir('.sites-runtime', { recursive: true });
-  browser = await playwright.chromium.launch({ headless: true, args: ['--no-sandbox'] });
+  browser = await playwright.chromium.launch({ headless: true, executablePath:process.env.MUSICBAT_CHROMIUM_PATH??playwright.chromium.executablePath(), args: ['--no-sandbox'] });
   evidence.browser = browser.version();
   const context = await browser.newContext();
   const marker = await context.request.get(new URL('/__local', origin).href);

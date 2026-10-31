@@ -1,0 +1,8 @@
+{
+  "status": "proposal only; not referenced by runtime or seeded in database",
+  "fromVersion": "2026-10-29.3",
+  "proposedVersion": "proposed-2026-10-29.4",
+  "originalSha256": "4fc7e2df7ce5de07f31284c5d733e4aaaf102821cb2cdef52ce0ffb697454e73",
+  "proposedSha256": "08de27d47384cfd332bfb1088258f05e6f63fdacd5f732643a28ae219a8f27f9",
+  "changes": "version/status labels and two unsupported review assertions only; all substantive clauses and Schedules A-F retained"
+}

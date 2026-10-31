@@ -1,0 +1,18 @@
+{
+  "scope": "read-only export -> isolated memory; no production writes",
+  "sourceCounts": {
+    "artist_accounts": 0,
+    "hangers": 2,
+    "listens": 38,
+    "purchases": 0,
+    "radio_feedback": 5,
+    "stripe_events": 0,
+    "track_keeps": 5,
+    "tracks": 5
+  },
+  "sourceSnapshotSha256": "73ca17f2c014a64fd175f8db4d3be8da45853e882b195488e7676d3c0b90507b",
+  "upgrade": "PASS",
+  "compatibilityRollback": "PASS",
+  "actualAccountAndPurchaseRows": 0,
+  "additionalCoverage": "representative nonproduction account and historical entitlement fixtures"
+}

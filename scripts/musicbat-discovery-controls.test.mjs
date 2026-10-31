@@ -1,0 +1,20 @@
+import './register-components.mjs';
+import assert from 'node:assert/strict';
+import {test} from 'node:test';
+import React from 'react';
+import {renderToStaticMarkup} from 'react-dom/server';
+import {create,act} from 'react-test-renderer';
+const {RetrofuturaRadio}=await import('../components/retrofutura-radio.tsx');
+const {AnalogMeter}=await import('../components/analog-meter.tsx');
+const options=[{category:null,locked:false,dormant:false},{category:{genre:'Jazz'},locked:false,dormant:false},{category:{genre:'Rock'},locked:false,dormant:false}];
+async function fixture(run,choices=options,onTune=async()=>{}){const old=globalThis.IS_REACT_ACT_ENVIRONMENT,oldWindow=globalThis.window,oldFetch=globalThis.fetch;globalThis.window=new EventTarget();globalThis.fetch=async()=>Response.json({available:false,active:false,paidUntil:0,cancelAtPeriodEnd:false,status:'unavailable'});globalThis.IS_REACT_ACT_ENVIRONMENT=true;let tree;try{await act(async()=>{tree=create(React.createElement(RetrofuturaRadio,{options:choices,snapshot:null,onTune,outputSetting:{volume:.35,muted:false}}));});await run(tree);}finally{if(tree)await act(async()=>tree.unmount());globalThis.IS_REACT_ACT_ENVIRONMENT=old;globalThis.window=oldWindow;globalThis.fetch=oldFetch;}}
+test('rotary movement immediately invokes the existing category tune behavior',async()=>{const calls=[];await fixture(async tree=>{await act(async()=>tree.root.findByProps({'aria-label':'Turn dial forward'}).props.onClick());assert.deepEqual(calls,[{genre:'Rock'}]);await act(async()=>tree.root.findByProps({'aria-label':'Push dial to tune category'}).props.onKeyDown({key:'ArrowLeft',preventDefault(){}}));assert.deepEqual(calls,[{genre:'Rock'},{genre:'Jazz'}]);},options,async c=>{calls.push(c);});});
+test('locked or dormant rotary choices never invoke playback authority',async()=>{for(const state of [{locked:true},{dormant:true}]){const calls=[];await fixture(async tree=>{await act(async()=>tree.root.findByProps({'aria-label':'Turn dial forward'}).props.onClick());assert.equal(calls.length,0);},[options[0],options[1],{...options[2],...state}],async c=>{calls.push(c);});}});
+test('category selection is immediate and rejects duplicate commands while authority is pending',async()=>{const calls=[];let release;const waiting=new Promise(r=>{release=r;});await fixture(async tree=>{const scale=tree.root.findByProps({'aria-label':'Available discovery categories'});const rock=scale.findAllByType('button').find(b=>b.props.children==='Rock');await act(async()=>{rock.props.onClick();rock.props.onClick();});assert.deepEqual(calls,[{genre:'Rock'}]);await act(async()=>{release();await waiting;});},options,async c=>{calls.push(c);await waiting;});});
+test('instruments indicate real control position and never station position or fabricated bass/treble measurements',async()=>{await fixture(async tree=>{const meter=tree.root.findByProps({'aria-label':'OUTPUT SETTING: 35 percent'});assert.ok(meter);assert.equal(tree.root.findAllByProps({className:'mb-tone-knob'}).length,0);const text=JSON.stringify(tree.toJSON());assert.ok(!text.includes('STATION:'));assert.ok(!text.includes('POSITION:'));assert.ok(!text.includes('108'));assert.match(text,/Volume control position/);});});
+test('meter tick markup survives server/browser trigonometric rounding differences without hydration drift',()=>{
+ const render=()=>renderToStaticMarkup(React.createElement(AnalogMeter,{label:'OUTPUT SETTING',value:.4}));
+ const server=render(),cos=Math.cos,sin=Math.sin;
+ try{Math.cos=a=>cos(a)+Number.EPSILON;Math.sin=a=>sin(a)-Number.EPSILON;assert.equal(render(),server);}
+ finally{Math.cos=cos;Math.sin=sin;}
+});

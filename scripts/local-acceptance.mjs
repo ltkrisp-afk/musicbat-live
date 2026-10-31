@@ -6,6 +6,7 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import ts from 'typescript';
+import {testRightsDeclaration} from './license-fixture.mjs';
 import { fixture, upload, post } from './website-fixture.mjs';
 import { plusFixture } from './radio-plus-fixture.mjs';
 import { handlePlus } from '../lib/radio-plus.ts';
@@ -69,11 +70,11 @@ export async function createAcceptance({payoutsReady=true}={}) {
     return Response.json(entry.session);
   }
   const routes = new Map();
-  for(const [url,path] of [['/api/musicbat','app/api/musicbat/route.ts'],['/api/musicbat/purchase','app/api/musicbat/purchase/route.ts'],['download','app/api/musicbat/purchase/[purchaseId]/download/route.ts'],['/api/musicbat/channel','app/api/musicbat/channel/route.ts'],['/api/musicbat/channel/audio','app/api/musicbat/channel/audio/route.ts'],['/api/musicbat/stripe/connect','app/api/musicbat/stripe/connect/route.ts'],['/api/musicbat/statutory-radio','app/api/musicbat/statutory-radio/route.ts'],['legacyAudio','app/api/musicbat/audio/[assetId]/route.ts'],['webhook','app/api/musicbat/stripe/webhook/route.ts']]) routes.set(url,await load(path));
+  for(const [url,path] of [['/api/musicbat','app/api/musicbat/route.ts'],['/api/musicbat/account','app/api/musicbat/account/route.ts'],['/api/musicbat/rights','app/api/musicbat/rights/route.ts'],['/api/musicbat/listening-observation','app/api/musicbat/listening-observation/route.ts'],['/api/musicbat/agreement','app/api/musicbat/agreement/route.ts'],['/api/musicbat/listening-evidence','app/api/musicbat/listening-evidence/route.ts'],['/api/musicbat/purchase','app/api/musicbat/purchase/route.ts'],['download','app/api/musicbat/purchase/[purchaseId]/download/route.ts'],['/api/musicbat/channel','app/api/musicbat/channel/route.ts'],['/api/musicbat/channel/audio','app/api/musicbat/channel/audio/route.ts'],['/api/musicbat/stripe/connect','app/api/musicbat/stripe/connect/route.ts'],['/api/musicbat/statutory-radio','app/api/musicbat/statutory-radio/route.ts'],['legacyAudio','app/api/musicbat/audio/[assetId]/route.ts'],['webhook','app/api/musicbat/stripe/webhook/route.ts']]) routes.set(url,await load(path));
   const now=Date.now(),expiry=now+86400000;
   f.state.user={userId:'local_musician'};
   for (const [index,genre] of ['Rock','Rock','Jazz'].entries()) {
-    const response=await upload(f.route,{title:'Generated acceptance '+(index+1),artistName:'Local test musician',primaryGenre:genre,subgenre:genre==='Rock'?'Punk':'',style:genre==='Rock'?'Hardcore':''});
+    const response=await upload(f.route,{rightsDeclaration:JSON.stringify({...testRightsDeclaration,creationClassification:['Human','Human + AI','AI'][index]}),title:'Generated acceptance '+(index+1),artistName:'Local test musician',primaryGenre:genre,subgenre:genre==='Rock'?'Punk':'',style:genre==='Rock'?'Hardcore':''});
     if(response.status!==201) throw new Error('Fixture upload failed: '+await response.text());
     const row=f.sqlite.prepare('SELECT * FROM tracks ORDER BY id DESC LIMIT 1').get();
     await f.route.POST(post({action:'set_sale_settings',trackId:row.id,saleEnabled:true,saleRightsAttested:true,salePriceCents:200}));
@@ -83,7 +84,8 @@ export async function createAcceptance({payoutsReady=true}={}) {
     publishCatalogRecording(runtime,row,permission,{artistIds:['generated-musician'],albumId:'generated-album',compilationIds:[],durationMs:30000,directRestrictions:null,metadataReviewed:true},{path,sha256:createHash('sha256').update(object.bytes).digest('hex'),size:object.bytes.length,mediaType:'audio/wav',lawfulCopyReference:'Generated fixture only',reviewedBy:'local acceptance',reviewedAt:now-1,durationEvidence:'PCM sample count',contractReference:'Generated fixture unrestricted',restrictionsReviewed:true});
   }
   if(payoutsReady)f.sqlite.prepare("INSERT INTO artist_accounts(artist_id,stripe_account_id,charges_enabled,payouts_enabled,details_submitted) VALUES ('local_musician','acct_test_local',1,1,1)").run();
-  for(const [id,category] of [['free',null],['rock',{genre:'Rock'}],['punk',{genre:'Rock',subgenre:'Punk'}],['hardcore',{genre:'Rock',subgenre:'Punk',style:'Hardcore'}],['jazz',{genre:'Jazz'}]]) runtime.establishChannel(id,{category,mode:category?'radio-plus':'free-radio',territory:'worldwide',minimumArtists:1,review:{reference:'Generated fixture channel only',verifiedAt:now-1,expiresAt:expiry},gate:null});
+  for(const [id,category] of [['free',null],['rock',{genre:'Rock'}],['punk',{genre:'Rock',subgenre:'Punk'}],['hardcore',{genre:'Rock',subgenre:'Punk',style:'Hardcore'}],['jazz',{genre:'Jazz'}],['ai',{genre:'AI'}]]) runtime.establishChannel(id,{category,mode:category?'radio-plus':'free-radio',territory:'worldwide',minimumArtists:1,review:{reference:'Generated fixture channel only',verifiedAt:now-1,expiresAt:expiry},gate:null});
+  if(process.env.MUSICBAT_ACCOUNT_PREVIEW==='1'){const {seedAccountPreview}=await import('./account-preview-evidence.mjs');await seedAccountPreview(f);}
   // Membership now starts as Free; only verified fixture invoices unlock Plus.
   runtime.start();
   async function handle(request) {
@@ -92,7 +94,8 @@ export async function createAcceptance({payoutsReady=true}={}) {
     return context.run({user,session:cookie},async()=>{
       if(request.headers.get('origin') && request.headers.get('origin')!==url.origin) return new Response(null,{status:403});
       if(request.headers.get('sec-fetch-site')==='cross-site')return new Response(null,{status:403});
-      if(path==='/signin-with-chatgpt' || path==='/__local')return new Response('<h1>MusicBat offline acceptance</h1><p>Generated test audio. No real payments. Storage resets on restart.</p><form method="post" action="/__local/login"><button name="role" value="musician">Musician</button> <button name="role" value="patron">Patron</button></form>',{headers:{'content-type':'text/html','cache-control':'no-store'}});
+      if(path==='/__local/account-mobile')return new Response('<!doctype html><html><body style="margin:0;background:#111310;color:#d9ceb5;font-family:Arial"><p style="text-align:center">MusicBat · generated offline account fixture · 390px mobile viewport</p><iframe title="Mobile MusicBat account" src="' +(url.searchParams.get('screen')==='radio'?'/?view=radio':'/account')+'" width="390" height="900" style="display:block;margin:auto;border:1px solid #6d715d"></iframe></body></html>',{headers:{'content-type':'text/html; charset=utf-8','cache-control':'no-store'}});
+      if(path==='/signin-with-chatgpt' || path==='/__local')return new Response('<h1>MusicBat offline acceptance</h1><p>Generated test audio. No real payments. Storage resets on restart.</p><form method="post" action="/__local/login"><button name="role" value="musician">Musician</button> <button name="role" value="patron">Patron</button></form>',{headers:{'content-type':'text/html; charset=utf-8','cache-control':'no-store'}});
       if(path==='/__local/login' && request.method==='POST') {
         const role=(await request.formData()).get('role');if(!['musician','patron'].includes(role))return new Response(null,{status:400});
         const value=randomBytes(24).toString('hex');sessions.set(value,{userId:'local_'+role,email:role+'@musicbat.test',displayName:'Local '+role,fullName:'Local '+role});
@@ -109,7 +112,7 @@ export async function createAcceptance({payoutsReady=true}={}) {
           if(action==='complete')Object.assign(accounts.get(entry.account),{charges_enabled:true,payouts_enabled:true,details_submitted:true});
           return new Response(null,{status:303,headers:{location:action==='complete'?entry.returnUrl:entry.refreshUrl}});
         }
-        return new Response('<h1>Offline Stripe Connect simulation</h1><p>No bank details or money are collected. This is not Stripe onboarding.</p><form method="post"><button name="action" value="complete">Simulate completed payout setup</button><button name="action" value="refresh">Simulate expired onboarding link</button></form>',{headers:{'content-type':'text/html','cache-control':'no-store'}});
+        return new Response('<h1>Offline Stripe Connect simulation</h1><p>No bank details or money are collected. This is not Stripe onboarding.</p><form method="post"><button name="action" value="complete">Simulate completed payout setup</button><button name="action" value="refresh">Simulate expired onboarding link</button></form>',{headers:{'content-type':'text/html; charset=utf-8','cache-control':'no-store'}});
       }
       if(path==='/__local/history') {
         if(!user)return new Response(null,{status:401});
@@ -118,7 +121,7 @@ export async function createAcceptance({payoutsReady=true}={}) {
           const response=await routes.get('/api/musicbat/purchase').GET(new Request(url.origin+'/api/musicbat/purchase?id='+id,{headers:{cookie:'musicbat_buyer='+buyer}}));
           if(response.ok){const data=await response.json();items.push(`<li>${data.purchase.id}: ${data.purchase.status}${data.downloadUrl?` <a href="${data.downloadUrl}">Download</a>`:''}</li>`);}
         }
-        return new Response('<h1>Offline purchase history</h1><ul>'+items.join('')+'</ul><a href="/">Back to MusicBat</a>',{headers:{'content-type':'text/html','cache-control':'no-store'}});
+        return new Response('<h1>Offline purchase history</h1><ul>'+items.join('')+'</ul><a href="/">Back to MusicBat</a>',{headers:{'content-type':'text/html; charset=utf-8','cache-control':'no-store'}});
       }
       if(path.startsWith('/__local/checkout/')) {
         const entry=checkouts.get(path.split('/').at(-1));if(!entry || !user || entry.owner!==cookie)return new Response(null,{status:404});
@@ -132,7 +135,7 @@ export async function createAcceptance({payoutsReady=true}={}) {
           if(!settled.ok)return settled;
           return new Response(null,{status:303,headers:{location:entry.success.replace('{CHECKOUT_SESSION_ID}',entry.session.id)}});
         }
-        return new Response(`<h1>Offline purchase simulation</h1><p>No card information or money is collected.</p><p>Fixture total: $${(entry.session.amount_total/100).toFixed(2)}. Artist gets $1.70 of the $2 song; platform gets $0.30. Processing uses test-only 290 bps + 30 cents.</p><form method="post"><button name="action" value="pay">Simulate successful payment</button> <button name="action" value="cancel">Cancel</button></form>`,{headers:{'content-type':'text/html','cache-control':'no-store'}});
+        return new Response(`<h1>Offline purchase simulation</h1><p>No card information or money is collected.</p><p>Fixture total: $${(entry.session.amount_total/100).toFixed(2)}. Artist gets $1.70 of the $2 song; platform gets $0.30. Processing uses test-only 290 bps + 30 cents.</p><form method="post"><button name="action" value="pay">Simulate successful payment</button> <button name="action" value="cancel">Cancel</button></form>`,{headers:{'content-type':'text/html; charset=utf-8','cache-control':'no-store'}});
       }
       if(path==='/api/musicbat/subscription')return handlePlus(f.state.env,request,user?.userId??null);
       if(path==='/api/musicbat/subscription/webhook')return new Response(null,{status:503});
@@ -145,7 +148,7 @@ export async function createAcceptance({payoutsReady=true}={}) {
           if(action!=='pay')return new Response(null,{status:400});
           return new Response(null,{status:303,headers:{location:await plus.pay(id)}});
         }
-        return new Response('<h1>Radio Plus offline subscription simulation</h1><p>$3/month recurring membership. No real money is collected. Cancellation stops renewal; access lasts through the paid period.</p><form method="post"><button name="action" value="pay">Simulate successful subscription payment</button> <button name="action" value="cancel">Cancel checkout</button></form>',{headers:{'content-type':'text/html','cache-control':'no-store'}});
+        return new Response('<h1>Radio Plus offline subscription simulation</h1><p>$5/month recurring membership. No real money is collected. Cancellation stops renewal; access lasts through the paid period.</p><form method="post"><button name="action" value="pay">Simulate successful subscription payment</button> <button name="action" value="cancel">Cancel checkout</button></form>',{headers:{'content-type':'text/html; charset=utf-8','cache-control':'no-store'}});
       }
       if(path==='/__local/plus-control') {
         if(!user)return new Response(null,{status:401});
@@ -154,7 +157,7 @@ export async function createAcceptance({payoutsReady=true}={}) {
           catch(error){return new Response(String(error),{status:400});}
           return new Response(null,{status:303,headers:{location:'/__local/plus-control'}});
         }
-        return new Response('<h1>Test-only subscription lifecycle</h1><p>These buttons simulate processor events only in this isolated preview.</p><form method="post"><button name="action" value="renew">Simulate renewal</button> <button name="action" value="fail">Simulate failed renewal</button> <button name="action" value="expire">Simulate subscription ending</button></form><a href="/">Back to Radio</a>',{headers:{'content-type':'text/html','cache-control':'no-store'}});
+        return new Response('<h1>Test-only subscription lifecycle</h1><p>These buttons simulate processor events only in this isolated preview.</p><form method="post"><button name="action" value="renew">Simulate renewal</button> <button name="action" value="fail">Simulate failed renewal</button> <button name="action" value="expire">Simulate subscription ending</button></form><a href="/">Back to Radio</a>',{headers:{'content-type':'text/html; charset=utf-8','cache-control':'no-store'}});
       }
       if(path==='/api/musicbat/stripe/webhook')return new Response(null,{status:503});
       const route=routes.get(path) ?? (path.startsWith('/api/musicbat/audio/')?routes.get('legacyAudio'):null) ?? (/^\/api\/musicbat\/purchase\/[^/]+\/download$/.test(path)?routes.get('download'):null);
@@ -187,6 +190,26 @@ export async function createAcceptance({payoutsReady=true}={}) {
   return {handle,identity(cookie){return sessions.get(cookie);},sqlite:f.sqlite,runtime,async close(){if(closed)return;closed=true;runtime.close();f.sqlite.close();delete globalThis[key];await rm(dir,{recursive:true,force:true});}};
 }
 
+// Only the development adapter translates the managed proxy to its loopback
+// fixture origin. Production payment-origin checks remain unchanged.
+export function managedFixtureRequest(request) {
+  const url=new URL(request.url);
+  if(process.env.MUSICBAT_MANAGED_ACCEPTANCE!=='1'||url.hostname!=='terminal.local')return request;
+  const origin=request.headers.get('origin');
+  if(origin&&origin!==url.origin)throw new Error('Foreign fixture origin');
+  const headers=new Headers(request.headers);url.hostname='localhost';
+  if(origin)headers.set('origin',url.origin);
+  return new Request(url, {method:request.method,headers,...(!['GET','HEAD'].includes(request.method)?{body:request.body,duplex:'half'}:{})});
+}
+export function managedFixtureResponse(response,origin) {
+  if(process.env.MUSICBAT_MANAGED_ACCEPTANCE!=='1'||new URL(origin).hostname!=='terminal.local')return response;
+  const location=response.headers.get('location');if(!location)return response;
+  const target=new URL(location,origin);
+  if(target.hostname!=='localhost')return response;
+  const headers=new Headers(response.headers);headers.set('location',new URL(target.pathname+target.search+target.hash,origin).href);
+  return new Response(response.body,{status:response.status,headers});
+}
+
 export async function acceptancePlugin() {
   const app=await createAcceptance();
   return {name:'musicbat-offline-acceptance',enforce:'pre',api:{close:()=>app.close()},
@@ -201,11 +224,13 @@ export async function acceptancePlugin() {
     server.middlewares.use(async(req,res,next)=>{
       // Bind only to loopback. Browser headers cannot choose an identity.
       const host=(req.headers.host??'').split(':')[0];
-      if(!['localhost','127.0.0.1'].includes(host) || !['127.0.0.1','::1','::ffff:127.0.0.1'].includes(req.socket.remoteAddress)) {res.writeHead(403);res.end();return;}
+      if(!(process.env.MUSICBAT_MANAGED_ACCEPTANCE==='1'&&host==='terminal.local') && (!['localhost','127.0.0.1'].includes(host) || !['127.0.0.1','::1','::ffff:127.0.0.1'].includes(req.socket.remoteAddress))) {res.writeHead(403);res.end();return;}
       for(const name of Object.keys(req.headers))if(name.startsWith('oai-authenticated-user-'))delete req.headers[name];
       req.rawHeaders=Object.entries(req.headers).flatMap(([k,v])=>[k,String(v)]);
       try {
-        const response=await app.handle(await readHttpRequest(req,'http://'+req.headers.host,25*1024*1024+65536));
+        const incoming=await readHttpRequest(req,'http://'+req.headers.host,25*1024*1024+65536);
+        const handled=await app.handle(managedFixtureRequest(incoming));
+        const response=handled?managedFixtureResponse(handled,new URL(incoming.url).origin):handled;
         if(response){
           if(req.method==='POST' && req.url?.split('?')[0]==='/api/musicbat' && response.ok){
             for(const entry of server.moduleGraph.idToModuleMap.values())if(entry.id?.includes('/app/[artistSlug]/page.tsx'))server.moduleGraph.invalidateModule(entry);

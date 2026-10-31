@@ -17,10 +17,10 @@ test('actual subscription webhook handler rejects invalid delivery and atomicall
  try{
   const {POST}=await import('../app/api/musicbat/subscription/webhook/route.ts');
   const origin='http://localhost:5173';
-  const checkout=await handlePlus(env,new Request(origin+'/api/musicbat/subscription',{method:'POST',headers:{origin,'content-type':'application/json'},body:JSON.stringify({action:'join',recurringConsent:true,confirmedPriceCents:300})}),'patron');
+  const checkout=await handlePlus(env,new Request(origin+'/api/musicbat/subscription',{method:'POST',headers:{origin,'content-type':'application/json'},body:JSON.stringify({action:'join',recurringConsent:true,confirmedPriceCents:500})}),'patron');
   assert.equal(checkout.status,200);await processor.pay((await checkout.json()).checkoutUrl.split('/').at(-1));
   const sub=[...processor.subscriptions.values()][0];
-  f.sqlite.exec("UPDATE radio_plus_enrollments SET paid_until=0,status='pending'; DELETE FROM radio_plus_events; DELETE FROM radio_plus_invoices");
+  f.sqlite.exec("UPDATE radio_plus_enrollments SET paid_until=0,status='pending'; DELETE FROM radio_plus_events; DELETE FROM membership_reconciliation_jobs; DELETE FROM radio_plus_invoices");
   const raw=JSON.stringify({id:'evt_route_invoice',type:'invoice.paid',livemode:false,data:{object:{id:sub.latest_invoice,livemode:false}}});
   const stamp=Math.floor(Date.now()/1000);
   const send=(body=raw,secret=env.STRIPE_RADIO_PLUS_WEBHOOK_SECRET,time=stamp)=>POST(new Request(origin+'/api/musicbat/subscription/webhook',{method:'POST',headers:{'stripe-signature':`t=${time},v1=${createHmac('sha256',secret).update(time+'.'+body).digest('hex')}`},body}));
@@ -33,7 +33,7 @@ test('actual subscription webhook handler rejects invalid delivery and atomicall
   assert.equal((await send(raw,'whsec_wrong')).status,400);
   assert.equal((await send(raw,env.STRIPE_RADIO_PLUS_WEBHOOK_SECRET,stamp-600)).status,400);
   assert.equal((await send(raw.replace('"livemode":false','"livemode":true'))).status,400);
-  const inv=processor.invoices.get(sub.latest_invoice);inv.amount_paid=299;assert.equal((await send()).status,400);inv.amount_paid=300;
+  const inv=processor.invoices.get(sub.latest_invoice);inv.amount_paid=299;assert.equal((await send()).status,400);inv.amount_paid=500;
   assert.equal(await plusAccess(env.DB,'patron'),0);assert.equal(f.sqlite.prepare('SELECT count(*) n FROM radio_plus_events').get().n,0);
   const results=await Promise.all([send(),send()]);assert.deepEqual(results.map(r=>r.status),[200,200]);
   assert.ok(await plusAccess(env.DB,'patron')>Date.now());

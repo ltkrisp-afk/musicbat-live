@@ -1,7 +1,8 @@
 import { sql } from "drizzle-orm";
-import { index, integer, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
+import { index, integer, real, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
 
 export const tracks = sqliteTable("tracks", {
+  creationClassification: text("creation_classification", { enum: ["Human", "Human + AI", "AI"] }),
   id: integer("id").primaryKey({ autoIncrement: true }),
   artistId: text("artist_id").notNull(),
   artistName: text("artist_name").notNull(),
@@ -195,3 +196,276 @@ export const purchaseOwnershipAudit = sqliteTable("purchase_ownership_audit", {
   processorSessionId: text("processor_session_id").notNull(),
   claimedAt: text("claimed_at").notNull().default(sql`CURRENT_TIMESTAMP`),
 });
+
+// Immutable text/version and append-only acceptance enforcement live in migration 0016.
+export const directLicenseVersions = sqliteTable("direct_license_versions", {
+  version: text("version").primaryKey().notNull(),
+  body: text("body").notNull(),
+  acceptanceText: text("acceptance_text").notNull(),
+  approvedBy: text("approved_by").notNull(),
+  approvedAt: integer("approved_at").notNull(),
+});
+export const directLicenseCurrent = sqliteTable("direct_license_current", {
+  id: integer("id").primaryKey(),
+  version: text("version").notNull().references(() => directLicenseVersions.version),
+});
+export const artistLicenseAcceptances = sqliteTable("artist_license_acceptances", {
+  id: text("id").primaryKey().notNull(),
+  trackId: integer("track_id").notNull().references(() => tracks.id),
+  accountId: text("account_id").notNull(),
+  agreementVersion: text("agreement_version").notNull().references(() => directLicenseVersions.version),
+  accepted: integer("accepted").notNull(),
+  acceptedAt: integer("accepted_at").notNull(),
+}, table => [index("idx_artist_license_acceptances_account").on(table.accountId, table.acceptedAt)]);
+
+export const artistRightsDeclarations = sqliteTable("artist_rights_declarations", {
+  acceptanceId: text("acceptance_id").primaryKey().notNull().references(() => artistLicenseAcceptances.id),
+  trackId: integer("track_id").notNull().unique().references(() => tracks.id),
+  declarationVersion: text("declaration_version").notNull(),
+  declarationJson: text("declaration_json").notNull(),
+  reviewRequired: integer("review_required").notNull(),
+});
+export const artistRightsReviews = sqliteTable("artist_rights_reviews", {
+  id: integer("id").primaryKey({autoIncrement:true}),
+  acceptanceId: text("acceptance_id").notNull().references(() => artistRightsDeclarations.acceptanceId),
+  decision: text("decision").notNull(),
+  reviewedBy: text("reviewed_by").notNull(),
+  reviewedAt: integer("reviewed_at").notNull(),
+  evidenceReference: text("evidence_reference").notNull(),
+});
+
+// Final licensing tables; migration 0018 also defines append-only triggers,
+// independent eligibility views and validation constraints. Preserve that SQL.
+export const agreementIntegrity = sqliteTable("agreement_integrity", {
+  version: text("version").primaryKey(),
+  sha256: text("sha256").notNull(),
+  releaseApproved: integer("release_approved").notNull(),
+  approvalReference: text("approval_reference").notNull(),
+});
+export const agreementReviewReceipts = sqliteTable("agreement_review_receipts", {id:text("id").primaryKey(),accountId:text("account_id").notNull(),agreementVersion:text("agreement_version").notNull(),sha256:text("sha256").notNull(),reviewedAt:integer("reviewed_at").notNull()});
+export const artistAcceptanceEvidence = sqliteTable("artist_acceptance_evidence", {
+  reviewReceiptId: text("review_receipt_id").notNull(),
+  acceptanceId: text("acceptance_id").primaryKey(),
+  sha256: text("sha256").notNull(),
+  reviewedAt: integer("reviewed_at").notNull(),
+  electronicConsent: integer("electronic_consent").notNull(),
+  retainableCopyConfirmed: integer("retainable_copy_confirmed").notNull(),
+  legalName: text("legal_name").notNull(),
+  capacity: text("capacity").notNull(),
+  schedulesJson: text("schedules_json").notNull(),
+});
+export const recordingIngestionEvents = sqliteTable("recording_ingestion_events", {
+  id: integer("id").primaryKey({autoIncrement:true}),
+  trackId: integer("track_id").notNull(),
+  state: text("state").notNull(),
+  uploadedAt: integer("uploaded_at").notNull(),
+  verificationExpiresAt: integer("verification_expires_at").notNull(),
+  reviewedAt: integer("reviewed_at").notNull(),
+  reviewer: text("reviewer").notNull(),
+  evidenceReference: text("evidence_reference").notNull(),
+});
+export const recordingUseReviews = sqliteTable("recording_use_reviews", {
+  id: integer("id").primaryKey({autoIncrement:true}),
+  trackId: integer("track_id").notNull(),
+  use: text("use").notNull(),
+  decision: text("decision").notNull(),
+  masterVerified: integer("master_verified").notNull(),
+  compositionVerified: integer("composition_verified").notNull(),
+  authorityReference: text("authority_reference").notNull(),
+  compensationReference: text("compensation_reference").notNull(),
+  recipientReference: text("recipient_reference").notNull(),
+  territory: text("territory").notNull(),
+  startsAt: integer("starts_at").notNull(),
+  expiresAt: integer("expires_at").notNull(),
+  licenseRequired: integer("license_required").notNull(),
+  platformCostCents: integer("platform_cost_cents"),
+  payer: text("payer"),
+  fundingSource: text("funding_source"),
+  ceilingBps: integer("ceiling_bps"),
+  ceilingReference: text("ceiling_reference"),
+  counselRequired: integer("counsel_required").notNull(),
+  counselReference: text("counsel_reference"),
+  reviewedBy: text("reviewed_by").notNull(),
+  reviewedAt: integer("reviewed_at").notNull(),
+});
+export const platformLicenseExpenses = sqliteTable("platform_license_expenses", {
+  id: text("id").primaryKey(),
+  trackId: integer("track_id").notNull(),
+  useReviewId: integer("use_review_id").notNull(),
+  amountCents: integer("amount_cents").notNull(),
+  currency: text("currency").notNull(),
+  payer: text("payer").notNull(),
+  payeeReference: text("payee_reference").notNull(),
+  fundingSource: text("funding_source").notNull(),
+  processorReference: text("processor_reference").notNull(),
+  recordedAt: integer("recorded_at").notNull(),
+});
+export const membershipRevenueEvents = sqliteTable("membership_revenue_events", {
+  sourceId: text("source_id").primaryKey(),
+  sourceReference: text("source_reference").notNull(),
+  month: text("month").notNull(),
+  kind: text("kind").notNull(),
+  amountCents: integer("amount_cents").notNull(),
+  principalReference: text("principal_reference"),
+  livemode: integer("livemode").notNull(),
+  settled: integer("settled").notNull(),
+  verifiedBy: text("verified_by").notNull(),
+  verifiedAt: integer("verified_at").notNull(),
+});
+export const streamingEligiblePlays = sqliteTable("streaming_eligible_plays", {
+  id: text("id").primaryKey(),
+  month: text("month").notNull(),
+  trackId: integer("track_id").notNull(),
+  listenerId: text("listener_id").notNull(),
+  performanceId: text("performance_id").notNull(),
+  startedAt: integer("started_at").notNull(),
+  endedAt: integer("ended_at").notNull(),
+  durationMs: integer("duration_ms").notNull(),
+  deliveredMs: integer("delivered_ms").notNull(),
+  memberVerified: integer("member_verified").notNull(),
+  rightsReviewId: integer("rights_review_id").notNull(),
+  beneficiaryReference: text("beneficiary_reference").notNull(),
+  deliveryReference: text("delivery_reference").notNull(),
+  verifiedBy: text("verified_by").notNull(),
+});
+export const membershipPoolStatements = sqliteTable("membership_pool_statements", {
+  month: text("month").primaryKey(),
+  sourceDigest: text("source_digest").notNull(),
+  statementJson: text("statement_json").notNull(),
+  closedBy: text("closed_by").notNull(),
+  closedAt: integer("closed_at").notNull(),
+  previousMonth: text("previous_month"),
+});
+export const legalRecordHolds = sqliteTable("legal_record_holds", {
+  id: text("id").primaryKey(),
+  trackId: integer("track_id"),
+  category: text("category").notNull(),
+  reason: text("reason").notNull(),
+  createdAt: integer("created_at").notNull(),
+  releasedByEvent: text("released_by_event"),
+});
+export const recordingDeliveryRestrictions = sqliteTable("recording_delivery_restrictions", {
+  id: integer("id").primaryKey({autoIncrement:true}),
+  trackId: integer("track_id").notNull(),
+  restricted: integer("restricted").notNull(),
+  reason: text("reason").notNull(),
+  authorityReference: text("authority_reference").notNull(),
+  reviewedBy: text("reviewed_by").notNull(),
+  reviewedAt: integer("reviewed_at").notNull(),
+});
+export const streamingBeneficiaryInstructions = sqliteTable("streaming_beneficiary_instructions", {
+  id: text("id").primaryKey(),
+  trackId: integer("track_id").notNull(),
+  designatedRecipient: text("designated_recipient").notNull(),
+  collectionAuthorityReference: text("collection_authority_reference").notNull(),
+  payoutVerifiedReference: text("payout_verified_reference").notNull(),
+  signedModelReference: text("signed_model_reference").notNull(),
+  beneficiariesJson: text("beneficiaries_json").notNull(),
+  reviewedBy: text("reviewed_by").notNull(),
+  reviewedAt: integer("reviewed_at").notNull(),
+});
+
+// Additive membership integration tables; SQL 0019 owns validation/triggers.
+export const radioPlusEnrollmentModes = sqliteTable("radio_plus_enrollment_modes", {
+  enrollmentId: text("enrollment_id").primaryKey(),
+  mode: text("mode").notNull(),
+});
+export const membershipSettlementSources = sqliteTable("membership_settlement_sources", {
+  id: text("id").primaryKey(),
+  invoiceId: text("invoice_id").notNull(),
+  mode: text("mode").notNull(),
+  providerAccount: text("provider_account").notNull(),
+  providerBalanceReference: text("provider_balance_reference").notNull(),
+  settledAt: integer("settled_at").notNull(),
+  grossCents: integer("gross_cents").notNull(),
+  taxCents: integer("tax_cents").notNull(),
+  feeCents: integer("fee_cents").notNull(),
+  currency: text("currency").notNull(),
+  evidenceJson: text("evidence_json").notNull(),
+  verifiedAt: integer("verified_at").notNull(),
+});
+export const membershipTestRevenueEvents = sqliteTable("membership_test_revenue_events", {
+  sourceId: text("source_id").primaryKey(),
+  sourceReference: text("source_reference").notNull(),
+  month: text("month").notNull(),
+  kind: text("kind").notNull(),
+  amountCents: integer("amount_cents").notNull(),
+  principalReference: text("principal_reference"),
+  livemode: integer("livemode").notNull(),
+  settled: integer("settled").notNull(),
+  verifiedBy: text("verified_by").notNull(),
+  verifiedAt: integer("verified_at").notNull(),
+});
+export const streamingDeliveryEvidence = sqliteTable("streaming_delivery_evidence", {
+  id: text("id").primaryKey(),
+  listenerId: text("listener_id").notNull(),
+  trackId: integer("track_id").notNull(),
+  performanceId: text("performance_id").notNull(),
+  mode: text("mode").notNull(),
+  deliveredMs: integer("delivered_ms").notNull(),
+  deliveredAt: integer("delivered_at").notNull(),
+  sourceReference: text("source_reference").notNull(),
+});
+export const streamingListeningSessions = sqliteTable("streaming_listening_sessions", {
+  id: text("id").primaryKey(),
+  listenerId: text("listener_id").notNull(),
+  trackId: integer("track_id").notNull(),
+  performanceId: text("performance_id").notNull(),
+  mode: text("mode").notNull(),
+  startedAt: integer("started_at").notNull(),
+  lastAt: integer("last_at").notNull(),
+  observedMs: integer("observed_ms").notNull(),
+  durationMs: integer("duration_ms").notNull(),
+  rightsReviewId: integer("rights_review_id").notNull(),
+  beneficiaryReference: text("beneficiary_reference").notNull(),
+});
+export const streamingTestEligiblePlays = sqliteTable("streaming_test_eligible_plays", {
+  id: text("id").primaryKey(),
+  month: text("month").notNull(),
+  trackId: integer("track_id").notNull(),
+  listenerId: text("listener_id").notNull(),
+  performanceId: text("performance_id").notNull(),
+  startedAt: integer("started_at").notNull(),
+  endedAt: integer("ended_at").notNull(),
+  durationMs: integer("duration_ms").notNull(),
+  deliveredMs: integer("delivered_ms").notNull(),
+  memberVerified: integer("member_verified").notNull(),
+  rightsReviewId: integer("rights_review_id").notNull(),
+  beneficiaryReference: text("beneficiary_reference").notNull(),
+  deliveryReference: text("delivery_reference").notNull(),
+  verifiedBy: text("verified_by").notNull(),
+});
+export const membershipTestPoolStatements = sqliteTable("membership_test_pool_statements", {
+  month: text("month").primaryKey(),
+  sourceDigest: text("source_digest").notNull(),
+  statementJson: text("statement_json").notNull(),
+  closedBy: text("closed_by").notNull(),
+  closedAt: integer("closed_at").notNull(),
+  previousMonth: text("previous_month"),
+});
+export const membershipReconciliationJobs = sqliteTable("membership_reconciliation_jobs", {
+  invoiceId: text("invoice_id").primaryKey(),
+  mode: text("mode").notNull(),
+  state: text("state").notNull(),
+  attempts: integer("attempts").notNull(),
+  leaseToken: text("lease_token"),
+  leaseUntil: integer("lease_until"),
+  nextAttempt: integer("next_attempt").notNull(),
+  lastError: text("last_error"),
+});
+
+// Personal account data; independent of purchase allocation and streaming pool ledgers.
+export const accountPreferences=sqliteTable('account_preferences',{accountId:text('account_id').primaryKey(),volume:real('volume').notNull().default(1),muted:integer('muted').notNull().default(0),followingOnly:integer('following_only').notNull().default(0),updatedAt:integer('updated_at').notNull()});
+export const savedRecordings=sqliteTable('saved_recordings',{accountId:text('account_id').notNull(),trackId:integer('track_id').notNull(),savedAt:integer('saved_at').notNull()},t=>[uniqueIndex('idx_saved_account_track').on(t.accountId,t.trackId)]);
+export const listeningDelivery=sqliteTable('listening_delivery',{id:text('id').primaryKey(),listenerId:text('listener_id').notNull(),trackId:integer('track_id').notNull(),performanceId:text('performance_id').notNull(),mode:text('mode').notNull(),byteStart:integer('byte_start').notNull(),byteEnd:integer('byte_end').notNull(),totalBytes:integer('total_bytes').notNull(),deliveredAt:integer('delivered_at').notNull()});
+export const listeningObservations=sqliteTable('listening_observations',{listenId:text('listen_id').primaryKey(),listenerId:text('listener_id').notNull(),trackId:integer('track_id').notNull(),performanceId:text('performance_id').notNull(),mode:text('mode').notNull(),durationMs:integer('duration_ms').notNull(),performanceStart:integer('performance_start').notNull(),performanceEnd:integer('performance_end').notNull(),firstOffsetMs:integer('first_offset_ms').notNull(),lastPositionMs:integer('last_position_ms').notNull(),maxPositionMs:integer('max_position_ms').notNull(),observedMs:integer('observed_ms').notNull().default(0),lastAt:integer('last_at').notNull(),state:text('state').notNull(),exitReason:text('exit_reason'),verifiedCompletionAt:integer('verified_completion_at'),createdAt:integer('created_at').notNull(),updatedAt:integer('updated_at').notNull()});
+export const listeningObservationEvents=sqliteTable('listening_observation_events',{id:text('id').primaryKey(),listenId:text('listen_id').notNull(),event:text('event').notNull(),reason:text('reason'),observedAt:integer('observed_at').notNull(),positionMs:integer('position_ms').notNull(),acceptedMs:integer('accepted_ms').notNull()});
+
+export const rightsCaseEvents = sqliteTable("rights_case_events", {
+ id: integer("id").primaryKey({autoIncrement:true}), caseId: text("case_id").notNull(),
+ trackId: integer("track_id").notNull().references(()=>tracks.id), use: text("use").notNull(),
+ state: text("state").notNull(), actorId: text("actor_id").notNull(), reason: text("reason").notNull(),
+ authorityReference: text("authority_reference").notNull(), createdAt: integer("created_at").notNull(),
+});
+
+export const agreementClearancePolicy=sqliteTable("agreement_clearance_policy",{version:text("version").primaryKey(),model:text("model").notNull()});

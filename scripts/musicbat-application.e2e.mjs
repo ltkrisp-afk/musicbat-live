@@ -55,7 +55,7 @@ try {
     }
   });
   await check('application loads authorized Free Radio and decodes audible PCM', async () => {
-    await page.goto(origin.href, { waitUntil: 'domcontentloaded', timeout: 40000 });
+    await page.goto(new URL('/?view=radio', origin).href, { waitUntil: 'domcontentloaded', timeout: 40000 });
     await page.waitForFunction(() => !!document.querySelector('audio')?.getAttribute('src'));
     await page.evaluate(() => {
       const audio = document.querySelector('audio');
