@@ -66,3 +66,7 @@ preservation. Reuse existing consent and review workflows; expose understandable
 status and corrective actions without unnecessary interruptions or blanket account
 restrictions. Report legacy boundaries, manual responsibilities and unverified
 limits explicitly; do not change functioning systems merely to restate this rule.
+
+## Engineering continuity and acceptance gates
+
+Before each engineering assignment, read [Engineering Continuity and Acceptance](docs/governance/ENGINEERING_CONTINUITY_AND_ACCEPTANCE.md). Verify required account/environment access independently; preserve prior checkpoints; record actual evidence. Classify work as IMPLEMENTED, VALIDATED, DEPLOYED, ACCEPTED or BLOCKED according to the observed stage. Passing tests alone do not establish hosted acceptance. Do not assume the owner's phone/dashboard session is the cloud agent's authenticated environment. Record a specific blocker rather than silently substituting a local fixture or stale hosted build.
